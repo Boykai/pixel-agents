@@ -37,6 +37,9 @@ export interface CliArgs {
    *  can run at once without a collision. --port picks a fixed one. */
   port?: number;
   host: string;
+  /** Hook provider id to track (default: 'claude'). Falls back to 'claude' on
+   *  an unknown id -- see hookProviderById in providers/index.ts. */
+  provider: string;
 }
 
 /** Thrown by parseArgs on an invalid --port. Kept separate from process.exit so
@@ -45,7 +48,7 @@ export interface CliArgs {
 export class CliArgsError extends Error {}
 
 export function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { host: '127.0.0.1' };
+  const args: CliArgs = { host: '127.0.0.1', provider: claudeProvider.id };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--port' || argv[i] === '-p') {
       const raw = argv[i + 1];
@@ -65,12 +68,16 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (argv[i] === '--host' && argv[i + 1]) {
       args.host = argv[i + 1];
       i++;
+    } else if (argv[i] === '--provider' && argv[i + 1]) {
+      args.provider = argv[i + 1];
+      i++;
     } else if (argv[i] === '--help') {
       console.log(`Usage: pixel-agents [options]
 
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)
   --host <string>       Host to bind to (default: 127.0.0.1)
+  --provider <id>       Agent CLI to track: "claude" or "copilot" (default: claude)
   --help                Show this help message`);
       process.exit(0);
     }
@@ -117,6 +124,17 @@ async function main(): Promise<void> {
   const packageRoot = path.dirname(distRoot);
   const staticDir = path.join(distRoot, 'webview');
 
+  // Resolve the active provider. Falls back to Claude (with a warning) on an
+  // unrecognized --provider id rather than crashing a headless run.
+  const selectedProvider = hookProviderById(args.provider) ?? claudeProvider;
+  if (selectedProvider.id !== args.provider) {
+    console.warn(
+      `[Pixel Agents] Unknown --provider "${args.provider}", falling back to "${claudeProvider.id}".`,
+    );
+  }
+  const isClaudeSelected = selectedProvider.id === claudeProvider.id;
+  console.log(`[Pixel Agents] Tracking provider: ${selectedProvider.displayName}`);
+
   // ── Load assets on startup (same pipeline as VS Code extension) ──
   // External asset directories are merged at startup too, so directories added
   // in a previous session survive a restart. buildAssetCache is the shared
@@ -143,7 +161,7 @@ async function main(): Promise<void> {
 
   try {
     // Create runtime first (before server.start, so we can pass it in)
-    const runtime = new AgentRuntime(store, claudeProvider);
+    const runtime = new AgentRuntime(store, selectedProvider);
 
     // Wire hook events: HTTP POST -> runtime -> hookEventHandler -> agents
     server.onHookEvent((providerId, event) => {
@@ -241,16 +259,17 @@ async function main(): Promise<void> {
     currentConfig = { port: config.port, token: config.token };
 
     // Sync runtime refs with persisted settings BEFORE first scan tick. The
-    // runtime's single hooksEnabled ref follows the Claude provider until the
-    // scanners grow per-provider awareness alongside the Settings UI.
-    runtime.hooksEnabled.current = getHooksEnabled(claudeProvider.id);
+    // runtime's single hooksEnabled ref follows the selected provider.
+    runtime.hooksEnabled.current = getHooksEnabled(selectedProvider.id);
     runtime.watchAllSessions.current = adapter.getSetting('pixel-agents.watchAllSessions', false);
 
     // Install hooks on startup if the persisted setting says so — gated on the
-    // one-time consent to modify ~/.claude/settings.json.
+    // one-time consent to modify the provider's own settings file (a no-op for
+    // providers with no hooks API, e.g. Copilot: areHooksInstalled() already
+    // resolves true, so consent is silently granted and installHooks() no-ops).
     if (runtime.hooksEnabled.current) {
-      let consent = getHooksConsent(claudeProvider.id) === 'granted';
-      if (!consent && (await claudeProvider.areHooksInstalled())) {
+      let consent = getHooksConsent(selectedProvider.id) === 'granted';
+      if (!consent && (await selectedProvider.areHooksInstalled())) {
         // Our hooks are already installed and already firing — a pre-consent
         // version put them there. Grant and continue with NO prompt: the
         // install below is the 14 -> 12 migration, and it only ever REDUCES
@@ -259,16 +278,18 @@ async function main(): Promise<void> {
         // this user no protection they do not already have, so they are not
         // asked. A fresh install still is, in full — in the browser UI, when a
         // tokened client connects (clientMessageHandler's webviewReady).
-        grantHooksConsent(claudeProvider.id);
+        grantHooksConsent(selectedProvider.id);
         consent = true;
       }
       if (!consent) {
         console.log(
           '[Pixel Agents] Hooks not installed: modifying ~/.claude/settings.json needs one-time approval — open the URL below to review and approve it.',
         );
-      } else if (copyHookScriptOrReport(packageRoot)) {
+      } else if (!isClaudeSelected || copyHookScriptOrReport(packageRoot)) {
+        // The bundled hook script only exists for Claude; other providers'
+        // installHooks() is a no-op (e.g. Copilot has no hooks API at all).
         try {
-          await claudeProvider.installHooks(`http://127.0.0.1:${config.port}`, config.token);
+          await selectedProvider.installHooks(`http://127.0.0.1:${config.port}`, config.token);
           console.log('[Pixel Agents] Hooks installed');
         } catch (err) {
           console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
@@ -282,9 +303,16 @@ async function main(): Promise<void> {
       );
     }
 
-    // Start scanning for external sessions (Claude running in user's terminal)
+    // Start scanning for external sessions in the current workspace (the CLI
+    // running in the user's own terminal). For providers whose sessions live in
+    // one shared per-workspace folder (Claude) this covers everything; for
+    // providers with one independent folder per session and no workspace
+    // grouping (Copilot: ~/.copilot/session-state/<uuid>/) this only picks up
+    // whichever session already existed at startup (dirs[0]) — brand-new
+    // Copilot sessions started after this launches are still found, just via
+    // the periodic global scan (enable "Watch All Sessions" in Settings).
     const cwd = process.cwd();
-    const dirs = claudeProvider.getSessionDirs?.(cwd);
+    const dirs = selectedProvider.getSessionDirs?.(cwd);
     if (dirs && dirs[0]) {
       const projectDir = dirs[0];
       console.log(`[Pixel Agents] Scanning project dir: ${projectDir}`);

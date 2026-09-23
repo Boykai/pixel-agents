@@ -135,6 +135,14 @@ export function processTranscriptLine(
     // -- Context window usage (drives every agent's context gauge) --
     updateContextUsage(agentId, agent, agents, record, hookProvider);
 
+    // Copilot's dotted record.type namespace never overlaps with Claude's bare
+    // one, so it's handled as a clean parallel branch rather than folded into
+    // the Claude-specific chain below.
+    if (hookProvider?.id === 'copilot') {
+      processCopilotRecord(agentId, record, agent, agents, waitingTimers, permissionTimers);
+      return;
+    }
+
     // Resilient content extraction: support both record.message.content and record.content
     // Claude Code may change the JSONL structure across versions
     const assistantContent = record.message?.content ?? record.content;
@@ -532,6 +540,136 @@ export function processTranscriptLine(
     }
   } catch {
     // Ignore malformed lines
+  }
+}
+
+/**
+ * Parse one line from a Copilot CLI events.jsonl transcript.
+ *
+ * Copilot's dotted record.type namespace (tool.execution_start, assistant.turn_end,
+ * ...) never overlaps with Claude's bare one (assistant, user, system, ...), so this
+ * is a clean parallel branch rather than a fork of the Claude logic above. Compared
+ * to Claude, Copilot is simpler in one respect: assistant.turn_end is emitted
+ * unconditionally at the end of EVERY turn (tool-using or text-only), so there's no
+ * need for Claude's text-idle timer fallback.
+ */
+function processCopilotRecord(
+  agentId: number,
+  record: Record<string, unknown>,
+  agent: AgentState,
+  agents: AgentStateStore,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+): void {
+  const data = (record.data ?? {}) as Record<string, unknown>;
+
+  switch (record.type) {
+    case 'tool.execution_start': {
+      const toolId = typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+      const toolName = typeof data.toolName === 'string' ? data.toolName : '';
+      if (!toolId) break;
+
+      cancelWaitingTimer(agentId, waitingTimers);
+      agent.isWaiting = false;
+      agent.hadToolsInTurn = true;
+      agents.broadcast({ type: 'agentStatus', id: agentId, status: 'active' });
+
+      const status = formatToolStatus(toolName, (data.arguments as Record<string, unknown>) || {});
+      agent.activeToolIds.add(toolId);
+      agent.activeToolStatuses.set(toolId, status);
+      agent.activeToolNames.set(toolId, toolName);
+      agents.broadcast({
+        type: 'agentToolStart',
+        id: agentId,
+        toolId,
+        status,
+        toolName,
+        permissionActive: agent.permissionSent,
+      });
+
+      if (!exemptTools().has(toolName)) {
+        startPermissionTimer(agentId, agents, permissionTimers, exemptTools());
+      }
+      break;
+    }
+
+    case 'tool.execution_complete':
+    case 'tool.execution_failed': {
+      const toolId = typeof data.toolCallId === 'string' ? data.toolCallId : undefined;
+      if (!toolId || !agent.activeToolIds.has(toolId)) break;
+
+      const toolName = agent.activeToolNames.get(toolId);
+      if (isSubagentTool(toolName)) {
+        agent.activeSubagentToolIds.delete(toolId);
+        agent.activeSubagentToolNames.delete(toolId);
+        agents.broadcast({ type: 'subagentClear', id: agentId, parentToolId: toolId });
+      }
+      agent.activeToolIds.delete(toolId);
+      agent.activeToolStatuses.delete(toolId);
+      agent.activeToolNames.delete(toolId);
+      setTimeout(() => {
+        agents.broadcast({ type: 'agentToolDone', id: agentId, toolId });
+      }, TOOL_DONE_DELAY_MS);
+      if (agent.activeToolIds.size === 0) {
+        agent.hadToolsInTurn = false;
+      }
+      break;
+    }
+
+    case 'assistant.turn_end': {
+      cancelWaitingTimer(agentId, waitingTimers);
+      cancelPermissionTimer(agentId, permissionTimers);
+      if (agent.activeToolIds.size > 0) {
+        agent.activeToolIds.clear();
+        agent.activeToolStatuses.clear();
+        agent.activeToolNames.clear();
+        agent.activeSubagentToolIds.clear();
+        agent.activeSubagentToolNames.clear();
+        agents.broadcast({ type: 'agentToolsClear', id: agentId });
+      }
+      agent.isWaiting = true;
+      agent.permissionSent = false;
+      agent.hadToolsInTurn = false;
+      agents.broadcast({
+        type: 'agentStatus',
+        id: agentId,
+        status: 'waiting',
+        awaitingInput: false,
+      });
+      break;
+    }
+
+    // Known, intentionally-ignored record types: internal telemetry / signals
+    // that don't map to any office-visible activity.
+    case 'hook.start':
+    case 'hook.end':
+    case 'user.message':
+    case 'assistant.message':
+    case 'assistant.turn_start':
+    case 'session.start':
+    case 'session.warning':
+    case 'session.permissions_changed':
+    case 'session.auto_mode_resolved':
+    case 'system.message':
+    case 'system.notification':
+    case 'external_tool.requested':
+    case 'external_tool.completed':
+    case 'session.compaction_start':
+    case 'session.compaction_complete':
+      break;
+
+    default: {
+      const type = typeof record.type === 'string' ? record.type : undefined;
+      if (type && !agent.seenUnknownRecordTypes.has(type)) {
+        agent.seenUnknownRecordTypes.add(type);
+        if (debug) {
+          console.log(
+            `[Pixel Agents] events.jsonl: Agent ${agentId} - unrecognized record type '${type}'. ` +
+              `Keys: ${Object.keys(record).join(', ')}`,
+          );
+        }
+      }
+    }
   }
 }
 
