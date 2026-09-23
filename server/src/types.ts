@@ -22,6 +22,10 @@ export interface AgentState {
   hadToolsInTurn: boolean;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Human-readable session title/task description (e.g. GHCP's own session
+   *  name), distinct from the workspace folder. Providers without this
+   *  concept leave it unset. */
+  sessionName?: string;
   /** Timestamp of last JSONL data received (ms since epoch) */
   lastDataAt: number;
   /** Total JSONL lines processed for this agent */
@@ -98,6 +102,9 @@ export interface PersistedAgent {
   projectDir: string;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Human-readable session title/task description, distinct from the
+   *  workspace folder. See AgentState.sessionName. */
+  sessionName?: string;
 
   // -- Agent Teams --
   teamName?: string;

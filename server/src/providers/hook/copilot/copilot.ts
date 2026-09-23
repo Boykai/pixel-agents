@@ -96,17 +96,45 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
 
 // ── Session dir + launch command ──
 
+function readWorkspaceYamlContent(workspaceYamlPath: string): string | undefined {
+  try {
+    return fs.readFileSync(workspaceYamlPath, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 /** Read the `cwd:` line out of a session's workspace.yaml. Hand-rolled instead
  *  of a YAML parser: the file is a flat `key: value` list (the CLI's own
  *  writer, not user-authored YAML) and cwd is the only field we need. */
 function readWorkspaceCwd(workspaceYamlPath: string): string | undefined {
-  try {
-    const content = fs.readFileSync(workspaceYamlPath, 'utf8');
-    const match = content.match(/^cwd:\s*(.+)$/m);
-    return match?.[1]?.trim();
-  } catch {
-    return undefined;
+  const content = readWorkspaceYamlContent(workspaceYamlPath);
+  const match = content?.match(/^cwd:\s*(.+)$/m);
+  return match?.[1]?.trim();
+}
+
+/** Read a scalar field out of workspace.yaml content, handling the three
+ *  forms the CLI's own writer produces: a plain inline value (`field: foo`),
+ *  a quoted inline value (`field: 'foo: bar'`, quoted because the value
+ *  contains YAML-special characters), and a block scalar (`field: |-`
+ *  followed by indented lines) used for long auto-generated text like task
+ *  descriptions. Block scalars are collapsed to their first non-blank line --
+ *  good enough for a short UI label, and the full multi-paragraph text would
+ *  just get truncated anyway. */
+function readWorkspaceYamlField(content: string, field: string): string | undefined {
+  const headerMatch = content.match(new RegExp(`^${field}:[ \\t]*(.*)$`, 'm'));
+  if (!headerMatch) return undefined;
+  const inline = headerMatch[1].trim();
+  // A bare block-scalar indicator (|, |-, >, >-, optionally with a digit
+  // indentation hint) means the real value is on the following lines, not here.
+  if (inline && !/^[|>][+-]?\d*$/.test(inline)) {
+    const quoted = inline.match(/^(['"])(.*)\1$/);
+    return quoted ? quoted[2] : inline;
   }
+  const headerIndex = content.indexOf(headerMatch[0]);
+  const rest = content.slice(headerIndex + headerMatch[0].length);
+  const lineMatch = rest.match(/^\r?\n[ \t]+(\S.*)$/m);
+  return lineMatch?.[1]?.trim();
 }
 
 /** Copilot has no per-workspace project folder (unlike Claude's hashed
@@ -146,12 +174,35 @@ function getAllSessionRoots(): string[] {
  *  replaced with `-`, so decoding the dir name alone yields a readable
  *  folder name), a Copilot session dir is an opaque UUID that encodes
  *  nothing -- decoding it just displays the UUID. The actual workspace lives
- *  in that same session's workspace.yaml, so read it back out and label the
- *  session with its cwd's own basename instead, matching what Claude agents
- *  show. */
+ *  in that same session's workspace.yaml, so read it back out.
+ *
+ *  Prefers `repository` ("owner/repo") when present -- this is the Project
+ *  GHCP's own UI shows, and it's the more useful label when Watch All
+ *  Sessions mixes many different repos into one office. `repository` is
+ *  absent for sessions whose cwd isn't inside a tracked GitHub repo, so those
+ *  fall back to the cwd's own basename, matching what Claude agents show. */
 function resolveSessionFolderName(dirPath: string): string | undefined {
-  const cwd = readWorkspaceCwd(path.join(dirPath, 'workspace.yaml'));
+  const workspaceYamlPath = path.join(dirPath, 'workspace.yaml');
+  const content = readWorkspaceYamlContent(workspaceYamlPath);
+  const repository = content ? readWorkspaceYamlField(content, 'repository') : undefined;
+  if (repository) return repository;
+  const cwd = readWorkspaceCwd(workspaceYamlPath);
   return cwd ? path.basename(cwd) : undefined;
+}
+
+/** GHCP names every session with either a user-given title or an
+ *  auto-generated task-description summary (`workspace.yaml`'s `name` field)
+ *  -- a second, more meaningful label than the folder/project name alone,
+ *  and the one shown in GHCP's own session picker. Claude has no equivalent
+ *  concept (a Claude session IS its project directory), so this is
+ *  Copilot-only. */
+function resolveSessionName(dirPath: string): string | undefined {
+  const content = readWorkspaceYamlContent(path.join(dirPath, 'workspace.yaml'));
+  const name = content ? readWorkspaceYamlField(content, 'name') : undefined;
+  if (!name) return undefined;
+  return name.length > TASK_DESCRIPTION_DISPLAY_MAX_LENGTH
+    ? name.slice(0, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) + '\u2026'
+    : name;
 }
 
 function buildLaunchCommand(
@@ -219,6 +270,7 @@ export const copilotProvider: HookProvider = {
   getSessionDirs,
   getAllSessionRoots,
   resolveSessionFolderName,
+  resolveSessionName,
   sessionFilePattern: '*.jsonl',
   buildLaunchCommand,
 };

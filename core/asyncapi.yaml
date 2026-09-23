@@ -182,6 +182,12 @@ components:
           type: integer
         folderName:
           type: string
+        sessionName:
+          type: string
+          description: |
+            Human-readable session title/task description (e.g. GitHub Copilot CLI's
+            session name), distinct from the workspace folder. Providers without this
+            concept leave it unset.
         isExternal:
           type: boolean
         palette:
@@ -235,6 +241,11 @@ components:
         folderNames:
           type: object
           description: Map of agent ID (string) to workspace folder name.
+          additionalProperties:
+            type: string
+        sessionNames:
+          type: object
+          description: Map of agent ID (string) to human-readable session title.
           additionalProperties:
             type: string
         externalAgents:

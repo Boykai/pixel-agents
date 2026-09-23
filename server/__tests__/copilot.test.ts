@@ -185,4 +185,62 @@ describe('copilotProvider', () => {
       expect(copilotProvider.getSessionDirs?.('/my/workspace')).toEqual([]);
     });
   });
+
+  describe('resolveSessionFolderName / resolveSessionName', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-agents-copilot-yaml-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function writeWorkspaceYaml(content: string): void {
+      fs.writeFileSync(path.join(tmpDir, 'workspace.yaml'), content);
+    }
+
+    it('resolveSessionFolderName prefers repository ("owner/repo") over the cwd basename', () => {
+      writeWorkspaceYaml('cwd: /home/user/onie\nrepository: Boykai/onie\nbranch: main\n');
+      expect(copilotProvider.resolveSessionFolderName?.(tmpDir)).toBe('Boykai/onie');
+    });
+
+    it('resolveSessionFolderName falls back to the cwd basename when repository is absent', () => {
+      writeWorkspaceYaml('cwd: /home/user/some-project\nclient_name: github/autopilot\n');
+      expect(copilotProvider.resolveSessionFolderName?.(tmpDir)).toBe('some-project');
+    });
+
+    it('resolveSessionFolderName returns undefined when workspace.yaml is missing', () => {
+      expect(copilotProvider.resolveSessionFolderName?.(tmpDir)).toBeUndefined();
+    });
+
+    it('resolveSessionName reads a plain inline name', () => {
+      writeWorkspaceYaml('cwd: /home/user/onie\nname: Unraid docker network\nuser_named: true\n');
+      expect(copilotProvider.resolveSessionName?.(tmpDir)).toBe('Unraid docker network');
+    });
+
+    it('resolveSessionName reads a single-quoted inline name', () => {
+      writeWorkspaceYaml("cwd: /home/user/onie\nname: 'Fix: the thing that broke'\n");
+      expect(copilotProvider.resolveSessionName?.(tmpDir)).toBe('Fix: the thing that broke');
+    });
+
+    it('resolveSessionName reads a block-scalar name (collapsed to its first line)', () => {
+      writeWorkspaceYaml(
+        'cwd: /home/user/onie\n' +
+          'name: |-\n' +
+          '  Do deep research to create a planning prompt for setting up Comicarr\n' +
+          '  on the Unraid server, including networking considerations.\n' +
+          'user_named: false\n',
+      );
+      expect(copilotProvider.resolveSessionName?.(tmpDir)).toBe(
+        'Do deep research to create a planning prompt for setting up \u2026',
+      );
+    });
+
+    it('resolveSessionName returns undefined when name is absent', () => {
+      writeWorkspaceYaml('cwd: /home/user/onie\n');
+      expect(copilotProvider.resolveSessionName?.(tmpDir)).toBeUndefined();
+    });
+  });
 });

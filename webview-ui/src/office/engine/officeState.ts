@@ -430,6 +430,7 @@ export class OfficeState {
     skipSpawnEffect?: boolean,
     folderName?: string,
     nearAgentId?: number,
+    sessionName?: string,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -487,6 +488,9 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName;
+    }
+    if (sessionName) {
+      ch.sessionName = sessionName;
     }
     if (!skipSpawnEffect) {
       startMatrixEffect(ch, 'spawn');

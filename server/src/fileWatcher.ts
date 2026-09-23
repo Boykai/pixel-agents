@@ -1088,6 +1088,7 @@ export function adoptExternalSessionFromHook(
       folderNameResolver?.({ cwd, projectDir }) ??
       hookProvider?.resolveSessionFolderName?.(projectDir) ??
       folderNameFromProjectDir(path.basename(projectDir));
+    const sessionName = hookProvider?.resolveSessionName?.(projectDir);
 
     adoptExternalSession(
       transcriptPath,
@@ -1100,6 +1101,7 @@ export function adoptExternalSessionFromHook(
       permissionTimers,
       persistAgents,
       folderName,
+      sessionName,
     );
 
     const adoptedAgent = [...agents.values()].find((a) => pathsMatch(a.jsonlFile, transcriptPath));
@@ -1168,6 +1170,7 @@ function adoptExternalSession(
 
   persistAgents: () => void,
   folderName?: string,
+  sessionName?: string,
 ): void {
   const id = nextAgentIdRef.current++;
   // Decide whether to replay the existing file content or skip to its end.
@@ -1222,6 +1225,7 @@ function adoptExternalSession(
     linesProcessed: 0,
     seenUnknownRecordTypes: new Set(),
     folderName,
+    sessionName,
     contextTokens: 0,
     maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
   };
@@ -1538,6 +1542,7 @@ function scanGlobalProjectDirs(
         folderNameResolver?.({ projectDir: dirPath }) ??
         hookProvider?.resolveSessionFolderName?.(dirPath) ??
         folderNameFromProjectDir(path.basename(dirPath));
+      const sessionName = hookProvider?.resolveSessionName?.(dirPath);
       knownJsonlFiles.add(file);
       console.log(
         `[Pixel Agents] Watcher: detected global session ${path.basename(file)} (${folderName})`,
@@ -1553,6 +1558,7 @@ function scanGlobalProjectDirs(
         permissionTimers,
         persistAgents,
         folderName,
+        sessionName,
       );
     }
   }

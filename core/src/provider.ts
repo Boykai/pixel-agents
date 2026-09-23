@@ -135,6 +135,13 @@ export interface HookProvider {
    *  reading the session's own cwd. Undefined = fall back to decoding the
    *  directory's basename (folderNameFromProjectDir). */
   resolveSessionFolderName?(dirPath: string): string | undefined;
+  /** Resolve a per-workspace session directory to a human-readable session
+   *  title, shown as a second label distinct from the folder/project name.
+   *  Providers whose CLI has no concept of a named session (Claude: each
+   *  session IS the project, no separate title) leave this unset. Copilot
+   *  implements this by reading the session's own task description / user-
+   *  given name. Undefined = no session-title label is shown. */
+  resolveSessionName?(dirPath: string): string | undefined;
   /** Glob pattern for session files (e.g., '*.jsonl'). */
   readonly sessionFilePattern?: string;
   /** Parse one line of a transcript file into an AgentEvent. */

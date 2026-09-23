@@ -502,6 +502,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 6. Existing agents (either just restored, or from VS Code adapter if present)
   const agentIds: number[] = [];
   const folderNames: Record<number, string> = {};
+  const sessionNames: Record<number, string> = {};
   const externalAgents: Record<number, boolean> = {};
   const persistedSeats = adapter?.loadSeats() ?? {};
   const agentMeta: Record<number, { palette?: number; hueShift?: number; seatId?: string }> = {};
@@ -509,6 +510,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentIds.push(id);
     if (agent.folderName) {
       folderNames[id] = agent.folderName;
+    }
+    if (agent.sessionName) {
+      sessionNames[id] = agent.sessionName;
     }
     if (agent.isExternal) {
       externalAgents[id] = true;
@@ -525,6 +529,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agents: agentIds,
     agentMeta,
     folderNames,
+    sessionNames,
     externalAgents,
   });
 
