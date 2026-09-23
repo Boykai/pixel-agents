@@ -45,6 +45,7 @@ import {
   setBackgroundAgentCompletedCallback,
   setBackgroundAgentDetectedCallback,
   setHookProvider,
+  setSessionEndCallback,
   setTeamSwitchCallback,
 } from './transcriptParser.js';
 import type { AgentState } from './types.js';
@@ -263,26 +264,43 @@ export class AgentRuntime {
         this.removeTeammate(teammateAgentId, 'hooks');
       },
       onSessionEnd: (agentId) => {
-        const agent = this.store.get(agentId);
-        if (!agent) return;
-        this.dismissalTracker.clearSeededMtime(agent.jsonlFile);
-        this.dismissalTracker.dismiss(agent.jsonlFile);
-        // Covers real team leads AND leads of background teammates (which
-        // have children but no teamName). No-op when childless.
-        this.removeTeammates(agentId);
-        // Unnamed background spawns die with their lead's session too.
-        this.subagentWatch.removeByLead(agentId);
-        if (agent.isExternal) {
-          this.unregisterAgent(agent.sessionId);
-          this.removeAgent(agentId);
-        }
+        this.handleSessionEndCleanup(agentId);
       },
+    });
+
+    // File-fallback providers (Copilot) have no SessionEnd hook to route through
+    // HookEventHandler -- they observe their own end-of-session signal directly
+    // in the transcript and report it here. Same cleanup as the hooks path above.
+    setSessionEndCallback((agentId, reason) => {
+      console.log(`[Pixel Agents] Transcript: Agent ${agentId} - SessionEnd(reason=${reason})`);
+      this.handleSessionEndCleanup(agentId);
     });
   }
 
   /** Register adapter-specific lifecycle callbacks. */
   setLifecycleCallbacks(callbacks: RuntimeLifecycleCallbacks): void {
     this.lifecycleCallbacks = callbacks;
+  }
+
+  /** Shared SessionEnd cleanup, common to both the hooks path (Claude's
+   *  SessionEnd hook, reason=exit/logout) and the file-fallback path (Copilot's
+   *  own end-of-session transcript record -- see setSessionEndCallback above).
+   *  Despawns the agent instead of leaving a permanently-finished session
+   *  sitting in the office looking identical to a live, merely-quiet one. */
+  private handleSessionEndCleanup(agentId: number): void {
+    const agent = this.store.get(agentId);
+    if (!agent) return;
+    this.dismissalTracker.clearSeededMtime(agent.jsonlFile);
+    this.dismissalTracker.dismiss(agent.jsonlFile);
+    // Covers real team leads AND leads of background teammates (which
+    // have children but no teamName). No-op when childless.
+    this.removeTeammates(agentId);
+    // Unnamed background spawns die with their lead's session too.
+    this.subagentWatch.removeByLead(agentId);
+    if (agent.isExternal) {
+      this.unregisterAgent(agent.sessionId);
+      this.removeAgent(agentId);
+    }
   }
 
   // ── Hook event routing ──

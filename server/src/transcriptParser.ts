@@ -84,6 +84,19 @@ export function setTeamSwitchCallback(
   teamSwitchCallback = cb;
 }
 
+/** Called when a file-fallback provider (Copilot) observes its own definitive
+ *  end-of-session signal in the transcript (no SessionEnd hook exists for it,
+ *  unlike Claude). The host reacts exactly like Claude's hook-driven
+ *  SessionEnd(exit/logout): despawn the agent instead of leaving it sitting
+ *  in the office forever showing a stale "Idle" label. */
+let sessionEndCallback: ((agentId: number, reason: string) => void) | null = null;
+
+export function setSessionEndCallback(
+  cb: ((agentId: number, reason: string) => void) | null,
+): void {
+  sessionEndCallback = cb;
+}
+
 /** Format a tool status line. Delegates to the active HookProvider's formatToolStatus.
  *  Invariant: a provider is registered before any transcript lines are parsed. */
 export function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
@@ -639,13 +652,39 @@ function processCopilotRecord(
       break;
     }
 
+    // A new turn has started -- the CLI is actively working again (thinking
+    // and/or about to call tools), so the office should show it as busy
+    // immediately rather than staying on the previous turn_end's "waiting"
+    // label until the first tool_use arrives (which may be seconds away, or
+    // never, for a text-only turn).
+    case 'assistant.turn_start': {
+      cancelWaitingTimer(agentId, waitingTimers);
+      agent.isWaiting = false;
+      agents.broadcast({ type: 'agentStatus', id: agentId, status: 'active' });
+      break;
+    }
+
+    // Copilot has no dedicated SessionEnd hook API (see file header) -- this
+    // record IS that signal, logged like any other hook invocation. Every
+    // reason observed in practice ("complete", "error") is final: unlike
+    // Claude, nothing here plays the role of /clear or /resume (no SessionEnd
+    // + SessionStart pair to wait for), so the agent is despawned immediately
+    // instead of being left in the office forever showing a stale "Idle" label.
+    case 'hook.start': {
+      const hookType = typeof data.hookType === 'string' ? data.hookType : undefined;
+      if (hookType === 'sessionEnd') {
+        const input = (data.input ?? {}) as Record<string, unknown>;
+        const reason = typeof input.reason === 'string' ? input.reason : 'unknown';
+        sessionEndCallback?.(agentId, reason);
+      }
+      break;
+    }
+
     // Known, intentionally-ignored record types: internal telemetry / signals
     // that don't map to any office-visible activity.
-    case 'hook.start':
     case 'hook.end':
     case 'user.message':
     case 'assistant.message':
-    case 'assistant.turn_start':
     case 'session.start':
     case 'session.warning':
     case 'session.permissions_changed':

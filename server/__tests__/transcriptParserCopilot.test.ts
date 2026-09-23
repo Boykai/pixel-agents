@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
-import { processTranscriptLine, setHookProvider } from '../src/transcriptParser.js';
+import {
+  processTranscriptLine,
+  setHookProvider,
+  setSessionEndCallback,
+} from '../src/transcriptParser.js';
 import type { AgentState } from '../src/types.js';
 
 /** Minimal AgentState for testing (mirrors transcriptParser.test.ts). */
@@ -163,7 +167,6 @@ describe('transcriptParser: Copilot CLI records', () => {
       'hook.end',
       'user.message',
       'assistant.message',
-      'assistant.turn_start',
       'session.start',
       'session.compaction_start',
       'session.compaction_complete',
@@ -179,6 +182,56 @@ describe('transcriptParser: Copilot CLI records', () => {
       ).not.toThrow();
     }
     expect(messages).toHaveLength(0);
+  });
+
+  it('assistant.turn_start marks the agent active (a new turn is genuinely busy, not idle)', () => {
+    agent.isWaiting = true;
+    processTranscriptLine(
+      1,
+      JSON.stringify({ type: 'assistant.turn_start', data: { turnId: 't2' } }),
+      agents,
+      waitingTimers,
+      permissionTimers,
+    );
+    expect(agent.isWaiting).toBe(false);
+    expect(messages).toContainEqual({ type: 'agentStatus', id: 1, status: 'active' });
+  });
+
+  it('hook.start with hookType=sessionEnd invokes the sessionEnd callback with the reason', () => {
+    const onSessionEnd = vi.fn();
+    setSessionEndCallback(onSessionEnd);
+    try {
+      processTranscriptLine(
+        1,
+        JSON.stringify({
+          type: 'hook.start',
+          data: { hookType: 'sessionEnd', input: { reason: 'complete' } },
+        }),
+        agents,
+        waitingTimers,
+        permissionTimers,
+      );
+      expect(onSessionEnd).toHaveBeenCalledWith(1, 'complete');
+    } finally {
+      setSessionEndCallback(null);
+    }
+  });
+
+  it('hook.start with a non-sessionEnd hookType does not invoke the sessionEnd callback', () => {
+    const onSessionEnd = vi.fn();
+    setSessionEndCallback(onSessionEnd);
+    try {
+      processTranscriptLine(
+        1,
+        JSON.stringify({ type: 'hook.start', data: { hookType: 'postToolUse' } }),
+        agents,
+        waitingTimers,
+        permissionTimers,
+      );
+      expect(onSessionEnd).not.toHaveBeenCalled();
+    } finally {
+      setSessionEndCallback(null);
+    }
   });
 
   it('an unrecognized record type is logged once via seenUnknownRecordTypes and does not throw', () => {
