@@ -656,6 +656,7 @@ function processCopilotRecord(
     case 'external_tool.completed':
     case 'session.compaction_start':
     case 'session.compaction_complete':
+    case 'session.canvas.recorded':
       break;
 
     default: {
