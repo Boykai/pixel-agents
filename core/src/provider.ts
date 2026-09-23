@@ -125,6 +125,16 @@ export interface HookProvider {
    *  Sessions". Each returned dir contains subdirs whose entries are session
    *  transcript files. Undefined = this provider doesn't support global scan. */
   getAllSessionRoots?(): string[];
+  /** Resolve a per-workspace session directory (as returned within
+   *  getAllSessionRoots()'s roots) to a human-readable label for the office UI
+   *  (the "folder name" shown under an external agent's sprite). Only needed
+   *  when the directory name itself isn't already meaningful — e.g. Claude's
+   *  project dirs are the workspace path with separators replaced by `-`, so
+   *  its basename already decodes to a readable name and this can stay
+   *  unset; Copilot's session dirs are opaque UUIDs, so it implements this by
+   *  reading the session's own cwd. Undefined = fall back to decoding the
+   *  directory's basename (folderNameFromProjectDir). */
+  resolveSessionFolderName?(dirPath: string): string | undefined;
   /** Glob pattern for session files (e.g., '*.jsonl'). */
   readonly sessionFilePattern?: string;
   /** Parse one line of a transcript file into an AgentEvent. */

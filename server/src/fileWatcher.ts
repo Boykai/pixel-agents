@@ -1086,6 +1086,7 @@ export function adoptExternalSessionFromHook(
     const projectDir = path.dirname(transcriptPath);
     const folderName =
       folderNameResolver?.({ cwd, projectDir }) ??
+      hookProvider?.resolveSessionFolderName?.(projectDir) ??
       folderNameFromProjectDir(path.basename(projectDir));
 
     adoptExternalSession(
@@ -1535,6 +1536,7 @@ function scanGlobalProjectDirs(
 
       const folderName =
         folderNameResolver?.({ projectDir: dirPath }) ??
+        hookProvider?.resolveSessionFolderName?.(dirPath) ??
         folderNameFromProjectDir(path.basename(dirPath));
       knownJsonlFiles.add(file);
       console.log(

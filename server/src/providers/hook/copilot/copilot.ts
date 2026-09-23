@@ -142,6 +142,18 @@ function getAllSessionRoots(): string[] {
   return [path.join(os.homedir(), '.copilot', 'session-state')];
 }
 
+/** Unlike Claude, whose project dir basename IS the workspace path (separators
+ *  replaced with `-`, so decoding the dir name alone yields a readable
+ *  folder name), a Copilot session dir is an opaque UUID that encodes
+ *  nothing -- decoding it just displays the UUID. The actual workspace lives
+ *  in that same session's workspace.yaml, so read it back out and label the
+ *  session with its cwd's own basename instead, matching what Claude agents
+ *  show. */
+function resolveSessionFolderName(dirPath: string): string | undefined {
+  const cwd = readWorkspaceCwd(path.join(dirPath, 'workspace.yaml'));
+  return cwd ? path.basename(cwd) : undefined;
+}
+
 function buildLaunchCommand(
   sessionId: string,
   cwd: string,
@@ -206,6 +218,7 @@ export const copilotProvider: HookProvider = {
 
   getSessionDirs,
   getAllSessionRoots,
+  resolveSessionFolderName,
   sessionFilePattern: '*.jsonl',
   buildLaunchCommand,
 };
