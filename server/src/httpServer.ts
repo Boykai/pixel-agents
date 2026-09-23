@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 
+import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type {
@@ -20,7 +21,6 @@ import {
   WS_CLOSE_UNAUTHORIZED,
 } from './constants.js';
 import type { AgentState } from './types.js';
-
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
   /** true = VS Code embedded mode (ephemeral port, no static, quiet logging) */
@@ -45,6 +45,13 @@ export interface HttpServerOptions {
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
   /** Invoked when an external asset directory is added/removed. Standalone reloads + re-broadcasts assets here. */
   onReloadAssets?: ReloadAssetsSideEffect;
+  /**
+   * Providers this running process actually tracks; forwarded verbatim to
+   * ClientMessageContext.activeProviders (see its doc comment). Standalone
+   * sets this to the single --provider <id> selection; embedded (VS Code)
+   * omits it to keep asking about every registered provider.
+   */
+  activeProviders?: HookProvider[];
 }
 
 /** Result of createHttpServer(). */
@@ -210,6 +217,7 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
           cache: options.assetCache ?? null,
           onSetHooksEnabled: options.onSetHooksEnabled,
           onReloadAssets: options.onReloadAssets,
+          activeProviders: options.activeProviders,
           privileged,
         });
       } catch {

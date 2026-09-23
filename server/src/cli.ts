@@ -255,6 +255,12 @@ async function main(): Promise<void> {
       assetCache,
       onSetHooksEnabled,
       onReloadAssets,
+      // Scope the handshake's hooks-status + first-run-consent loop to just
+      // the provider this process was started with. Without this, the
+      // shared clientMessageHandler falls back to every registered provider
+      // and would ask about (and could install/uninstall) an unrelated
+      // provider's hooks — e.g. Claude Code's on a --provider copilot run.
+      activeProviders: [selectedProvider],
     });
     currentConfig = { port: config.port, token: config.token };
 

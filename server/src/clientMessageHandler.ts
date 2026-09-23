@@ -60,6 +60,20 @@ export interface ClientMessageContext {
    * to false so a caller that forgets to pass it gets the safe answer.
    */
   privileged?: boolean;
+  /**
+   * Providers this running process actually tracks. Gates the hooksStatus +
+   * first-run-consent handshake loop (4a) and which provider's setting backs
+   * the single `hooksEnabled` field in `settingsLoaded`. Omit for the VS Code
+   * adapter, which has always supported exactly Claude and, until the
+   * Settings UI grows a per-provider list, still surfaces that one boolean,
+   * so an absent value defaults to the full registry, preserving that
+   * behavior unchanged. The standalone CLI runs a single --provider <id> per
+   * process and MUST set this to just that provider: without it, a
+   * --provider copilot run still asks about (and can install/uninstall)
+   * completely unrelated Claude Code hooks in ~/.claude/settings.json, a
+   * real side effect on a tool this process has nothing to do with.
+   */
+  activeProviders?: HookProvider[];
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -405,10 +419,15 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 4. Settings (from adapter, with sensible defaults when adapter is absent)
   const cfg = readConfig();
   const watchAllSessions = adapter?.getSetting(KEY_WATCH_ALL_SESSIONS, false) ?? false;
-  // settingsLoaded.hooksEnabled stays a single boolean carrying the CLAUDE
-  // provider's preference until the Settings UI grows a per-provider list —
-  // its sole webview reader is the hooks tooltip gate.
-  const hooksEnabled = getHooksEnabled(claudeProvider.id);
+  // settingsLoaded.hooksEnabled stays a single boolean until the Settings UI
+  // grows a per-provider list; its sole webview reader is the hooks tooltip
+  // gate. It carries the CLAUDE provider's preference by default (matching
+  // the VS Code adapter, which only ever runs Claude today), but a caller
+  // that scopes ctx.activeProviders (the standalone CLI) gets that provider's
+  // preference instead — otherwise a `--provider copilot` run would report
+  // Claude's hooks state for a provider it isn't even tracking.
+  const primaryProvider = ctx.activeProviders?.[0] ?? claudeProvider;
+  const hooksEnabled = getHooksEnabled(primaryProvider.id);
   const showAreas = adapter?.getSetting(KEY_SHOW_AREAS, false) ?? false;
   send({
     type: 'settingsLoaded',
@@ -428,8 +447,11 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // hooksEnabled defaults true while first-run consent is still pending. The
   // provider checks are async, so these land as follow-ups right after the
   // synchronous handshake; the webview's default (not installed) is the safe
-  // assumption until each arrives. One status + at most one ask PER PROVIDER.
-  for (const provider of hookProviders) {
+  // assumption until each arrives. One status + at most one ask PER PROVIDER
+  // this process actually tracks (ctx.activeProviders when scoped; otherwise
+  // every registered provider, matching the VS Code adapter's long-standing
+  // behavior).
+  for (const provider of ctx.activeProviders ?? hookProviders) {
     // One provider's unreadable settings file must degrade to
     // installed=false (matching the executor's fail-closed read: no choice
     // ever uninstalls on a guess) rather than surface as an unhandled
