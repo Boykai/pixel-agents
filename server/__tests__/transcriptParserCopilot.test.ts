@@ -5,7 +5,6 @@ import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
 import {
   processTranscriptLine,
   setHookProvider,
-  setSessionEndCallback,
 } from '../src/transcriptParser.js';
 import type { AgentState } from '../src/types.js';
 
@@ -195,43 +194,6 @@ describe('transcriptParser: Copilot CLI records', () => {
     );
     expect(agent.isWaiting).toBe(false);
     expect(messages).toContainEqual({ type: 'agentStatus', id: 1, status: 'active' });
-  });
-
-  it('hook.start with hookType=sessionEnd invokes the sessionEnd callback with the reason', () => {
-    const onSessionEnd = vi.fn();
-    setSessionEndCallback(onSessionEnd);
-    try {
-      processTranscriptLine(
-        1,
-        JSON.stringify({
-          type: 'hook.start',
-          data: { hookType: 'sessionEnd', input: { reason: 'complete' } },
-        }),
-        agents,
-        waitingTimers,
-        permissionTimers,
-      );
-      expect(onSessionEnd).toHaveBeenCalledWith(1, 'complete');
-    } finally {
-      setSessionEndCallback(null);
-    }
-  });
-
-  it('hook.start with a non-sessionEnd hookType does not invoke the sessionEnd callback', () => {
-    const onSessionEnd = vi.fn();
-    setSessionEndCallback(onSessionEnd);
-    try {
-      processTranscriptLine(
-        1,
-        JSON.stringify({ type: 'hook.start', data: { hookType: 'postToolUse' } }),
-        agents,
-        waitingTimers,
-        permissionTimers,
-      );
-      expect(onSessionEnd).not.toHaveBeenCalled();
-    } finally {
-      setSessionEndCallback(null);
-    }
   });
 
   it('an unrecognized record type is logged once via seenUnknownRecordTypes and does not throw', () => {

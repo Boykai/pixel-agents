@@ -45,7 +45,6 @@ import {
   setBackgroundAgentCompletedCallback,
   setBackgroundAgentDetectedCallback,
   setHookProvider,
-  setSessionEndCallback,
   setTeamSwitchCallback,
 } from './transcriptParser.js';
 import type { AgentState } from './types.js';
@@ -267,14 +266,6 @@ export class AgentRuntime {
         this.handleSessionEndCleanup(agentId);
       },
     });
-
-    // File-fallback providers (Copilot) have no SessionEnd hook to route through
-    // HookEventHandler -- they observe their own end-of-session signal directly
-    // in the transcript and report it here. Same cleanup as the hooks path above.
-    setSessionEndCallback((agentId, reason) => {
-      console.log(`[Pixel Agents] Transcript: Agent ${agentId} - SessionEnd(reason=${reason})`);
-      this.handleSessionEndCleanup(agentId);
-    });
   }
 
   /** Register adapter-specific lifecycle callbacks. */
@@ -282,11 +273,18 @@ export class AgentRuntime {
     this.lifecycleCallbacks = callbacks;
   }
 
-  /** Shared SessionEnd cleanup, common to both the hooks path (Claude's
-   *  SessionEnd hook, reason=exit/logout) and the file-fallback path (Copilot's
-   *  own end-of-session transcript record -- see setSessionEndCallback above).
-   *  Despawns the agent instead of leaving a permanently-finished session
-   *  sitting in the office looking identical to a live, merely-quiet one. */
+  /** SessionEnd cleanup for hook-driven providers (Claude's SessionEnd hook,
+   *  reason=exit/logout). Despawns the agent instead of leaving a finished
+   *  session sitting in the office.
+   *
+   *  NOTE: file-fallback providers (Copilot) do NOT have an equivalent path --
+   *  Copilot's transcript "hook.start"/hookType:"sessionEnd" record looked
+   *  like a terminal signal but isn't: it fires at the end of every
+   *  turn/task, including many times over a single still-running session.
+   *  Wiring it here despawned live, busy sessions. Copilot-adopted agents
+   *  rely solely on the stale-file check (fileWatcher's
+   *  startStaleExternalAgentCheck), which only despawns once the JSONL file
+   *  is actually deleted from disk. */
   private handleSessionEndCleanup(agentId: number): void {
     const agent = this.store.get(agentId);
     if (!agent) return;

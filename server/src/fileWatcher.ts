@@ -1158,31 +1158,6 @@ export function adoptExternalSessionFromHook(
   }
 }
 
-/** Tail size (bytes) read to check for an already-present Copilot sessionEnd
- *  record. Generous enough to cover a sessionEnd's hook.start + hook.end pair
- *  plus any trailing usage-checkpoint noise, cheap enough to run on every
- *  newly-discovered file. */
-const COPILOT_SESSION_END_TAIL_CHECK_BYTES = 8192;
-
-function isCopilotSessionAlreadyEnded(jsonlFile: string): boolean {
-  try {
-    const stat = fs.statSync(jsonlFile);
-    const start = Math.max(0, stat.size - COPILOT_SESSION_END_TAIL_CHECK_BYTES);
-    const length = stat.size - start;
-    if (length <= 0) return false;
-    const fd = fs.openSync(jsonlFile, 'r');
-    try {
-      const buffer = Buffer.alloc(length);
-      fs.readSync(fd, buffer, 0, length, start);
-      return buffer.toString('utf8').includes('"hookType":"sessionEnd"');
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return false;
-  }
-}
-
 function adoptExternalSession(
   jsonlFile: string,
   projectDir: string,
@@ -1197,17 +1172,6 @@ function adoptExternalSession(
   folderName?: string,
   sessionName?: string,
 ): void {
-  // Copilot has no SessionEnd hook API -- its own end-of-session record lives
-  // in the transcript (see processCopilotRecord's 'hook.start' case). A file
-  // whose tail already carries that record finished before we ever started
-  // watching it: skipping to EOF below would otherwise adopt it as a normal,
-  // perpetually-idle office character that can never receive the sessionEnd
-  // record again (it's already been read past). Recognize it up front instead
-  // of spawning a character only to leave it stuck forever.
-  if (hookProvider?.id === 'copilot' && isCopilotSessionAlreadyEnded(jsonlFile)) {
-    return;
-  }
-
   const id = nextAgentIdRef.current++;
   // Decide whether to replay the existing file content or skip to its end.
   //
