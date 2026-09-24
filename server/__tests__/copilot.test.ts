@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
@@ -30,34 +29,79 @@ describe('copilotProvider', () => {
       }
       expect(copilotProvider.readingTools.has('edit')).toBe(false);
     });
-    it('has no team extension (single-agent CLI)', () => {
+    it('does not invent a Claude team registry for Copilot', () => {
       expect(copilotProvider.team).toBeUndefined();
     });
   });
 
   describe('normalizeHookEvent', () => {
-    it('always returns null (no hooks API exists)', () => {
+    it('ignores malformed or non-hook payloads', () => {
       expect(copilotProvider.normalizeHookEvent({})).toBeNull();
       expect(
         copilotProvider.normalizeHookEvent({ type: 'tool.execution_start', data: {} }),
       ).toBeNull();
     });
+    it('maps interaction completion without ending the session', () => {
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'agentStop',
+          sessionId: 'session-a',
+          stopReason: 'end_turn',
+        }),
+      ).toEqual({ sessionId: 'session-a', event: { kind: 'turnEnd' } });
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'sessionEnd',
+          sessionId: 'session-a',
+          reason: 'complete',
+        }),
+      ).toBeNull();
+    });
+    it('distinguishes an actual permission prompt from permission evaluation', () => {
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'permissionRequest',
+          sessionId: 'session-a',
+        }),
+      ).toBeNull();
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'notification',
+          sessionId: 'session-a',
+          notification_type: 'permission_prompt',
+        }),
+      ).toEqual({ sessionId: 'session-a', event: { kind: 'permissionRequest' } });
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'notification',
+          sessionId: 'session-a',
+          notification_type: 'elicitation_dialog',
+        }),
+      ).toEqual({ sessionId: 'session-a', event: { kind: 'turnEnd', awaitingInput: true } });
+    });
+    it('does not guess concurrent hook tool IDs from tool names', () => {
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'preToolUse',
+          sessionId: 'session-a',
+          toolName: 'view',
+        }),
+      ).toEqual({ sessionId: 'session-a', event: { kind: 'observation' } });
+      expect(
+        copilotProvider.normalizeHookEvent({
+          hookType: 'postToolUse',
+          sessionId: 'session-a',
+          toolName: 'view',
+        }),
+      ).toEqual({ sessionId: 'session-a', event: { kind: 'observation' } });
+    });
   });
 
-  describe('hooks install (no-op provider)', () => {
-    it('areHooksInstalled resolves true (nothing to install, skips consent gate)', async () => {
-      await expect(copilotProvider.areHooksInstalled()).resolves.toBe(true);
-    });
-    it('installHooks resolves without doing anything', async () => {
-      await expect(copilotProvider.installHooks('http://x', 'token')).resolves.toBeUndefined();
-    });
-    it('uninstallHooks resolves without doing anything', async () => {
-      await expect(copilotProvider.uninstallHooks()).resolves.toBeUndefined();
-    });
-    it('consentDisclosure returns non-empty headline + disclosure mentioning the transcript path', () => {
+  describe('hooks disclosure', () => {
+    it('describes the integration before installation', () => {
       const { headline, disclosure } = copilotProvider.consentDisclosure();
       expect(headline.length).toBeGreaterThan(0);
-      expect(disclosure).toContain('events.jsonl');
+      expect(disclosure).toContain('Copilot');
     });
   });
 
@@ -87,6 +131,8 @@ describe('copilotProvider', () => {
       expect(copilotProvider.formatToolStatus('grep', {})).toBe('Searching code');
       expect(copilotProvider.formatToolStatus('glob', {})).toBe('Searching files');
       expect(copilotProvider.formatToolStatus('web_fetch', {})).toBe('Fetching web content');
+      expect(copilotProvider.formatToolStatus('rg', {})).toBe('Searching code');
+      expect(copilotProvider.formatToolStatus('apply_patch', 'patch text')).toBe('Applying patch');
     });
     it('formats shell/bash/powershell as Running: <command>', () => {
       expect(copilotProvider.formatToolStatus('powershell', { command: 'npm test' })).toBe(
@@ -126,25 +172,24 @@ describe('copilotProvider', () => {
   });
 
   describe('buildLaunchCommand', () => {
-    it('builds a `copilot --resume <sessionId>` command', () => {
+    it('builds an exact-session command that can create a fresh UUID session', () => {
       const cmd = copilotProvider.buildLaunchCommand?.('sess-123', 'C:\\work');
       expect(cmd?.command).toBe('copilot');
-      expect(cmd?.args).toEqual(['--resume', 'sess-123']);
+      expect(cmd?.args).toEqual(['--session-id', 'sess-123']);
       expect(cmd?.env?.PWD).toBe('C:\\work');
     });
   });
 
   describe('getSessionDirs', () => {
     let tmpRoot: string;
-    let homedirSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
       tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-agents-copilot-test-'));
-      homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpRoot);
+      vi.stubEnv('COPILOT_HOME', path.join(tmpRoot, '.copilot'));
     });
 
     afterEach(() => {
-      homedirSpy.mockRestore();
+      vi.unstubAllEnvs();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     });
 
@@ -163,6 +208,25 @@ describe('copilotProvider', () => {
       expect(copilotProvider.getSessionDirs?.('/some/workspace')).toEqual([]);
     });
 
+    it('predicts a fresh session transcript without reusing an existing session directory', () => {
+      makeSessionDir('existing-session', '/my/workspace');
+      const expectedFile = path.join(
+        tmpRoot,
+        '.copilot',
+        'session-state',
+        'new-session',
+        'events.jsonl',
+      );
+      expect(copilotProvider.expectedTranscriptPath?.('new-session', '/my/workspace')).toBe(
+        expectedFile,
+      );
+      expect(copilotProvider.resolveSessionId?.(expectedFile)).toBe('new-session');
+      expect(fs.existsSync(expectedFile)).toBe(false);
+      expect(() =>
+        copilotProvider.expectedTranscriptPath?.('../escape', '/my/workspace'),
+      ).toThrow();
+    });
+
     it('matches a session dir whose workspace.yaml cwd equals the workspace path', () => {
       makeSessionDir('session-a', '/my/workspace');
       makeSessionDir('session-b', '/other/workspace');
@@ -176,6 +240,10 @@ describe('copilotProvider', () => {
       makeSessionDir('session-c', '/my/workspace');
       const dirs = copilotProvider.getSessionDirs?.('/my/workspace') ?? [];
       expect(dirs).toHaveLength(2);
+    });
+    it('matches a quoted workspace path without treating its quotes as path characters', () => {
+      makeSessionDir('session-quoted', "'/my/workspace'");
+      expect(copilotProvider.getSessionDirs?.('/my/workspace')).toHaveLength(1);
     });
 
     it('skips session dirs with no workspace.yaml or no cwd line', () => {

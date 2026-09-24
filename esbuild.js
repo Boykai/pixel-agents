@@ -36,29 +36,36 @@ function copyAssets() {
 
 /**
  * Bundle hook scripts (TypeScript) to dist/hooks via esbuild.
- * Produces a self-contained CJS file with shebang for Claude Code to execute.
+ * Produces self-contained CJS bridges for each provider.
  */
 function buildHooks() {
-  const entry = path.join(
-    __dirname,
-    'server',
-    'src',
-    'providers',
-    'hook',
-    'claude',
-    'hooks',
-    'claude-hook.ts',
-  );
-  if (!fs.existsSync(entry)) return;
-  require('esbuild').buildSync({
-    entryPoints: [entry],
-    bundle: true,
-    platform: 'node',
-    target: 'node18',
-    format: 'cjs',
-    outdir: path.join(__dirname, 'dist', 'hooks'),
-    banner: { js: '#!/usr/bin/env node' },
-  });
+  for (const provider of ['claude', 'copilot']) {
+    const entry = path.join(
+      __dirname,
+      'server',
+      'src',
+      'providers',
+      'hook',
+      provider,
+      'hooks',
+      `${provider}-hook.ts`,
+    );
+    if (!fs.existsSync(entry)) throw new Error(`Missing ${provider} hook bridge`);
+    require('esbuild').buildSync({
+      entryPoints: [entry],
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      format: 'cjs',
+      outdir: path.join(__dirname, 'dist', 'hooks'),
+      banner: {
+        js:
+          provider === 'copilot'
+            ? '#!/usr/bin/env node\n// Pixel Agents Copilot hook v1'
+            : '#!/usr/bin/env node',
+      },
+    });
+  }
   console.log('✓ Built hooks/ → dist/hooks/');
 }
 

@@ -86,7 +86,8 @@ function App() {
     alwaysShowLabels,
     ghostHeadlessAgents,
     setGhostHeadlessAgents,
-    hooksEnabled,
+    providers,
+    launchProvider,
     hooksInstalled,
     hooksStatusSeq,
     hooksInfoShown,
@@ -157,9 +158,7 @@ function App() {
     onClose: handleIntroClose,
   } = useIntroTour({ consentRequest, hooksInstalled, hooksStatusSeq, dismissConsentRequest });
 
-  // The Settings surface renders one provider today; its checkbox binds to
-  // the Claude row of the per-provider install-state map.
-  const claudeHooksInstalled = hooksInstalled['claude'] === true;
+  const anyHooksInstalled = Object.values(hooksInstalled).some(Boolean);
 
   // Mutate folder→Area mappings locally + send to server. Updates OfficeState in
   // the same tick so a follow-up agentCreated picks up the new mapping.
@@ -205,13 +204,14 @@ function App() {
   // show-areas gate on the test-hooks namespace (module-load installTestHooks
   // can't reach these React callbacks). Bypasses only canvas pixel→tile
   // geometry — the handlers still own undo/dirty/rebuild. Guarded on isE2E.
+  const { handleEditorTileAction, handleEditorEraseAction } = editor;
   useEffect(() => {
     if (!isE2E || typeof window === 'undefined') return;
     const hooks = (window.__pixelAgentsTestHooks ??= {});
-    hooks.editorTileAction = (col, row) => editor.handleEditorTileAction(col, row);
-    hooks.editorEraseAction = (col, row) => editor.handleEditorEraseAction(col, row);
+    hooks.editorTileAction = (col, row) => handleEditorTileAction(col, row);
+    hooks.editorEraseAction = (col, row) => handleEditorEraseAction(col, row);
     hooks.getShowAreas = () => effectiveShowAreas;
-  }, [editor.handleEditorTileAction, editor.handleEditorEraseAction, effectiveShowAreas]);
+  }, [handleEditorTileAction, handleEditorEraseAction, effectiveShowAreas]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -454,9 +454,9 @@ function App() {
           message), NOT the hooksEnabled preference: hooksEnabled defaults true
           while first-run consent is still pending, and announcing "Instant
           Detection Active" before anything is installed would be a lie. */}
-      {hooksEnabled && claudeHooksInstalled && !hooksInfoShown && !hooksTooltipDismissed && (
+      {anyHooksInstalled && !hooksInfoShown && !hooksTooltipDismissed && (
         <Tooltip
-          title="Instant Detection Active"
+          title="Hooks Installed"
           position="top-right"
           onDismiss={() => {
             setHooksTooltipDismissed(true);
@@ -464,7 +464,7 @@ function App() {
           }}
         >
           <span className="text-sm text-text leading-none">
-            Your agents now respond in real-time.{' '}
+            Hooks are installed for an enabled provider.{' '}
             <span
               className="text-accent cursor-pointer underline"
               onClick={() => {
@@ -483,19 +483,23 @@ function App() {
       <Modal
         isOpen={isHooksInfoOpen}
         onClose={() => setIsHooksInfoOpen(false)}
-        title="Instant Detection is ON"
+        title="Instant Detection (Hooks)"
         zIndex={52}
       >
         <div className="text-base text-text px-10" style={{ lineHeight: 1.4 }}>
-          <p className="mb-8">Your Pixel Agents office now reacts in real-time:</p>
+          <p className="mb-8">Hooks let supported sessions send activity directly to the office:</p>
           <ul className="mb-8 pl-18 list-disc m-0">
-            <li className="text-sm mb-2">Permission prompts appear instantly</li>
-            <li className="text-sm mb-2">Turn completions detected the moment they happen</li>
-            <li className="text-sm mb-2">Sound notifications play immediately</li>
+            <li className="text-sm mb-2">Available events differ by provider and version</li>
+            <li className="text-sm mb-2">
+              Existing sessions may need a restart to load newly installed hooks
+            </li>
+            <li className="text-sm mb-2">
+              Unknown activity is shown without a completion notification
+            </li>
           </ul>
           <p className="mb-12 text-text-muted">
-            This works through Claude Code Hooks, small event listeners that notify Pixel Agents
-            whenever something happens in your Claude sessions.
+            Installation does not prove a session is connected. Each provider has its own
+            installation state and disclosure in Settings.
           </p>
           <div className="text-center">
             <button
@@ -513,7 +517,9 @@ function App() {
 
       <BottomToolbar
         isEditMode={editor.isEditMode}
-        onOpenClaude={editor.handleOpenClaude}
+        onLaunchAgent={editor.handleLaunchAgent}
+        providers={providers}
+        launchProvider={launchProvider}
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
@@ -551,20 +557,19 @@ function App() {
           setWatchAllSessions(newVal);
           transport.send({ type: 'setWatchAllSessions', enabled: newVal });
         }}
-        hooksInstalled={claudeHooksInstalled}
-        onToggleHooksEnabled={() => {
+        providers={providers}
+        hooksInstalled={hooksInstalled}
+        onToggleHooksEnabled={(providerId) => {
           // Toggle the DISPLAYED state (actual install), not the preference: when the two disagree — preference on,
           // nothing installed while consent is pending — toggling the preference would turn hooks OFF for a user
           // asking for ON. No optimistic local update either; both backends answer with the truthful hooksStatus this
           // checkbox renders, so it lands correct instead of flickering when an install fails. The providerId is
           // ECHOED from that row (never originated here), so nothing sends until the row has arrived.
-          const [rowProviderId] =
-            Object.entries(hooksInstalled).find(([id]) => id === 'claude') ?? [];
-          if (rowProviderId !== undefined) {
+          if (providerId in hooksInstalled) {
             transport.send({
               type: 'setHooksEnabled',
-              providerId: rowProviderId,
-              enabled: !claudeHooksInstalled,
+              providerId,
+              enabled: !hooksInstalled[providerId],
             });
           }
         }}

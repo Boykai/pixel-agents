@@ -48,11 +48,27 @@ export class AgentStateStore {
   readonly nextAgentId = { current: 1 };
   readonly nextTerminalIndex = { current: 1 };
   private adapter: StateAdapter | undefined;
+  private activeProviders: readonly string[] | undefined;
 
   // ── Adapter ──────────────────────────────────────────────────
 
   setAdapter(adapter: StateAdapter): void {
     this.adapter = adapter;
+    this.configureProviderScope();
+  }
+
+  setActiveProviders(providerIds: readonly string[]): void {
+    this.activeProviders = [...providerIds];
+    this.configureProviderScope();
+  }
+
+  private configureProviderScope(): void {
+    if (!this.adapter || !this.activeProviders) return;
+    this.adapter.setActiveProviders?.(this.activeProviders);
+    // Hidden providers still own their persisted IDs and seats.
+    for (const agent of this.adapter.loadAgents()) {
+      this.nextAgentId.current = Math.max(this.nextAgentId.current, agent.id + 1);
+    }
   }
 
   getAdapter(): StateAdapter | undefined {
@@ -131,9 +147,42 @@ export class AgentStateStore {
     this.agents.clear();
   }
 
+  updateMetadata(id: number, metadata: Pick<AgentState, 'sessionName' | 'folderName'>): void {
+    const agent = this.agents.get(id);
+    if (!agent) return;
+    const changes: Pick<AgentState, 'sessionName' | 'folderName'> = {};
+    for (const key of ['sessionName', 'folderName'] as const) {
+      const value = metadata[key];
+      if (value !== undefined && value !== agent[key]) {
+        agent[key] = value;
+        changes[key] = value;
+      }
+    }
+    if (Object.keys(changes).length === 0) return;
+    this.emitter.emit('agentUpdated', id, agent, 'metadata');
+    this.broadcast({ type: 'agentMetadata', id, ...changes });
+    this.persist();
+  }
+
   // ── Broadcast (replaces direct webview.postMessage in server/) ─
 
   broadcast(message: Record<string, unknown>): void {
+    if (message.type === 'agentStatus' && typeof message.id === 'number') {
+      const agent = this.agents.get(message.id);
+      if (
+        agent &&
+        (message.status === 'active' ||
+          message.status === 'waiting' ||
+          message.status === 'unknown')
+      ) {
+        agent.awaitingInput = message.status === 'waiting' && message.awaitingInput === true;
+        const observation = message.status === 'unknown' ? 'unknown' : 'known';
+        if (agent.observation !== observation) {
+          agent.observation = observation;
+          this.emitter.emit('broadcast', { type: 'agentObservation', id: agent.id, observation });
+        }
+      }
+    }
     debugLogBroadcast(message);
     this.emitter.emit('broadcast', message);
   }
@@ -158,6 +207,8 @@ export class AgentStateStore {
       if (agent.spawnToolUseId) continue;
       persisted.push({
         id: agent.id,
+        providerId: agent.providerId ?? 'claude',
+        observation: agent.observation,
         sessionId: agent.sessionId,
         terminalName: agent.terminalRef?.name ?? '',
         isExternal: agent.isExternal || undefined,

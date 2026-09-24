@@ -10,10 +10,12 @@
 export type ServerMessage =
   | ProviderCapabilities
   | AgentCreated
+  | AgentMetadata
   | AgentClosed
   | AgentSelected
   | ExistingAgents
   | AgentStatus
+  | AgentObservation
   | AgentToolStart
   | AgentToolDone
   | AgentToolsClear
@@ -66,18 +68,38 @@ export type ClientMessage =
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
+  providerId?: string;
+  displayName?: string;
+  consentDisclosure?: ProviderConsentDisclosure;
+  capabilities?: Record<string, boolean>;
   readingTools: string[];
   subagentToolNames: string[];
 }
 
+export interface ProviderConsentDisclosure {
+  headline: string;
+  disclosure: string;
+}
+
 export interface AgentCreated {
   type: 'agentCreated';
+  providerId?: string;
+  observation?: ObservationState;
   id: number;
   folderName?: string;
   sessionName?: string;
   isExternal?: boolean;
   palette?: number;
   hueShift?: number;
+}
+
+export type ObservationState = 'known' | 'unknown';
+
+export interface AgentMetadata {
+  type: 'agentMetadata';
+  id: number;
+  sessionName?: string;
+  folderName?: string;
 }
 
 export interface AgentClosed {
@@ -92,6 +114,8 @@ export interface AgentSelected {
 
 export interface ExistingAgents {
   type: 'existingAgents';
+  providerIds?: Record<string, string>;
+  observations?: Record<string, ObservationState>;
   agents: number[];
   agentMeta: Record<string, AgentSeatMeta>;
   folderNames: Record<string, string>;
@@ -110,9 +134,16 @@ export interface AgentStatus {
   id: number;
   status: AgentActivityStatus;
   awaitingInput?: boolean;
+  replay?: boolean;
 }
 
-export type AgentActivityStatus = 'active' | 'waiting';
+export type AgentActivityStatus = 'active' | 'waiting' | 'unknown';
+
+export interface AgentObservation {
+  type: 'agentObservation';
+  id: number;
+  observation: ObservationState;
+}
 
 export interface AgentToolStart {
   type: 'agentToolStart';
@@ -139,11 +170,13 @@ export interface AgentToolsClear {
 export interface AgentToolPermission {
   type: 'agentToolPermission';
   id: number;
+  replay?: boolean;
 }
 
 export interface AgentToolPermissionClear {
   type: 'agentToolPermissionClear';
   id: number;
+  parentToolId?: string;
 }
 
 export interface SubagentToolStart {
@@ -152,6 +185,7 @@ export interface SubagentToolStart {
   parentToolId: string;
   toolId: string;
   status: string;
+  toolName?: string;
 }
 
 export interface SubagentToolDone {
@@ -267,6 +301,7 @@ export interface CarpetTilesLoaded {
 
 export interface SettingsLoaded {
   type: 'settingsLoaded';
+  launchProvider?: string;
   soundEnabled: boolean;
   lastSeenVersion: string;
   extensionVersion: string;
@@ -325,6 +360,7 @@ export interface LaunchAgent {
   type: 'launchAgent';
   folderPath?: string;
   bypassPermissions?: boolean;
+  providerId?: string;
 }
 
 export interface FocusAgent {

@@ -14,6 +14,8 @@
 /** Persisted agent data (survives F5 reload / restart) */
 export interface PersistedAgent {
   id: number;
+  providerId?: string;
+  observation?: 'known' | 'unknown';
   sessionId?: string;
   terminalName: string;
   isExternal?: boolean;

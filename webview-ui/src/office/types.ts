@@ -227,6 +227,11 @@ export interface Character {
    *  workspace folder. Set by providers with their own session-naming
    *  concept (e.g. GitHub Copilot CLI); undefined otherwise. */
   sessionName?: string;
+  /** Provider identity scopes tool classifications; absent on legacy Claude snapshots. */
+  providerId?: string;
+  /** Unknown observation freezes animation without implying a finished turn. */
+  observation?: 'known' | 'unknown';
+  activityStatus?: 'active' | 'done' | 'input';
   /** Headless agent: adopted from outside the office, so there is no terminal to
    *  focus. Rendered translucent. Teammates and sub-agents are never headless —
    *  clicking them reaches their lead's / parent's terminal. */

@@ -5,7 +5,11 @@ import type { TestInfo } from '@playwright/test';
 import { expect, test as base } from '@playwright/test';
 
 import { applyAllureLabels } from '../helpers/allure-labels';
-import { launchStandalone, type StandaloneSession } from '../helpers/standalone';
+import {
+  launchStandalone,
+  type LaunchStandaloneOptions,
+  type StandaloneSession,
+} from '../helpers/standalone';
 
 export interface StandaloneContext extends StandaloneSession {}
 
@@ -46,12 +50,16 @@ async function attachText(
 export const test = base.extend<{
   standalone: StandaloneContext;
   _allureLabels: void;
-  /** Seed a granted Claude hooksConsent entry in the isolated HOME (default). The
+  /** Seed selected providers' granted consent in the isolated HOME (default). The
    *  consent specs opt out via `test.use({ seedHooksConsent: false })` so the
    *  first-run dialog shows — they are the only ones that want it. */
   seedHooksConsent: boolean;
+  provider: LaunchStandaloneOptions['provider'];
+  seedHooksEnabled: boolean | undefined;
 }>({
   seedHooksConsent: [true, { option: true }],
+  provider: [undefined, { option: true }],
+  seedHooksEnabled: [undefined, { option: true }],
   // Auto-fixture: tag every test with Allure epic + feature derived from its
   // @area: annotation and enclosing describe path. Runs before standalone.
   _allureLabels: [
@@ -61,8 +69,12 @@ export const test = base.extend<{
     },
     { auto: true },
   ],
-  standalone: async ({ page, seedHooksConsent }, use, testInfo) => {
-    const standalone = await launchStandalone(page, { seedHooksConsent });
+  standalone: async ({ page, seedHooksConsent, provider, seedHooksEnabled }, use, testInfo) => {
+    const standalone = await launchStandalone(page, {
+      seedHooksConsent,
+      provider,
+      seedHooksEnabled,
+    });
 
     try {
       await use(standalone);

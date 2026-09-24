@@ -18,9 +18,9 @@ import { CharacterState, Direction, TILE_SIZE } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
-export function isReadingTool(tool: string | null): boolean {
+export function isReadingTool(tool: string | null, providerId?: string): boolean {
   if (!tool) return false;
-  return isReadingToolName(tool);
+  return isReadingToolName(tool, providerId);
 }
 
 /** Pixel center of a tile */
@@ -97,6 +97,9 @@ export function updateCharacter(
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
 ): void {
+  if (ch.observation === 'unknown' || ch.bubbleType === 'permission' || ch.waitingAwaitingInput) {
+    return;
+  }
   ch.frameTimer += dt;
 
   switch (ch.state) {
@@ -318,9 +321,12 @@ export function updateCharacter(
 
 /** Get the correct sprite frame for a character's current state and direction */
 export function getCharacterSprite(ch: Character, sprites: CharacterSprites): SpriteData {
+  if (ch.observation === 'unknown' || ch.bubbleType === 'permission' || ch.waitingAwaitingInput) {
+    return ch.state === CharacterState.TYPE ? sprites.typing[ch.dir][0] : sprites.walk[ch.dir][1];
+  }
   switch (ch.state) {
     case CharacterState.TYPE:
-      if (isReadingTool(ch.currentTool)) {
+      if (isReadingTool(ch.currentTool, ch.providerId)) {
         return sprites.reading[ch.dir][ch.frame % 2];
       }
       return sprites.typing[ch.dir][ch.frame % 2];

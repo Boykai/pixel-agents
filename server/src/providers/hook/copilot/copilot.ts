@@ -1,33 +1,27 @@
 /**
  * HookProvider for GitHub Copilot CLI / the GitHub Copilot app.
  *
- * Unlike Claude Code, Copilot CLI has no documented hooks API: there is no way to
- * register a callback that POSTs tool/turn events to our server as they happen.
- * What it DOES have is a transcript on disk for every session — confirmed against
- * a live session while building this provider:
+ * Copilot supports observational hooks and persisted session events:
  *
  *   ~/.copilot/session-state/<session-id>/events.jsonl   (event log, one JSON object per line)
  *   ~/.copilot/session-state/<session-id>/workspace.yaml (has a `cwd:` line — the session's workspace)
  *
- * So this provider is file-fallback ONLY: normalizeHookEvent always returns null
- * (nothing ever POSTs to /api/hooks/copilot), and installHooks/uninstallHooks are
- * no-ops. areHooksInstalled() resolves true so the first-run consent gate never
- * asks about a provider that writes nothing to any settings file (see
- * consentGate.ts: `hooksConsentRequest` skips a provider whose hooks are already
- * "installed").
- *
- * Record shapes below (event.type / event.data.*) come directly from a real
- * events.jsonl, not from any published spec — Copilot's dotted event names
- * (`tool.execution_start`, `assistant.turn_end`, ...) never collide with
- * Claude's bare ones (`assistant`, `system`, ...), so transcriptParser.ts
- * branches on them safely alongside Claude's own parsing.
+ * Hook availability and persisted event shapes vary across App/CLI versions.
+ * See docs/copilot-compatibility.md for source and capability boundaries.
  */
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.js';
 import { pathsMatch } from '../../../pathKey.js';
+import { CONSENT_DISCLOSURE, CONSENT_INSTALL_HEADLINE } from './consentCopy.js';
+import {
+  areHooksInstalled as areCopilotHooksInstalled,
+  getCopilotHome,
+  installHooks as installCopilotHooks,
+  uninstallHooks as uninstallCopilotHooks,
+} from './copilotHookInstaller.js';
+import { recoverCopilotTranscript } from './recovery.js';
 
 const COPILOT_TERMINAL_NAME_PREFIX = 'GitHub Copilot';
 const SESSION_FILE_NAME = 'events.jsonl';
@@ -42,7 +36,11 @@ const BASH_COMMAND_DISPLAY_MAX_LENGTH = 60;
 const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 60;
 
 function base(p: unknown): string {
-  return typeof p === 'string' ? path.basename(p) : '';
+  return typeof p === 'string'
+    ? p.includes('\\')
+      ? path.win32.basename(p)
+      : path.basename(p)
+    : '';
 }
 
 function firstStringField(input: Record<string, unknown>, keys: string[]): string {
@@ -54,7 +52,10 @@ function firstStringField(input: Record<string, unknown>, keys: string[]): strin
 }
 
 export function formatToolStatus(toolName: string, input?: unknown): string {
-  const inp = (input ?? {}) as Record<string, unknown>;
+  const inp =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
   switch (toolName) {
     case 'view':
     case 'read':
@@ -62,10 +63,13 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
     case 'edit':
     case 'str_replace_editor':
       return `Editing ${base(firstStringField(inp, ['path', 'file_path']))}`;
+    case 'apply_patch':
+      return 'Applying patch';
     case 'create':
     case 'write':
       return `Writing ${base(firstStringField(inp, ['path', 'file_path']))}`;
     case 'grep':
+    case 'rg':
       return 'Searching code';
     case 'glob':
       return 'Searching files';
@@ -109,8 +113,7 @@ function readWorkspaceYamlContent(workspaceYamlPath: string): string | undefined
  *  writer, not user-authored YAML) and cwd is the only field we need. */
 function readWorkspaceCwd(workspaceYamlPath: string): string | undefined {
   const content = readWorkspaceYamlContent(workspaceYamlPath);
-  const match = content?.match(/^cwd:\s*(.+)$/m);
-  return match?.[1]?.trim();
+  return content ? readWorkspaceYamlField(content, 'cwd') : undefined;
 }
 
 /** Read a scalar field out of workspace.yaml content, handling the three
@@ -143,7 +146,7 @@ function readWorkspaceYamlField(content: string, field: string): string | undefi
  *  scanning every session directory's workspace.yaml and keeping the ones
  *  whose cwd matches -- there can be zero, one, or several. */
 function getSessionDirs(workspacePath: string): string[] {
-  const root = path.join(os.homedir(), '.copilot', 'session-state');
+  const [root] = getAllSessionRoots();
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(root, { withFileTypes: true });
@@ -167,7 +170,13 @@ function getSessionDirs(workspacePath: string): string[] {
  *  project dirs (a directory whose entries include `.jsonl` files), so no
  *  scanner changes were needed to support this. */
 function getAllSessionRoots(): string[] {
-  return [path.join(os.homedir(), '.copilot', 'session-state')];
+  return [path.join(getCopilotHome(), 'session-state')];
+}
+
+function getSessionFile(sessionId: string): string | undefined {
+  return /^[a-zA-Z0-9_-]+$/.test(sessionId)
+    ? path.join(getAllSessionRoots()[0], sessionId, SESSION_FILE_NAME)
+    : undefined;
 }
 
 /** Unlike Claude, whose project dir basename IS the workspace path (separators
@@ -176,9 +185,9 @@ function getAllSessionRoots(): string[] {
  *  nothing -- decoding it just displays the UUID. The actual workspace lives
  *  in that same session's workspace.yaml, so read it back out.
  *
- *  Prefers `repository` ("owner/repo") when present -- this is the Project
- *  GHCP's own UI shows, and it's the more useful label when Watch All
- *  Sessions mixes many different repos into one office. `repository` is
+ *  Prefers CLI-supplied `repository` ("owner/repo") when present; this is not
+ *  an authoritative App project identifier. It is a useful label when Watch
+ *  All Sessions mixes different repos into one office. `repository` is
  *  absent for sessions whose cwd isn't inside a tracked GitHub repo, so those
  *  fall back to the cwd's own basename, matching what Claude agents show. */
 function resolveSessionFolderName(dirPath: string): string | undefined {
@@ -187,15 +196,11 @@ function resolveSessionFolderName(dirPath: string): string | undefined {
   const repository = content ? readWorkspaceYamlField(content, 'repository') : undefined;
   if (repository) return repository;
   const cwd = readWorkspaceCwd(workspaceYamlPath);
-  return cwd ? path.basename(cwd) : undefined;
+  return cwd ? base(cwd) : undefined;
 }
 
-/** GHCP names every session with either a user-given title or an
- *  auto-generated task-description summary (`workspace.yaml`'s `name` field)
- *  -- a second, more meaningful label than the folder/project name alone,
- *  and the one shown in GHCP's own session picker. Claude has no equivalent
- *  concept (a Claude session IS its project directory), so this is
- *  Copilot-only. */
+/** Use the session title supplied by the CLI instead of an opaque UUID.
+ *  App-local titles and identifiers may differ; do not infer a mapping. */
 function resolveSessionName(dirPath: string): string | undefined {
   const content = readWorkspaceYamlContent(path.join(dirPath, 'workspace.yaml'));
   const name = content ? readWorkspaceYamlField(content, 'name') : undefined;
@@ -209,40 +214,76 @@ function buildLaunchCommand(
   sessionId: string,
   cwd: string,
 ): { command: string; args: string[]; env?: Record<string, string> } {
-  return { command: 'copilot', args: ['--resume', sessionId], env: { PWD: cwd } };
+  return { command: 'copilot', args: ['--session-id', sessionId], env: { PWD: cwd } };
 }
-
-// ── normalizeHookEvent: no hooks API exists, so nothing ever reaches here ──
 
 function normalizeHookEvent(
-  _raw: Record<string, unknown>,
+  raw: Record<string, unknown>,
 ): { sessionId: string; event: AgentEvent } | null {
-  return null;
+  const sessionId = raw.sessionId ?? raw.session_id;
+  const hookType = raw.hookType ?? raw.hook_event_name;
+  if (typeof sessionId !== 'string' || !sessionId || typeof hookType !== 'string') return null;
+  switch (hookType) {
+    case 'userPromptSubmitted':
+      return { sessionId, event: { kind: 'turnStart' } };
+    case 'sessionStart':
+      return {
+        sessionId,
+        event: {
+          kind: 'sessionStart',
+          source: typeof raw.source === 'string' ? raw.source : undefined,
+          cwd: typeof raw.cwd === 'string' ? raw.cwd : undefined,
+          transcriptPath: getSessionFile(sessionId),
+        },
+      };
+    case 'agentStop':
+      return { sessionId, event: { kind: 'turnEnd' } };
+    case 'notification':
+      if (
+        raw.notification_type === 'permission_prompt' ||
+        raw.notificationType === 'permission_prompt'
+      ) {
+        return { sessionId, event: { kind: 'permissionRequest' } };
+      }
+      if (
+        raw.notification_type === 'elicitation_dialog' ||
+        raw.notificationType === 'elicitation_dialog'
+      ) {
+        return { sessionId, event: { kind: 'turnEnd', awaitingInput: true } };
+      }
+      return { sessionId, event: { kind: 'observation' } };
+    case 'preToolUse':
+      if (typeof raw.toolCallId !== 'string' || typeof raw.toolName !== 'string') {
+        return { sessionId, event: { kind: 'observation' } };
+      }
+      return {
+        sessionId,
+        event: {
+          kind: 'toolStart',
+          toolId: raw.toolCallId,
+          toolName: raw.toolName,
+          input: raw.toolArgs,
+        },
+      };
+    case 'postToolUse':
+    case 'postToolUseFailure':
+      return typeof raw.toolCallId === 'string'
+        ? { sessionId, event: { kind: 'toolEnd', toolId: raw.toolCallId } }
+        : { sessionId, event: { kind: 'observation' } };
+    // Neither permission evaluation nor the App's recurring sessionEnd proves a terminal state.
+    default:
+      return null;
+  }
 }
 
-// ── Hooks install: no-ops. Nothing is ever written to any Copilot config file ──
-
-function installHooks(): Promise<void> {
-  return Promise.resolve();
-}
-
-function uninstallHooks(): Promise<void> {
-  return Promise.resolve();
-}
-
-/** Always "installed": there is nothing to install, so the first-run consent
- *  gate (which only asks when `!installed`) never asks about this provider. */
-function areHooksInstalled(): Promise<boolean> {
-  return Promise.resolve(true);
+async function areHooksInstalled(): Promise<boolean> {
+  return areCopilotHooksInstalled();
 }
 
 function consentDisclosure(): { headline: string; disclosure: string } {
   return {
-    headline: 'No hook installation needed',
-    disclosure:
-      'GitHub Copilot CLI has no hooks API, so Pixel Agents never modifies any of its ' +
-      `settings files. Instead it reads session transcripts directly from ` +
-      `~/.copilot/session-state/<session-id>/${SESSION_FILE_NAME} on this machine.`,
+    headline: CONSENT_INSTALL_HEADLINE,
+    disclosure: CONSENT_DISCLOSURE,
   };
 }
 
@@ -253,24 +294,45 @@ export const copilotProvider: HookProvider = {
   id: 'copilot',
   displayName: 'GitHub Copilot CLI',
   protocolVersion: 1,
+  capabilities: {
+    hooks: true,
+    discovery: true,
+    permissionRequests: true,
+    userInput: true,
+    contextUsage: true,
+    subagents: true,
+    teams: false,
+    sessionEnd: false,
+  },
 
   normalizeHookEvent,
 
-  installHooks,
-  uninstallHooks,
+  installHooks: installCopilotHooks,
+  uninstallHooks: uninstallCopilotHooks,
   areHooksInstalled,
   consentDisclosure,
 
   formatToolStatus,
   permissionExemptTools: new Set(['task', 'agent', 'ask_user']),
   subagentToolNames: new Set(['task', 'agent']),
-  readingTools: new Set(['view', 'read', 'grep', 'glob', 'web_fetch', 'fetch', 'web_search']),
+  readingTools: new Set(['view', 'read', 'grep', 'rg', 'glob', 'web_fetch', 'fetch', 'web_search']),
   terminalNamePrefix: COPILOT_TERMINAL_NAME_PREFIX,
 
   getSessionDirs,
   getAllSessionRoots,
+  getSessionFile,
+  getSessionCwd: (dir) => readWorkspaceCwd(path.join(dir, 'workspace.yaml')),
+  resolveSessionId: (file) =>
+    path.basename(file) === SESSION_FILE_NAME ? path.basename(path.dirname(file)) : undefined,
+  isSessionCandidate: ({ previousSize, size }) => previousSize !== undefined && size > previousSize,
   resolveSessionFolderName,
   resolveSessionName,
-  sessionFilePattern: '*.jsonl',
+  recoverTranscript: recoverCopilotTranscript,
+  sessionFilePattern: 'events.jsonl',
+  expectedTranscriptPath: (sessionId) => {
+    const file = getSessionFile(sessionId);
+    if (!file) throw new Error('Invalid Copilot session ID');
+    return file;
+  },
   buildLaunchCommand,
 };

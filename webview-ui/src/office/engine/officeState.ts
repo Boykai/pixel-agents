@@ -717,6 +717,7 @@ export class OfficeState {
     if (parentCh) ch.dir = parentCh.dir;
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
+    ch.providerId = parentCh?.providerId;
     startMatrixEffect(ch, 'spawn');
     this.characters.set(id, ch);
 
@@ -795,6 +796,8 @@ export class OfficeState {
   setAgentActive(id: number, active: boolean): void {
     const ch = this.characters.get(id);
     if (ch) {
+      ch.observation = 'known';
+      if (active) ch.waitingAwaitingInput = false;
       ch.isActive = active;
       if (!active) {
         // Sentinel -1: signals turn just ended, skip next seat rest timer.
@@ -807,12 +810,40 @@ export class OfficeState {
     }
   }
 
+  setAgentObservation(id: number, observation: 'known' | 'unknown'): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    ch.observation = observation;
+    if (observation === 'unknown') {
+      ch.bubbleType = null;
+      ch.waitingAwaitingInput = false;
+    }
+    this.rebuildFurnitureInstances();
+  }
+
+  setAgentMetadata(
+    id: number,
+    metadata: {
+      providerId?: string;
+      observation?: 'known' | 'unknown';
+      folderName?: string;
+      sessionName?: string;
+    },
+  ): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    if (metadata.providerId !== undefined) ch.providerId = metadata.providerId;
+    if (metadata.folderName !== undefined) ch.folderName = metadata.folderName;
+    if (metadata.sessionName !== undefined) ch.sessionName = metadata.sessionName;
+    if (metadata.observation !== undefined) this.setAgentObservation(id, metadata.observation);
+  }
+
   /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
   private rebuildFurnitureInstances(): void {
     // Collect tiles where active agents face desks
     const autoOnTiles = new Set<string>();
     for (const ch of this.characters.values()) {
-      if (!ch.isActive || !ch.seatId) continue;
+      if (!ch.isActive || !ch.seatId || ch.observation === 'unknown') continue;
       const seat = this.seats.get(ch.seatId);
       if (!seat) continue;
       // Find the desk tile(s) the agent faces from their seat

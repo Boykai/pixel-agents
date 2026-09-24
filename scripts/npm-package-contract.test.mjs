@@ -53,6 +53,14 @@ test('rejects source and preview files even when required files exist', () => {
   );
 });
 
+test('rejects a tarball missing the Copilot hook bridge', () => {
+  const files = validFiles().filter((file) => file.path !== 'dist/hooks/copilot-hook.js');
+  assert.throws(
+    () => validatePackageFiles(files),
+    /missing required file: dist\/hooks\/copilot-hook\.js/,
+  );
+});
+
 test('validates release tag, ref, repository, and monotonic version', () => {
   const manifest = {
     name: 'pixel-agents',

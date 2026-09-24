@@ -11,7 +11,7 @@ import {
 import { advanceIntroToConsentStep, finishIntro } from '../../helpers/intro';
 import { expectOverlayCount, expectOverlayVisible } from '../../helpers/office';
 import type { RecordedServerMessage } from '../../helpers/standalone';
-import { openSettingsModal, setSettings } from '../../helpers/webview';
+import { confirmHookInstallation, openSettingsModal, setSettings } from '../../helpers/webview';
 
 test.describe('Standalone / hooks', () => {
   test('propagates hook-driven lifecycle into the browser UI @area:standalone', async ({
@@ -184,10 +184,10 @@ test.describe('Standalone / hooks consent', () => {
   /**
    * The Settings-checkbox route, for a user who dismissed the dialog: Not Now
    * writes nothing, the checkbox shows the ACTUAL install state (not the
-   * hooksEnabled preference, which still defaults true), and clicking it is
-   * the consent grant.
+   * hooksEnabled preference, which still defaults true). Clicking it opens the
+   * provider disclosure; only the separate Install hooks click grants consent.
    */
-  test('the hooks checkbox reflects install state and its click is the consent grant @area:standalone', async ({
+  test('the hooks checkbox opens disclosure and only explicit confirmation grants consent @area:standalone', async ({
     page,
     standalone,
   }) => {
@@ -212,8 +212,8 @@ test.describe('Standalone / hooks consent', () => {
     // ever raced ahead, that would click nothing and every assertion below
     // would pass vacuously over a state this test never caused.
     const settingsModal = await openSettingsModal(page);
-    const hooksCheckbox = settingsModal.locator('button', {
-      hasText: 'Instant Detection (Hooks)',
+    const hooksCheckbox = settingsModal.getByRole('button', {
+      name: 'Claude Code — Instant Detection (Hooks)',
     });
     const isChecked = async (): Promise<boolean> =>
       ((await hooksCheckbox.locator('span').last().textContent()) ?? '').trim().toLowerCase() ===
@@ -221,11 +221,43 @@ test.describe('Standalone / hooks consent', () => {
 
     expect(await isChecked()).toBe(false);
 
-    // Clicking it IS the consent grant (the documented route after a decline).
+    // Opening the disclosure alone must not grant consent or write hooks.
     await hooksCheckbox.click();
+    await expect(settingsModal).toContainText('~/.claude/settings.json');
+    await expect(settingsModal).toContainText('127.0.0.1');
+    await expect(
+      settingsModal.getByRole('button', { name: 'Install hooks', exact: true }),
+    ).toBeVisible();
+    expect(fs.existsSync(settingsPath)).toBe(false);
+    expect(readConsentFrom(standalone.tmpHome)).toBe(false);
+    expect(await isChecked()).toBe(false);
+
+    await settingsModal.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(
+      settingsModal.getByRole('button', { name: 'Install hooks', exact: true }),
+    ).toBeHidden();
+    expect(fs.existsSync(settingsPath)).toBe(false);
+    expect(readConsentFrom(standalone.tmpHome)).toBe(false);
+    await hooksCheckbox.click();
+    await confirmHookInstallation(settingsModal);
 
     await expect.poll(() => readConsentFrom(standalone.tmpHome), { timeout: 15_000 }).toBe(true);
     await expect.poll(() => ourHookEventCount(standalone.tmpHome), { timeout: 15_000 }).toBe(12);
     await expect.poll(() => isChecked(), { timeout: 15_000 }).toBe(true);
+
+    // Uninstall remains a direct action; it must not open the install disclosure.
+    await hooksCheckbox.click();
+    await expect.poll(() => ourHookEventCount(standalone.tmpHome), { timeout: 15_000 }).toBe(0);
+    await expect.poll(() => isChecked(), { timeout: 15_000 }).toBe(false);
+    await expect(
+      settingsModal.getByRole('button', { name: 'Install hooks', exact: true }),
+    ).toBeHidden();
+
+    await settingsModal.getByRole('button', { name: 'x', exact: true }).click();
+    // Exercise the shared helper used by the VS Code settings round-trip too.
+    await setSettings(page, { hooksEnabled: true, hooksProvider: 'claude' });
+    await expect.poll(() => ourHookEventCount(standalone.tmpHome), { timeout: 15_000 }).toBe(12);
+    await setSettings(page, { hooksEnabled: false, hooksProvider: 'claude' });
+    await expect.poll(() => ourHookEventCount(standalone.tmpHome), { timeout: 15_000 }).toBe(0);
   });
 });

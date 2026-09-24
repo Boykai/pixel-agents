@@ -20,6 +20,7 @@ import {
   WS_CLOSE_FORBIDDEN_ORIGIN,
   WS_CLOSE_UNAUTHORIZED,
 } from './constants.js';
+import { hookProviders } from './providers/index.js';
 import type { AgentState } from './types.js';
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
@@ -137,10 +138,25 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
     async (request, reply) => {
       const { providerId } = request.params;
       const event = request.body;
-
-      if (event.session_id && event.hook_event_name) {
-        options.onHookEvent?.(providerId, event);
+      if (
+        !(options.activeProviders ?? hookProviders).some((provider) => provider.id === providerId)
+      ) {
+        return reply.code(404).send({ error: 'Provider is not enabled' });
       }
+      if (!event || typeof event !== 'object' || Array.isArray(event)) {
+        return reply.code(400).send({ error: 'Hook event must be an object' });
+      }
+      const sessionId = event.sessionId ?? event.session_id;
+      const eventName = event.hookType ?? event.hook_event_name;
+      if (
+        typeof sessionId !== 'string' ||
+        !sessionId ||
+        typeof eventName !== 'string' ||
+        !eventName
+      ) {
+        return reply.code(400).send({ error: 'Hook event requires a session ID and event name' });
+      }
+      options.onHookEvent?.(providerId, event);
 
       reply.send('ok');
     },

@@ -123,7 +123,9 @@ describe('migrateVsCodeState', () => {
 
     migrateVsCodeState(context, adapter);
 
-    expect(adapter.loadAgents()).toEqual(legacyAgents);
+    expect(adapter.loadAgents()).toEqual(
+      legacyAgents.map((agent) => ({ ...agent, providerId: 'claude' })),
+    );
     expect(adapter.loadSeats()).toEqual(legacySeats);
     expect(workspaceStore).toEqual({});
     expect(showWarningMessage).not.toHaveBeenCalled();

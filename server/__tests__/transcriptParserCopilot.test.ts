@@ -2,16 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
-import {
-  processTranscriptLine,
-  setHookProvider,
-} from '../src/transcriptParser.js';
+import { processTranscriptLine, setHookProvider } from '../src/transcriptParser.js';
 import type { AgentState } from '../src/types.js';
 
 /** Minimal AgentState for testing (mirrors transcriptParser.test.ts). */
 function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   return {
     id: 1,
+    providerId: 'copilot',
     sessionId: 'lead-session',
     terminalRef: undefined,
     isExternal: true,
@@ -92,7 +90,47 @@ describe('transcriptParser: Copilot CLI records', () => {
     expect(messages.some((m) => m.type === 'agentStatus' && m.status === 'active')).toBe(true);
   });
 
-  it('tool.execution_complete clears the tool and (delayed) broadcasts agentToolDone', () => {
+  it('preserves explicit permission across unrelated progress and billing records', () => {
+    const records = [
+      {
+        type: 'permission.requested',
+        data: { requestId: 'request-1', permissionRequest: { kind: 'shell' } },
+      },
+      { type: 'tool.execution_progress', data: { toolCallId: 'other-tool' } },
+      { type: 'assistant.usage', data: { inputTokens: 1234, outputTokens: 100 } },
+      {
+        type: 'assistant',
+        message: {
+          model: 'claude-sonnet-4',
+          usage: { input_tokens: 1234, output_tokens: 100 },
+          content: [],
+        },
+      },
+    ];
+    for (const record of records) {
+      processTranscriptLine(1, JSON.stringify(record), agents, waitingTimers, permissionTimers);
+    }
+    expect(agent.permissionSent).toBe(true);
+    expect(agent.contextTokens).toBe(0);
+    expect(messages.some((message) => message.type === 'agentToolPermissionClear')).toBe(false);
+    expect(messages.some((message) => message.type === 'agentContextUsage')).toBe(false);
+
+    processTranscriptLine(
+      1,
+      JSON.stringify({
+        type: 'session.usage_info',
+        data: { currentTokens: 400, tokenLimit: 1000 },
+      }),
+      agents,
+      waitingTimers,
+      permissionTimers,
+    );
+    expect(agent.contextTokens).toBe(400);
+    expect(agent.maxContextTokens).toBe(1000);
+    expect(agent.permissionSent).toBe(true);
+  });
+
+  it('tool.execution_complete clears the exact tool and broadcasts agentToolDone', () => {
     processTranscriptLine(
       1,
       toolStartRecord('call_1', 'edit', { path: '/x/bar.ts' }),
@@ -102,8 +140,6 @@ describe('transcriptParser: Copilot CLI records', () => {
     );
     processTranscriptLine(1, toolCompleteRecord('call_1'), agents, waitingTimers, permissionTimers);
     expect(agent.activeToolIds.has('call_1')).toBe(false);
-    expect(messages.some((m) => m.type === 'agentToolDone')).toBe(false); // delayed
-    vi.runAllTimers();
     expect(messages.some((m) => m.type === 'agentToolDone' && m.toolId === 'call_1')).toBe(true);
   });
 
@@ -125,15 +161,15 @@ describe('transcriptParser: Copilot CLI records', () => {
     expect(agent.activeToolIds.has('call_1')).toBe(false);
   });
 
-  it('assistant.turn_end clears tool state and broadcasts agentStatus waiting (unconditional, even text-only turns)', () => {
+  it('an unanchored assistant.turn_end cannot establish aggregate completion', () => {
     processTranscriptLine(1, turnEndRecord(), agents, waitingTimers, permissionTimers);
-    expect(agent.isWaiting).toBe(true);
+    expect(agent.isWaiting).toBe(false);
     expect(agent.hadToolsInTurn).toBe(false);
-    const status = messages.find((m) => m.type === 'agentStatus');
-    expect(status).toMatchObject({ status: 'waiting', awaitingInput: false });
+    expect(agent.observation).toBe('unknown');
+    expect(messages.some((m) => m.type === 'agentStatus' && m.status === 'waiting')).toBe(false);
   });
 
-  it('assistant.turn_end after tool use broadcasts agentToolsClear', () => {
+  it('assistant.turn_end cannot clear an outstanding uncorrelated tool', () => {
     processTranscriptLine(
       1,
       toolStartRecord('call_1', 'grep', {}),
@@ -142,8 +178,8 @@ describe('transcriptParser: Copilot CLI records', () => {
       permissionTimers,
     );
     processTranscriptLine(1, turnEndRecord(), agents, waitingTimers, permissionTimers);
-    expect(agent.activeToolIds.size).toBe(0);
-    expect(messages.some((m) => m.type === 'agentToolsClear')).toBe(true);
+    expect(agent.activeToolIds.has('call_1')).toBe(true);
+    expect(messages.some((m) => m.type === 'agentToolsClear')).toBe(false);
   });
 
   it('a subagent tool (task) completing broadcasts subagentClear', () => {

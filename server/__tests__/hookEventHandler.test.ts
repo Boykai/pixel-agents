@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { PERMISSION_TIMER_DELAY_MS } from '../src/constants.js';
 import { HookEventHandler } from '../src/hookEventHandler.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { SessionRouter } from '../src/sessionRouter.js';
+import { startPermissionTimer, startWaitingTimer } from '../src/timerManager.js';
 import type { AgentState } from '../src/types.js';
 
 /** Minimal AgentState for testing. */
@@ -71,6 +73,73 @@ describe('HookEventHandler', () => {
   });
 
   // ── PermissionRequest ───────────────────────────────────────
+
+  it.each(['SessionStart', 'PreToolUse'])(
+    '%s cancels heuristic timers left over from transcript adoption',
+    (hookEvent) => {
+      vi.useFakeTimers();
+      try {
+        const agent = createTestAgent({
+          activeToolIds: new Set(['long-tool']),
+          activeToolNames: new Map([['long-tool', 'Bash']]),
+        });
+        agents.set(agent.id, agent);
+        handler.registerAgent('sess-1', agent.id);
+        startWaitingTimer(agent.id, PERMISSION_TIMER_DELAY_MS, agents, waitingTimers);
+        startPermissionTimer(
+          agent.id,
+          agents,
+          permissionTimers,
+          claudeProvider.permissionExemptTools,
+        );
+        handler.handleEvent('claude', {
+          hook_event_name: hookEvent,
+          session_id: 'sess-1',
+          tool_name: 'Bash',
+          tool_use_id: 'long-tool',
+          tool_input: { command: 'long-running command' },
+        });
+        expect(waitingTimers.size).toBe(0);
+        expect(permissionTimers.size).toBe(0);
+        vi.advanceTimersByTime(PERMISSION_TIMER_DELAY_MS);
+        expect(agent.permissionSent).toBe(false);
+        expect(agent.isWaiting).toBe(false);
+        expect(mockWebview.messages.some((message) => message.type === 'agentToolPermission')).toBe(
+          false,
+        );
+      } finally {
+        handler.dispose();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('rechecks hook delivery before a heuristic timer fires', () => {
+    vi.useFakeTimers();
+    try {
+      const agent = createTestAgent({
+        activeToolIds: new Set(['long-tool']),
+        activeToolNames: new Map([['long-tool', 'Bash']]),
+      });
+      agents.set(agent.id, agent);
+      startWaitingTimer(agent.id, PERMISSION_TIMER_DELAY_MS, agents, waitingTimers);
+      startPermissionTimer(
+        agent.id,
+        agents,
+        permissionTimers,
+        claudeProvider.permissionExemptTools,
+      );
+      agent.hookDelivered = true;
+      vi.advanceTimersByTime(PERMISSION_TIMER_DELAY_MS);
+      expect(agent.permissionSent).toBe(false);
+      expect(agent.isWaiting).toBe(false);
+      expect(mockWebview.messages).toEqual([]);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
 
   it('PermissionRequest sends agentToolPermission', () => {
     const agent = createTestAgent({ id: 1 });

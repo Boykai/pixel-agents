@@ -1,5 +1,24 @@
 # React + TypeScript + Vite
 
+## Provider-aware office
+
+The shared office renders both standalone and VS Code sessions. Provider capability messages
+scope tool animations and Sub-agent classification by `providerId`; a provider's tool names
+must never become another provider's classifications. Legacy snapshots without a provider
+retain Claude behavior.
+
+Settings shows each enabled provider's actual hook installation state and its own disclosure.
+Installed hooks do not prove event delivery. Unknown observations keep the last activity state
+but pause character animation and clear speech bubbles, without announcing completion.
+Recovered status messages do not replay sounds or finished-turn bubbles. Renaming a session
+updates its label without recreating its character or changing seats, palette, or selection.
+
+VS Code exposes launch-provider selection when multiple providers are enabled. Standalone
+remains an observer and does not offer terminal launch/focus or guessed Copilot App links.
+Hook installs are shared across adapters. VS Code uninstall conservatively retains hooks and
+consent rather than disrupting standalone; disable each provider in Settings first if you
+want to remove its shared hooks.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
@@ -40,15 +59,15 @@ export default defineConfig([
       // other options...
     },
   },
-])
+]);
 ```
 
 You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
 ```js
 // eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+import reactX from 'eslint-plugin-react-x';
+import reactDom from 'eslint-plugin-react-dom';
 
 export default defineConfig([
   globalIgnores(['dist']),
@@ -69,5 +88,5 @@ export default defineConfig([
       // other options...
     },
   },
-])
+]);
 ```

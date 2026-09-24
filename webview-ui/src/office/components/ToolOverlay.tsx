@@ -20,6 +20,7 @@ import {
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import type { OfficeState } from '../engine/officeState.js';
 import { overlayProjection } from '../projection.js';
+import { providerDisplayName } from '../toolUtils.js';
 import type { ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
 
@@ -71,7 +72,7 @@ function getActivityText(
     }
   }
 
-  return 'Idle';
+  return isActive ? 'Active' : 'Idle';
 }
 
 function getFuelColor(ratio: number): string {
@@ -158,10 +159,11 @@ export function ToolOverlay({
         }
 
         // Get activity text
-        const hasWaitingBubble = ch.bubbleType === 'waiting';
         const subHasPermission = isSub && ch.bubbleType === 'permission';
         let activityText: string;
-        if (hasWaitingBubble && ch.waitingAwaitingInput) {
+        if (ch.observation === 'unknown') {
+          activityText = 'Unknown';
+        } else if (ch.waitingAwaitingInput) {
           // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
           // shows only the checkmark and falls through to the normal idle text.
           activityText = WAITING_INPUT_ACTIVITY_TEXT;
@@ -192,10 +194,12 @@ export function ToolOverlay({
         const hasPermission = subHasPermission || tools?.some((t) => t.permissionWait && !t.done);
         const hasActiveTools = tools?.some((t) => !t.done);
         const isActive = ch.isActive;
-        const hasWaiting = ch.bubbleType === 'waiting';
+        const hasWaiting = ch.bubbleType === 'waiting' || ch.waitingAwaitingInput;
 
         let dotColor: string | null = null;
-        if (hasPermission || hasWaiting) {
+        if (ch.observation === 'unknown') {
+          dotColor = 'var(--color-text-muted)';
+        } else if (hasPermission || hasWaiting) {
           dotColor = 'var(--color-status-permission)';
         } else if (isActive && hasActiveTools) {
           dotColor = 'var(--color-status-active)';
@@ -204,13 +208,16 @@ export function ToolOverlay({
         // Team info
         const teamRoleLabel = ch.isTeamLead ? 'LEAD' : ch.agentName || null;
         const extraLineCount =
-          (teamRoleLabel ? 1 : 0) + (ch.folderName ? 1 : 0) + (ch.sessionName ? 1 : 0);
+          (teamRoleLabel ? 1 : 0) +
+          (ch.folderName ? 1 : 0) +
+          (ch.sessionName ? 1 : 0) +
+          (ch.providerId ? 1 : 0);
 
         // Context gauge. Every agent gets one — lead, teammate, adopted,
         // headless — as soon as it has taken a turn. Sub-agents never do: they
         // have no session of their own, so contextTokens stays 0.
         const contextRatio = ch.contextTokens / ch.maxContextTokens;
-        const showContextGauge = !isSub && ch.contextTokens > 0;
+        const showContextGauge = !isSub && ch.contextTokens > 0 && ch.maxContextTokens > 0;
 
         return (
           <div
@@ -263,6 +270,11 @@ export function ToolOverlay({
                 {ch.sessionName && (
                   <span className="text-2xs leading-none overflow-hidden text-ellipsis block opacity-75">
                     {ch.sessionName}
+                  </span>
+                )}
+                {ch.providerId && (
+                  <span className="text-2xs leading-none overflow-hidden text-ellipsis block opacity-75">
+                    {providerDisplayName(ch.providerId)}
                   </span>
                 )}
               </div>

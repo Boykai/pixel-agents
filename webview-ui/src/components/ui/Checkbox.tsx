@@ -3,12 +3,20 @@ interface CheckboxProps {
   onChange: () => void;
   label: string;
   className?: string;
+  disabled?: boolean;
 }
 
-export function Checkbox({ checked, onChange, label, className = '' }: CheckboxProps) {
+export function Checkbox({
+  checked,
+  onChange,
+  label,
+  className = '',
+  disabled = false,
+}: CheckboxProps) {
   return (
     <button
       onClick={onChange}
+      disabled={disabled}
       className={`flex items-center justify-between w-full py-6 px-10 bg-transparent border-none rounded-none cursor-pointer text-left hover:bg-btn-bg ${className}`}
     >
       <span>{label}</span>

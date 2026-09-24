@@ -27,6 +27,8 @@ export interface PendingAgent {
   folderName?: string;
   sessionName?: string;
   isHeadless?: boolean;
+  providerId?: string;
+  observation?: 'known' | 'unknown';
 }
 
 /** Minimal structural view of OfficeState this reconciler needs. */
@@ -43,6 +45,28 @@ export interface ExistingAgentsOffice {
     sessionName?: string,
   ) => void;
   setHeadless: (id: number, headless: boolean) => void;
+  setAgentMetadata?: (
+    id: number,
+    metadata: {
+      providerId?: string;
+      observation?: 'known' | 'unknown';
+      folderName?: string;
+      sessionName?: string;
+    },
+  ) => void;
+}
+
+export function reconcileAgentMetadata(
+  office: ExistingAgentsOffice,
+  pendingAgents: PendingAgent[],
+  id: number,
+  metadata: Pick<PendingAgent, 'folderName' | 'sessionName'>,
+): void {
+  office.setAgentMetadata?.(id, metadata);
+  const pending = pendingAgents.find((agent) => agent.id === id);
+  if (!pending) return;
+  if (metadata.folderName !== undefined) pending.folderName = metadata.folderName;
+  if (metadata.sessionName !== undefined) pending.sessionName = metadata.sessionName;
 }
 
 /**
@@ -61,6 +85,8 @@ export function reconcileExistingAgents(
   pending: PendingAgent[],
   headlessAgents: Record<number, boolean> = {},
   sessionNames: Record<number, string> = {},
+  providerIds: Record<number, string> = {},
+  observations: Record<number, 'known' | 'unknown'> = {},
 ): boolean {
   let addedDirectly = false;
   for (const id of incoming) {
@@ -73,13 +99,25 @@ export function reconcileExistingAgents(
       folderName: folderNames[id],
       sessionName: sessionNames[id],
       isHeadless: headlessAgents[id] === true,
+      ...(providerIds[id] !== undefined ? { providerId: providerIds[id] } : {}),
+      ...(observations[id] !== undefined ? { observation: observations[id] } : {}),
     };
     if (layoutReady) {
       if (!os.characters.has(p.id)) {
-        os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, undefined, p.sessionName);
+        os.addAgent(
+          p.id,
+          p.palette,
+          p.hueShift,
+          p.seatId,
+          true,
+          p.folderName,
+          undefined,
+          p.sessionName,
+        );
         if (p.isHeadless) os.setHeadless(p.id, true);
         addedDirectly = true;
       }
+      os.setAgentMetadata?.(p.id, p);
     } else {
       pending.push(p);
     }

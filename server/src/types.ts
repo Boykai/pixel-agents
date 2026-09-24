@@ -2,6 +2,7 @@ import type * as vscode from 'vscode';
 
 export interface AgentState {
   id: number;
+  observation?: 'known' | 'unknown';
   sessionId: string;
   /** Terminal reference — undefined for extension panel sessions */
   terminalRef?: vscode.Terminal;
@@ -18,6 +19,7 @@ export interface AgentState {
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
   backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)
   isWaiting: boolean;
+  awaitingInput?: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
   /** Workspace folder name (only set for multi-root workspaces) */
@@ -91,8 +93,12 @@ export interface AgentState {
   hueShift?: number;
 }
 
+export type ServerAgentState = AgentState;
+
 export interface PersistedAgent {
   id: number;
+  providerId?: string;
+  observation?: 'known' | 'unknown';
   sessionId?: string;
   /** Terminal name — empty string for extension panel sessions */
   terminalName: string;

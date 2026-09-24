@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 
+import type { HookProvider } from '../../core/src/provider.js';
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
 import {
@@ -27,7 +28,12 @@ import {
 } from './configPersistence.js';
 import { MAX_PORT, MIN_PORT } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
-import { claudeProvider, copyHookScript, hookProviderById } from './providers/index.js';
+import {
+  claudeProvider,
+  copyProviderHookScript,
+  hookProviderById,
+  resolveProviders,
+} from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
 
 // ── Argument parsing ──────────────────────────────────────────
@@ -37,8 +43,7 @@ export interface CliArgs {
    *  can run at once without a collision. --port picks a fixed one. */
   port?: number;
   host: string;
-  /** Hook provider id to track (default: 'claude'). Falls back to 'claude' on
-   *  an unknown id -- see hookProviderById in providers/index.ts. */
+  /** Provider selection: one id, comma-separated ids, or all (default: claude). */
   provider: string;
 }
 
@@ -68,8 +73,17 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (argv[i] === '--host' && argv[i + 1]) {
       args.host = argv[i + 1];
       i++;
-    } else if (argv[i] === '--provider' && argv[i + 1]) {
-      args.provider = argv[i + 1];
+    } else if (argv[i] === '--provider' || argv[i] === '--providers') {
+      const selection = argv[i + 1];
+      if (!selection || selection.startsWith('-')) {
+        throw new CliArgsError(`Missing value for ${argv[i]}: choose claude, copilot, or all.`);
+      }
+      try {
+        resolveProviders(selection);
+      } catch (error) {
+        throw new CliArgsError(error instanceof Error ? error.message : String(error));
+      }
+      args.provider = selection;
       i++;
     } else if (argv[i] === '--help') {
       console.log(`Usage: pixel-agents [options]
@@ -77,7 +91,8 @@ export function parseArgs(argv: string[]): CliArgs {
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)
   --host <string>       Host to bind to (default: 127.0.0.1)
-  --provider <id>       Agent CLI to track: "claude" or "copilot" (default: claude)
+  --provider <ids>      Track "claude", "copilot", comma-separated ids, or "all"
+                       (default: claude; --providers is an alias)
   --help                Show this help message`);
       process.exit(0);
     }
@@ -102,9 +117,15 @@ Options:
  * Claude Code spawn a dead `node` process for every event, which is strictly
  * worse than no hooks at all.
  */
-function copyHookScriptOrReport(packageRoot: string, context = ''): boolean {
-  if (copyHookScript(packageRoot)) return true;
-  console.error(`[Pixel Agents] Hooks NOT installed${context}: hook script missing.`);
+function copyHookScriptOrReport(
+  packageRoot: string,
+  provider: HookProvider,
+  context = '',
+): boolean {
+  if (copyProviderHookScript(provider, packageRoot)) return true;
+  console.error(
+    `[Pixel Agents] ${provider.displayName}: Hooks NOT installed${context}: hook script missing.`,
+  );
   return false;
 }
 
@@ -124,16 +145,10 @@ async function main(): Promise<void> {
   const packageRoot = path.dirname(distRoot);
   const staticDir = path.join(distRoot, 'webview');
 
-  // Resolve the active provider. Falls back to Claude (with a warning) on an
-  // unrecognized --provider id rather than crashing a headless run.
-  const selectedProvider = hookProviderById(args.provider) ?? claudeProvider;
-  if (selectedProvider.id !== args.provider) {
-    console.warn(
-      `[Pixel Agents] Unknown --provider "${args.provider}", falling back to "${claudeProvider.id}".`,
-    );
-  }
-  const isClaudeSelected = selectedProvider.id === claudeProvider.id;
-  console.log(`[Pixel Agents] Tracking provider: ${selectedProvider.displayName}`);
+  const selectedProviders = resolveProviders(args.provider);
+  console.log(
+    `[Pixel Agents] Tracking providers: ${selectedProviders.map((provider) => provider.displayName).join(', ')}`,
+  );
 
   // ── Load assets on startup (same pipeline as VS Code extension) ──
   // External asset directories are merged at startup too, so directories added
@@ -161,7 +176,7 @@ async function main(): Promise<void> {
 
   try {
     // Create runtime first (before server.start, so we can pass it in)
-    const runtime = new AgentRuntime(store, selectedProvider);
+    const runtime = new AgentRuntime(store, selectedProviders);
 
     // Wire hook events: HTTP POST -> runtime -> hookEventHandler -> agents
     server.onHookEvent((providerId, event) => {
@@ -175,17 +190,12 @@ async function main(): Promise<void> {
     const onSetHooksEnabled = async (providerId: string, enabled: boolean): Promise<void> => {
       if (!currentConfig) return;
       const provider = hookProviderById(providerId);
-      if (!provider) return; // unknown id: nothing to install into
+      if (!provider || !selectedProviders.includes(provider)) {
+        throw new Error(`Provider "${providerId}" is not enabled.`);
+      }
       if (enabled) {
-        // An explicit toggle in the UI IS the consent to modify the
-        // provider's settings file. The bundled claude-hook.js script belongs
-        // to the Claude provider alone; another provider's install must
-        // neither copy it nor be blocked by it.
         grantHooksConsent(provider.id);
-        if (
-          provider.id === claudeProvider.id &&
-          !copyHookScriptOrReport(packageRoot, ' (user toggle)')
-        ) {
+        if (!copyHookScriptOrReport(packageRoot, provider, ' (user toggle)')) {
           return;
         }
         try {
@@ -255,77 +265,56 @@ async function main(): Promise<void> {
       assetCache,
       onSetHooksEnabled,
       onReloadAssets,
-      // Scope the handshake's hooks-status + first-run-consent loop to just
-      // the provider this process was started with. Without this, the
-      // shared clientMessageHandler falls back to every registered provider
-      // and would ask about (and could install/uninstall) an unrelated
-      // provider's hooks — e.g. Claude Code's on a --provider copilot run.
-      activeProviders: [selectedProvider],
+      activeProviders: selectedProviders,
     });
     currentConfig = { port: config.port, token: config.token };
 
-    // Sync runtime refs with persisted settings BEFORE first scan tick. The
-    // runtime's single hooksEnabled ref follows the selected provider.
-    runtime.hooksEnabled.current = getHooksEnabled(selectedProvider.id);
     runtime.watchAllSessions.current = adapter.getSetting('pixel-agents.watchAllSessions', false);
 
-    // Install hooks on startup if the persisted setting says so — gated on the
-    // one-time consent to modify the provider's own settings file (a no-op for
-    // providers with no hooks API, e.g. Copilot: areHooksInstalled() already
-    // resolves true, so consent is silently granted and installHooks() no-ops).
-    if (runtime.hooksEnabled.current) {
-      let consent = getHooksConsent(selectedProvider.id) === 'granted';
-      if (!consent && (await selectedProvider.areHooksInstalled())) {
-        // Our hooks are already installed and already firing — a pre-consent
-        // version put them there. Grant and continue with NO prompt: the
-        // install below is the 14 -> 12 migration, and it only ever REDUCES
-        // scope (it drops UserPromptSubmit and TaskCreated, the two events that
-        // forwarded prompt text and were consumed by nothing). Asking would buy
-        // this user no protection they do not already have, so they are not
-        // asked. A fresh install still is, in full — in the browser UI, when a
-        // tokened client connects (clientMessageHandler's webviewReady).
-        grantHooksConsent(selectedProvider.id);
-        consent = true;
-      }
-      if (!consent) {
-        console.log(
-          '[Pixel Agents] Hooks not installed: modifying ~/.claude/settings.json needs one-time approval — open the URL below to review and approve it.',
-        );
-      } else if (!isClaudeSelected || copyHookScriptOrReport(packageRoot)) {
-        // The bundled hook script only exists for Claude; other providers'
-        // installHooks() is a no-op (e.g. Copilot has no hooks API at all).
-        try {
-          await selectedProvider.installHooks(`http://127.0.0.1:${config.port}`, config.token);
-          console.log('[Pixel Agents] Hooks installed');
-        } catch (err) {
-          console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
+    for (const selectedProvider of selectedProviders) {
+      const hooksEnabled = getHooksEnabled(selectedProvider.id);
+      runtime.setHooksEnabled(selectedProvider.id, hooksEnabled);
+      if (hooksEnabled) {
+        let consent = getHooksConsent(selectedProvider.id) === 'granted';
+        if (
+          !consent &&
+          selectedProvider.id === claudeProvider.id &&
+          (await selectedProvider.areHooksInstalled())
+        ) {
+          // Our hooks are already installed and already firing — a pre-consent
+          // version put them there. Grant and continue with NO prompt: the
+          // install below is the 14 -> 12 migration, and it only ever REDUCES
+          // scope (it drops UserPromptSubmit and TaskCreated, the two events that
+          // forwarded prompt text and were consumed by nothing). Asking would buy
+          // this user no protection they do not already have, so they are not
+          // asked. A fresh install still is, in full — in the browser UI, when a
+          // tokened client connects (clientMessageHandler's webviewReady).
+          grantHooksConsent(selectedProvider.id);
+          consent = true;
         }
+        if (!consent) {
+          console.log(
+            `[Pixel Agents] ${selectedProvider.displayName} needs one-time approval for hooks. Open the URL below to review and approve installation.`,
+          );
+        } else if (copyHookScriptOrReport(packageRoot, selectedProvider)) {
+          try {
+            await selectedProvider.installHooks(`http://127.0.0.1:${config.port}`, config.token);
+            console.log('[Pixel Agents] Hooks installed');
+          } catch (err) {
+            console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } else {
+        // Without this line, a persisted hooks-off makes startup skip the entire
+        // consent/install flow with zero output — indistinguishable from a bug.
+        console.log(
+          '[Pixel Agents] Hooks disabled — enable "Instant Detection (Hooks)" in the UI settings to install them.',
+        );
       }
-    } else {
-      // Without this line, a persisted hooks-off makes startup skip the entire
-      // consent/install flow with zero output — indistinguishable from a bug.
-      console.log(
-        '[Pixel Agents] Hooks disabled — enable "Instant Detection (Hooks)" in the UI settings to install them.',
-      );
     }
 
-    // Start scanning for external sessions in the current workspace (the CLI
-    // running in the user's own terminal). For providers whose sessions live in
-    // one shared per-workspace folder (Claude) this covers everything; for
-    // providers with one independent folder per session and no workspace
-    // grouping (Copilot: ~/.copilot/session-state/<uuid>/) this only picks up
-    // whichever session already existed at startup (dirs[0]) — brand-new
-    // Copilot sessions started after this launches are still found, just via
-    // the periodic global scan (enable "Watch All Sessions" in Settings).
     const cwd = process.cwd();
-    const dirs = selectedProvider.getSessionDirs?.(cwd);
-    if (dirs && dirs[0]) {
-      const projectDir = dirs[0];
-      console.log(`[Pixel Agents] Scanning project dir: ${projectDir}`);
-      runtime.startProjectScan(projectDir);
-      runtime.startExternalScanning(projectDir);
-      runtime.startStaleCheck();
-    }
+    runtime.startDiscovery([cwd]);
 
     // The URL the operator opens has to be REACHABLE (a wildcard bind address
     // is a bind target, not an address you can browse to — `--host 0.0.0.0`

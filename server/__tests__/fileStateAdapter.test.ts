@@ -108,6 +108,60 @@ describe('FileStateAdapter', () => {
 
   // ── Per-namespace state file (agents + seats) ───────────────
 
+  it('retains excluded providers and their seats when a selected provider saves or closes', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    const claude: PersistedAgent = {
+      id: 4,
+      providerId: 'claude',
+      terminalName: '',
+      jsonlFile: 'claude.jsonl',
+      projectDir: '',
+    };
+    const copilot: PersistedAgent = {
+      id: 8,
+      providerId: 'copilot',
+      terminalName: '',
+      jsonlFile: 'events.jsonl',
+      projectDir: '',
+    };
+    adapter.saveAgents([claude, copilot]);
+    adapter.saveSeats({ 4: { seatId: 'claude-seat' }, 8: { seatId: 'copilot-seat' } });
+    adapter.setActiveProviders(['copilot']);
+    adapter.saveAgents([{ ...copilot, sessionName: 'renamed' }]);
+    adapter.saveSeats({ 8: { seatId: 'new-seat' } });
+    expect(adapter.loadAgents()).toEqual([claude, { ...copilot, sessionName: 'renamed' }]);
+    expect(adapter.loadSeats()).toEqual({
+      4: { seatId: 'claude-seat' },
+      8: { seatId: 'new-seat' },
+    });
+
+    adapter.saveAgents([]);
+    adapter.saveSeats({});
+    expect(adapter.loadAgents()).toEqual([claude]);
+    expect(adapter.loadSeats()).toEqual({ 4: { seatId: 'claude-seat' } });
+
+    adapter.setActiveProviders(['claude', 'copilot']);
+    adapter.saveAgents([]);
+    adapter.saveSeats({});
+    expect(adapter.loadAgents()).toEqual([]);
+    expect(adapter.loadSeats()).toEqual({});
+  });
+
+  it('refuses a numeric ID collision with an excluded provider', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    const excluded: PersistedAgent = {
+      id: 4,
+      providerId: 'claude',
+      terminalName: '',
+      jsonlFile: 'claude.jsonl',
+      projectDir: '',
+    };
+    adapter.saveAgents([excluded]);
+    adapter.setActiveProviders(['copilot']);
+    adapter.saveAgents([{ ...excluded, providerId: 'copilot', jsonlFile: 'events.jsonl' }]);
+    expect(adapter.loadAgents()).toEqual([excluded]);
+  });
+
   it('returns empty arrays/objects when state file does not exist', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
     expect(adapter.loadAgents()).toEqual([]);
@@ -126,7 +180,9 @@ describe('FileStateAdapter', () => {
       },
     ];
     adapter.saveAgents(agents);
-    expect(adapter.loadAgents()).toEqual(agents);
+    expect(adapter.loadAgents()).toEqual(
+      agents.map((agent) => ({ ...agent, providerId: 'claude' })),
+    );
   });
 
   it('writes state at ~/.pixel-agents/<namespace>-state.json', () => {
@@ -147,8 +203,12 @@ describe('FileStateAdapter', () => {
     ];
     vscode.saveAgents(agentVs);
     standalone.saveAgents(agentSa);
-    expect(vscode.loadAgents()).toEqual(agentVs);
-    expect(standalone.loadAgents()).toEqual(agentSa);
+    expect(vscode.loadAgents()).toEqual(
+      agentVs.map((agent) => ({ ...agent, providerId: 'claude' })),
+    );
+    expect(standalone.loadAgents()).toEqual(
+      agentSa.map((agent) => ({ ...agent, providerId: 'claude' })),
+    );
   });
 
   it('preserves seats when saving agents (and vice versa)', () => {

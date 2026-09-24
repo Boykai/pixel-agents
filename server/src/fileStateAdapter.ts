@@ -19,6 +19,7 @@ import * as path from 'path';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { PersistedAgent } from '../../core/src/schemas.js';
+import { migrateAgentIdentity } from './agentMigration.js';
 import type { AdapterSettingKey, AdapterSettings, ConfigNamespace } from './configPersistence.js';
 import { ADAPTER_SETTING_KEYS, readConfig, writeConfig } from './configPersistence.js';
 import { LAYOUT_FILE_DIR } from './constants.js';
@@ -45,6 +46,7 @@ export interface FileStateAdapterOptions {
 export class FileStateAdapter implements StateAdapter {
   private readonly namespace: ConfigNamespace;
   private readonly stateFilePath: string;
+  private activeProviders: ReadonlySet<string> | undefined;
 
   constructor(options: FileStateAdapterOptions) {
     this.namespace = options.namespace;
@@ -75,13 +77,30 @@ export class FileStateAdapter implements StateAdapter {
 
   // ── Agents + seats (adapter-scoped file) ────────────────────
 
+  setActiveProviders(providerIds: readonly string[]): void {
+    this.activeProviders = new Set(providerIds);
+  }
+
+  private isOutsideProviderScope(agent: PersistedAgent): boolean {
+    if (!this.activeProviders) return false;
+    const providerId = migrateAgentIdentity(agent).providerId;
+    return providerId === undefined || !this.activeProviders.has(providerId);
+  }
+
   loadAgents(): PersistedAgent[] {
-    return this.readState().agents;
+    return this.readState().agents.map(migrateAgentIdentity);
   }
 
   saveAgents(agents: PersistedAgent[]): void {
     const state = this.readState();
-    state.agents = agents;
+    const retained = state.agents.filter((agent) => this.isOutsideProviderScope(agent));
+    const retainedIds = new Set(retained.map((agent) => agent.id));
+    const selected = agents.filter((agent) => !this.isOutsideProviderScope(agent));
+    if (selected.some((agent) => retainedIds.has(agent.id))) {
+      console.error('[Pixel Agents] Refusing to overwrite an excluded provider agent ID');
+      return;
+    }
+    state.agents = [...retained, ...selected];
     this.writeState(state);
   }
 
@@ -91,7 +110,13 @@ export class FileStateAdapter implements StateAdapter {
 
   saveSeats(seats: Record<string, { palette?: number; hueShift?: number; seatId?: string }>): void {
     const state = this.readState();
-    state.seats = seats;
+    const retainedSeats: AdapterState['seats'] = {};
+    for (const agent of state.agents) {
+      if (this.isOutsideProviderScope(agent) && state.seats[agent.id]) {
+        retainedSeats[agent.id] = state.seats[agent.id];
+      }
+    }
+    state.seats = { ...seats, ...retainedSeats };
     this.writeState(state);
   }
 
