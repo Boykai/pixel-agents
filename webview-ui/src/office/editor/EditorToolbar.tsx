@@ -472,8 +472,8 @@ export function EditorToolbar({
         <div className="flex flex-col-reverse gap-4 pb-2">
           <AreaAddRow areas={areas} onAddArea={onAddArea} />
           <div className="text-xs text-text-muted px-4 leading-none">
-            Paint areas on the map, then assign workspace folders. Agents will sit in their folder's
-            area.
+            Areas are painted zones for assigning workspace folders; they do not add floor space.
+            Use Generate Room to expand the office.
           </div>
           {/* Fixed 4-per-row grid; no overflow clip, or the upward Add-folder dropdown is cut off. */}
           <div className="grid grid-cols-[repeat(4,130px)] gap-4">
@@ -785,8 +785,13 @@ function AreaAddRow({
         placeholder="Area name…"
         className="flex-1 text-sm py-2 px-6 bg-bg-dark border-2 border-border rounded-none text-text"
       />
-      <Button variant="default" size="sm" onClick={handleSubmit} title="Add a new Area">
-        Add Area
+      <Button
+        variant="default"
+        size="sm"
+        onClick={handleSubmit}
+        title="Define a paintable Area (does not add floor space)"
+      >
+        Define Area
       </Button>
     </div>
   );
