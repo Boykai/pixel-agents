@@ -784,6 +784,12 @@ components:
             verdict in particular reads only the provider it asked about.
         installed:
           type: boolean
+        canManage:
+          type: boolean
+          description: Whether this connection may install or remove hooks; absent for legacy hosts.
+        error:
+          type: string
+          description: Explanation of a failed hook operation or installation-state check.
 
     HooksConsentRequest:
       description: |

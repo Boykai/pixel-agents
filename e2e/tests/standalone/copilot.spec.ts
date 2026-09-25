@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '../../fixtures/copilot';
@@ -10,10 +11,44 @@ import {
   getAgentOverlays,
   getOverlayByText,
 } from '../../helpers/office';
-import { setSettings } from '../../helpers/webview';
+import { openSettingsModal, setSettings } from '../../helpers/webview';
 
 test.describe('Standalone / Copilot transcript observation', () => {
   test.use({ provider: 'copilot', seedHooksEnabled: false });
+
+  test('Settings reports a refused Copilot hook install and clears the error after retry @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 640 });
+    const hookFile = path.join(standalone.tmpHome, '.copilot', 'hooks', 'pixel-agents.json');
+    fs.mkdirSync(path.dirname(hookFile), { recursive: true });
+    const foreignConfig = JSON.stringify({ version: 1, hooks: {} });
+    fs.writeFileSync(hookFile, foreignConfig);
+    const settings = await openSettingsModal(page);
+    const checkbox = settings.getByRole('button', {
+      name: 'GitHub Copilot CLI — Instant Detection (Hooks)',
+    });
+    await expect(checkbox).toBeEnabled();
+    await checkbox.click();
+    await settings.getByRole('button', { name: 'Install hooks', exact: true }).click();
+    await expect(settings.getByRole('alert')).toContainText(
+      'Refusing to modify unowned Copilot hooks',
+    );
+    await expect(checkbox.locator('span').last()).toBeEmpty();
+    expect(fs.readFileSync(hookFile, 'utf8')).toBe(foreignConfig);
+
+    // Remove only the foreign fixture we created, then retry through the same open Settings.
+    fs.unlinkSync(hookFile);
+    await checkbox.click();
+    await settings.getByRole('button', { name: 'Install hooks', exact: true }).click();
+    await expect(checkbox.locator('span').last()).toHaveText('x');
+    await expect(settings.getByRole('alert')).toHaveCount(0);
+    await expect(settings).toContainText(
+      'Installed. Event delivery depends on the running session.',
+    );
+    expect(fs.existsSync(hookFile)).toBe(true);
+  });
 
   test('compact labels reveal one readable hover inspector with keyboard and narrow-screen support @area:standalone', async ({
     page,

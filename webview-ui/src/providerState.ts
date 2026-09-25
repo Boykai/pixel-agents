@@ -6,3 +6,8 @@ export interface ProviderSettings {
   capabilities?: ObservationCapabilities;
   disclosure?: string;
 }
+
+export interface HooksFeedback {
+  canManage?: boolean;
+  error?: string;
+}

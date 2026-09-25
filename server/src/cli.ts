@@ -188,7 +188,7 @@ async function main(): Promise<void> {
     // Captures config from the outer scope after server.start().
     let currentConfig: { port: number; token: string } | null = null;
     const onSetHooksEnabled = async (providerId: string, enabled: boolean): Promise<void> => {
-      if (!currentConfig) return;
+      if (!currentConfig) throw new Error('The hook server is not ready. Retry from Settings.');
       const provider = hookProviderById(providerId);
       if (!provider || !selectedProviders.includes(provider)) {
         throw new Error(`Provider "${providerId}" is not enabled.`);
@@ -196,25 +196,13 @@ async function main(): Promise<void> {
       if (enabled) {
         grantHooksConsent(provider.id);
         if (!copyHookScriptOrReport(packageRoot, provider, ' (user toggle)')) {
-          return;
+          throw new Error('Could not copy the hook script. Check the server log and retry.');
         }
-        try {
-          await provider.installHooks(
-            `http://127.0.0.1:${currentConfig.port}`,
-            currentConfig.token,
-          );
-        } catch (err) {
-          console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
-          return;
-        }
+        await provider.installHooks(`http://127.0.0.1:${currentConfig.port}`, currentConfig.token);
         console.log('[Pixel Agents] Hooks installed (user toggle)');
       } else {
-        try {
-          await provider.uninstallHooks();
-          console.log('[Pixel Agents] Hooks uninstalled (user toggle)');
-        } catch (err) {
-          console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
-        }
+        await provider.uninstallHooks();
+        console.log('[Pixel Agents] Hooks uninstalled (user toggle)');
       }
     };
 

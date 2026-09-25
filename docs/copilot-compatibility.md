@@ -73,6 +73,16 @@ copied prompts, code, credentials, or user transcripts.
 
 ## Consent and safety
 
+Transcript watching runs independently of hooks, so sessions can update in real
+time while the hooks checkbox is unchecked. The checkbox reports an actual
+on-disk installation, not event connectivity.
+
+In standalone, hook changes require the **latest tokened URL printed by the
+Pixel Agents server**. Bare URLs and URLs with a token from an earlier server
+run can still watch the office, but Settings disables hook changes and explains
+how to regain access. Treat the tokened URL as a secret. Installation failures
+appear beside the provider in Settings; fix the reported cause and retry.
+
 Earlier experimental builds reported Copilot hooks as installed even though
 installation was a no-op. They could persist a `granted` consent record without
 writing a hook. That legacy record does **not** authorize the new real hook

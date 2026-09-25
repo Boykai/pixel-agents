@@ -151,7 +151,12 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       await new Promise((r) => setTimeout(r, 0));
 
       const status = sent.find((m) => m.type === 'hooksStatus');
-      expect(status).toEqual({ type: 'hooksStatus', providerId: 'claude', installed: false });
+      expect(status).toEqual({
+        type: 'hooksStatus',
+        providerId: 'claude',
+        installed: false,
+        canManage: false,
+      });
     });
 
     it('setHooksEnabled reports the actual outcome after the side effect settles', async () => {
@@ -171,7 +176,12 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       // The side effect installed nothing (stub), so the truthful answer is false
       // even though the user just toggled the setting ON.
       const status = sent.find((m) => m.type === 'hooksStatus');
-      expect(status).toEqual({ type: 'hooksStatus', providerId: 'claude', installed: false });
+      expect(status).toEqual({
+        type: 'hooksStatus',
+        providerId: 'claude',
+        installed: false,
+        error: 'Hooks could not be installed. Check the server log and retry.',
+      });
     });
   });
 
@@ -217,6 +227,7 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
         type: 'hooksStatus',
         providerId: 'claude',
         installed: true,
+        error: 'Hooks could not be removed. Check the server log and retry.',
       });
     });
 
@@ -283,7 +294,37 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
         type: 'hooksStatus',
         providerId: 'claude',
         installed: false,
+        canManage: false,
       });
+    });
+
+    it('reports installer errors without changing preference and clears them after a successful retry', async () => {
+      setHooksEnabled('claude', false);
+      ctx.privileged = true;
+      ctx.onSetHooksEnabled = () => {
+        throw new Error('Installation denied by filesystem permissions');
+      };
+      const toggle = () =>
+        handleClientMessage(
+          { type: 'setHooksEnabled', providerId: 'claude', enabled: true },
+          (m) => sent.push(m),
+          ctx,
+        );
+      toggle();
+      await settle();
+      expect(getHooksEnabled('claude')).toBe(false);
+      expect(sent.at(-1)).toEqual({
+        type: 'hooksStatus',
+        providerId: 'claude',
+        installed: false,
+        canManage: true,
+        error: 'Installation denied by filesystem permissions',
+      });
+      ctx.onSetHooksEnabled = () => seedInstalledHooks();
+      toggle();
+      await settle();
+      expect(getHooksEnabled('claude')).toBe(true);
+      expect(sent.at(-1)).toEqual({ type: 'hooksStatus', providerId: 'claude', installed: true });
     });
   });
 

@@ -233,6 +233,7 @@ describe('clientMessageHandler: hooks consent flow', () => {
         type: 'hooksStatus',
         providerId: 'claude',
         installed: false,
+        error: 'Hooks could not be installed. Check the server log and retry.',
       });
     });
 

@@ -205,9 +205,7 @@ export function handleClientMessage(
         console.warn(
           '[Pixel Agents] Ignoring setHooksEnabled from an untokened client — installing hooks needs approval from this machine (open the tokened URL the CLI printed).',
         );
-        void provider
-          .areHooksInstalled()
-          .then((installed) => send({ type: 'hooksStatus', providerId: provider.id, installed }));
+        void reportHooksStatus(ctx, send, provider);
         break;
       }
       void applyHooksPreference(ctx, send, provider, enabled);
@@ -298,7 +296,7 @@ export function handleClientMessage(
  * the on-disk result agrees. Writing it first strands the user when an uninstall fails: entries keep firing while the
  * persisted hooks-off makes the next startup skip the gate entirely. Shared by the Settings toggle and the consent
  * dialog's Install (both are grants). Never rejects — it is fire-and-forget and bound by the ConsentEffects contract,
- * so a failure surfaces on the console here or nowhere.
+ * so failures are reported to Settings as well as the console.
  */
 async function applyHooksPreference(
   ctx: ClientMessageContext,
@@ -306,19 +304,47 @@ async function applyHooksPreference(
   provider: HookProvider,
   enabled: boolean,
 ): Promise<void> {
+  let error: string | undefined;
   try {
     await ctx.onSetHooksEnabled?.(provider.id, enabled);
     const installed = await provider.areHooksInstalled();
     if (installed === enabled) {
       setHooksEnabled(provider.id, enabled);
       ctx.runtime?.setHooksEnabled(provider.id, enabled);
+    } else {
+      error = `Hooks could not be ${enabled ? 'installed' : 'removed'}. Check the server log and retry.`;
     }
     // Always report the ACTUAL install state — the toggle expresses intent,
     // not outcome (the installer refuses to touch an unparseable file).
-    send({ type: 'hooksStatus', providerId: provider.id, installed });
+    send({ type: 'hooksStatus', providerId: provider.id, installed, ...(error ? { error } : {}) });
   } catch (err) {
     console.error('[Pixel Agents] Applying the hooks preference failed:', err);
+    error =
+      err instanceof Error ? err.message : 'Hook operation failed. Check the server log and retry.';
+    await reportHooksStatus(ctx, send, provider, error);
   }
+}
+
+async function reportHooksStatus(
+  ctx: ClientMessageContext,
+  send: WsSend,
+  provider: HookProvider,
+  error?: string,
+): Promise<void> {
+  let installed = false;
+  try {
+    installed = await provider.areHooksInstalled();
+  } catch (err) {
+    console.error(`[Pixel Agents] Hook status check failed for ${provider.id}:`, err);
+    error ??= 'Could not check hook installation. Check the server log and retry.';
+  }
+  send({
+    type: 'hooksStatus',
+    providerId: provider.id,
+    installed,
+    canManage: ctx.privileged === true,
+    ...(error ? { error } : {}),
+  });
 }
 
 /**
@@ -457,7 +483,12 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
         return false;
       })
       .then((installed) => {
-        send({ type: 'hooksStatus', providerId: provider.id, installed });
+        send({
+          type: 'hooksStatus',
+          providerId: provider.id,
+          installed,
+          canManage: ctx.privileged === true,
+        });
         // 4a-bis. First-run consent, asked in the app: this connect is the moment the user can be asked, so the ask
         // rides the handshake and consentGate owns every condition (VS Code calls the same function). The record is
         // re-read here rather than taken from startup — another tab may have answered while this one loaded.

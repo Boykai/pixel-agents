@@ -23,7 +23,7 @@ import {
 } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
-import type { ProviderSettings } from '../providerState.js';
+import type { HooksFeedback, ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime, isE2E } from '../runtime.js';
 import { transport } from '../transport/index.js';
 
@@ -100,6 +100,7 @@ interface ExtensionMessageState {
    *  while first-run consent is pending, unlike hooksEnabled which defaults
    *  true. Keyed by providerId; today's Settings checkbox reads 'claude'. */
   hooksInstalled: Record<string, boolean>;
+  hooksFeedback: Record<string, HooksFeedback>;
   providers: ProviderSettings[];
   launchProvider?: string;
   /** Bumped per provider on every hooksStatus message. `hooksInstalled` alone cannot say "the server answered": a
@@ -151,6 +152,7 @@ export function useExtensionMessages(
   const [ghostHeadlessAgents, setGhostHeadlessAgentsState] = useState(false);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInstalled, setHooksInstalled] = useState<Record<string, boolean>>({});
+  const [hooksFeedback, setHooksFeedback] = useState<Record<string, HooksFeedback>>({});
   const [providers, setProviders] = useState<ProviderSettings[]>([]);
   const [launchProvider, setLaunchProvider] = useState<string>();
   const [hooksStatusSeq, setHooksStatusSeq] = useState<Record<string, number>>({});
@@ -750,6 +752,13 @@ export function useExtensionMessages(
           const providerId = msg.providerId as string;
           const installed = msg.installed as boolean;
           setHooksInstalled((m) => ({ ...m, [providerId]: installed }));
+          setHooksFeedback((previous) => ({
+            ...previous,
+            [providerId]: {
+              canManage: msg.canManage ?? previous[providerId]?.canManage,
+              error: msg.error,
+            },
+          }));
           setHooksStatusSeq((m) => ({ ...m, [providerId]: (m[providerId] ?? 0) + 1 }));
           if (installed) {
             // Moot once THIS provider's hooks are installed — the Settings toggle or another tab granted consent
@@ -851,6 +860,7 @@ export function useExtensionMessages(
     setGhostHeadlessAgents: applyGhostHeadlessAgents,
     hooksEnabled,
     hooksInstalled,
+    hooksFeedback,
     providers,
     launchProvider,
     hooksStatusSeq,

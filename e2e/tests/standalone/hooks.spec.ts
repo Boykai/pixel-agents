@@ -176,6 +176,24 @@ test.describe('Standalone / hooks consent', () => {
       // rides the webviewReady handshake that just completed.
       await spectator.waitForTimeout(2_000);
       await expect(spectator.getByRole('dialog')).toHaveCount(0);
+      const settings = await openSettingsModal(spectator);
+      await expect(
+        settings.getByRole('button', { name: 'Claude Code — Instant Detection (Hooks)' }),
+      ).toBeDisabled();
+      await expect(settings).toContainText('Hook changes are locked for this connection.');
+      await expect(settings).toContainText('including ?token=...');
+      await expect(
+        settings.getByRole('button', { name: 'Install hooks', exact: true }),
+      ).toHaveCount(0);
+      expect(fs.existsSync(path.join(standalone.tmpHome, '.claude', 'settings.json'))).toBe(false);
+
+      bareUrl.searchParams.set('token', 'expired-server-token');
+      await spectator.goto(bareUrl.toString());
+      const staleSettings = await openSettingsModal(spectator);
+      await expect(
+        staleSettings.getByRole('button', { name: 'Claude Code — Instant Detection (Hooks)' }),
+      ).toBeDisabled();
+      await expect(staleSettings).toContainText('Hook changes are locked for this connection.');
     } finally {
       await spectator.close();
     }

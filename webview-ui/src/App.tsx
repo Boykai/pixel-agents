@@ -89,6 +89,7 @@ function App() {
     providers,
     launchProvider,
     hooksInstalled,
+    hooksFeedback,
     hooksStatusSeq,
     hooksInfoShown,
     consentRequest,
@@ -559,6 +560,7 @@ function App() {
         }}
         providers={providers}
         hooksInstalled={hooksInstalled}
+        hooksFeedback={hooksFeedback}
         onToggleHooksEnabled={(providerId) => {
           // Toggle the DISPLAYED state (actual install), not the preference: when the two disagree — preference on,
           // nothing installed while consent is pending — toggling the preference would turn hooks OFF for a user

@@ -318,6 +318,8 @@ export interface HooksStatus {
   type: 'hooksStatus';
   providerId: string;
   installed: boolean;
+  canManage?: boolean;
+  error?: string;
 }
 
 export interface HooksConsentRequest {
