@@ -82,6 +82,8 @@ interface ExtensionMessageState {
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
   layoutWasReset: boolean;
+  /** Layout bundled with this build, or null when none shipped. Backs "Reset to Default". */
+  defaultLayout: OfficeLayout | null;
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> };
   workspaceFolders: WorkspaceFolder[];
   /** Distinct folderNames seen across agents this session — source for the Areas folder dropdown. */
@@ -139,6 +141,7 @@ export function useExtensionMessages(
   const [subagentCharacters, setSubagentCharacters] = useState<SubagentCharacter[]>([]);
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutWasReset, setLayoutWasReset] = useState(false);
+  const [defaultLayout, setDefaultLayout] = useState<OfficeLayout | null>(null);
   const [loadedAssets, setLoadedAssets] = useState<
     { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined
   >();
@@ -239,6 +242,12 @@ export function useExtensionMessages(
       }
 
       if (msg.type === 'layoutLoaded') {
+        // Record the bundled default before the dirty guard: it is build-constant,
+        // and an unsaved-edit skip must not leave "Reset to Default" without it.
+        const rawDefault = msg.defaultLayout as OfficeLayout | null | undefined;
+        if (rawDefault && rawDefault.version === 1) {
+          setDefaultLayout(migrateLayoutColors(rawDefault));
+        }
         // Skip external layout updates while editor has unsaved changes
         if (layoutReadyRef.current && isEditDirty?.()) {
           console.log('[Webview] Skipping external layout update — editor has unsaved changes');
@@ -847,6 +856,7 @@ export function useExtensionMessages(
     subagentCharacters,
     layoutReady,
     layoutWasReset,
+    defaultLayout,
     loadedAssets,
     workspaceFolders,
     agentFolderNames,

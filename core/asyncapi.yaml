@@ -550,6 +550,16 @@ components:
                 Format defined by the OfficeLayout schema in webview-ui; not
                 modeled here because it's owned by the rendering layer.
             - type: 'null'
+        defaultLayout:
+          description: |
+            The layout bundled with this build, sent alongside `layout` even
+            when a saved user layout is active. It is what the editor's
+            "Reset to Default" restores, so the client needs it in hand rather
+            than having to ask for it. `null` when no default is bundled, which
+            is the one case where that action is unavailable.
+          oneOf:
+            - type: object
+            - type: 'null'
         wasReset:
           type: boolean
 

@@ -85,6 +85,7 @@ interface EditorActions {
   handleUndo: () => void;
   handleRedo: () => void;
   handleReset: () => void;
+  handleResetToDefault: (defaultLayout: OfficeLayout | null) => void;
   handleSave: () => void;
   handleZoomChange: (zoom: number) => void;
   handleEditorTileAction: (col: number, row: number) => void;
@@ -630,6 +631,29 @@ export function useEditorActions(
     setIsDirty(false);
   }, [editorState, applyEdit]);
 
+  /**
+   * Replace the whole office with the layout bundled in this build.
+   *
+   * Unlike `handleReset` (revert to the last save) this discards the user's
+   * office entirely, so it goes through `applyEdit` like any other edit: one
+   * undo entry, and Undo puts the old office back. The shift is zero because
+   * the default is its own coordinate basis rather than an expansion of the
+   * current one — `rebuildFromLayout` relocates anyone left out of bounds.
+   */
+  const handleResetToDefault = useCallback(
+    (defaultLayout: OfficeLayout | null) => {
+      if (!editorState.isEditMode || !defaultLayout) return;
+      setRoomToFrame(null);
+      applyEdit(structuredClone(defaultLayout));
+      handleToolChange(EditTool.SELECT);
+      setRoomFeedback({
+        kind: 'success',
+        message: 'Office reset to the default layout. Undo restores your previous office.',
+      });
+    },
+    [editorState, applyEdit, handleToolChange],
+  );
+
   const handleSave = useCallback(() => {
     // Flush any pending debounced save immediately
     if (saveTimerRef.current) {
@@ -1050,6 +1074,7 @@ export function useEditorActions(
     handleUndo,
     handleRedo,
     handleReset,
+    handleResetToDefault,
     handleSave,
     handleZoomChange,
     handleEditorTileAction,

@@ -133,6 +133,12 @@ _Avoid_: map, scene, room, level
 The office's spatial arrangement: the tile grid, floors, walls, carpets, areas, and furniture. It is the part of the office that the editor edits and that can be exported and shared.
 _Avoid_: floor plan, blueprint, map
 
+**Default layout**:
+The layout bundled with the build, used for a first run and restored on demand by Reset to Default
+in the Layout toolbar. That action discards the whole office in one undoable edit, so it is behind
+two confirmations; it is distinct from Reset, which only reverts to the last save.
+_Avoid_: factory layout, stock layout
+
 **Room**:
 A furnished floor rectangle bounded by walls and connected to existing floor through an opening.
 Generate Room adds one room from the Layout toolbar; its interior is 5 to 8 tiles on each side,

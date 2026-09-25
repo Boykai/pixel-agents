@@ -44,6 +44,10 @@ interface EditorToolbarProps {
   onGenerateRoom: () => void;
   isGeneratingRoom: boolean;
   roomFeedback: RoomFeedback | null;
+  /** Replace the office with the layout bundled in this build. */
+  onResetToDefault: () => void;
+  /** False when no default layout shipped with this build — the action is then impossible. */
+  canResetToDefault: boolean;
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
   selectedFurnitureType: string;
@@ -97,6 +101,8 @@ export function EditorToolbar({
   onGenerateRoom,
   isGeneratingRoom,
   roomFeedback,
+  onResetToDefault,
+  canResetToDefault,
   activeTool,
   selectedTileType,
   selectedFurnitureType,
@@ -141,6 +147,25 @@ export function EditorToolbar({
   const [showWallColor, setShowWallColor] = useState(false);
   const [showFurnitureColor, setShowFurnitureColor] = useState(false);
   const [showCarpetColor, setShowCarpetColor] = useState(false);
+  /** Reset-to-default confirmation: 0 = closed, 1 = impact warning, 2 = final confirm. */
+  const [resetStep, setResetStep] = useState<0 | 1 | 2>(0);
+
+  // Escape backs out of the reset confirmation without touching the layout.
+  useEffect(() => {
+    if (resetStep === 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setResetStep(0);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [resetStep]);
+
+  // A build with no bundled default can't offer the action; close any open prompt.
+  useEffect(() => {
+    if (!canResetToDefault) setResetStep(0);
+  }, [canResetToDefault]);
 
   // Build dynamic catalog from loaded assets
   useEffect(() => {
@@ -311,7 +336,81 @@ export function EditorToolbar({
         >
           Erase
         </Button>
+        <Button
+          variant={canResetToDefault ? 'default' : 'disabled'}
+          size="md"
+          disabled={!canResetToDefault}
+          onClick={() => setResetStep(canResetToDefault ? 1 : 0)}
+          title={
+            canResetToDefault
+              ? 'Discard this office and restore the layout Pixel Agents ships with'
+              : 'No default layout shipped with this build'
+          }
+          aria-expanded={resetStep > 0}
+          aria-controls="reset-to-default-confirm"
+        >
+          Reset to Default
+        </Button>
       </div>
+
+      {/* Reset-to-default: two deliberate confirmations, because this discards the whole office. */}
+      {resetStep > 0 && (
+        <div
+          id="reset-to-default-confirm"
+          role="alertdialog"
+          aria-label="Reset office to the default layout"
+          className="max-w-[min(520px,calc(100vw-40px))] flex flex-col gap-4 p-4 border-2 border-danger"
+        >
+          {resetStep === 1 ? (
+            <>
+              <p className="m-0 text-sm text-reset-text">Reset this office to the default?</p>
+              <p className="m-0 text-xs leading-snug wrap-anywhere">
+                Every room, furniture item, carpet, pet and Area in your office is discarded and
+                replaced by the layout Pixel Agents ships with. Agents keep running and are reseated
+                in the new office.
+              </p>
+              <div className="flex gap-4 items-center">
+                <Button
+                  variant="default"
+                  size="md"
+                  className="bg-danger text-white"
+                  onClick={() => setResetStep(2)}
+                >
+                  Continue
+                </Button>
+                <Button variant="default" size="md" onClick={() => setResetStep(0)}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="m-0 text-sm text-reset-text">Last check — this replaces your office.</p>
+              <p className="m-0 text-xs leading-snug wrap-anywhere">
+                The reset saves straight away. Undo (Ctrl+Z) brings your office back while the panel
+                stays open; after a reload it is gone. Export your layout first if you want to keep
+                it.
+              </p>
+              <div className="flex gap-4 items-center">
+                <Button
+                  variant="default"
+                  size="md"
+                  className="bg-danger text-white"
+                  onClick={() => {
+                    setResetStep(0);
+                    onResetToDefault();
+                  }}
+                >
+                  Reset office
+                </Button>
+                <Button variant="default" size="md" onClick={() => setResetStep(0)}>
+                  Keep my office
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div
         id="room-generation-feedback"

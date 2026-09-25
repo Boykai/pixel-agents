@@ -568,7 +568,11 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 7. Layout last (see step 3): flushes the webview's buffered existingAgents
   // into characters once seats are rebuilt.
   const savedLayout = readLayoutFromFile();
-  send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  send({
+    type: 'layoutLoaded',
+    layout: savedLayout ?? cache?.defaultLayout ?? null,
+    defaultLayout: cache?.defaultLayout ?? null,
+  });
 
   // 8. Agent state, AFTER layoutLoaded -- the characters they target only
   // exist once the layout flush creates them. Without this a reconnecting

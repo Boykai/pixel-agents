@@ -227,6 +227,7 @@ export interface AgentContextUsage {
 export interface LayoutLoaded {
   type: 'layoutLoaded';
   layout: Record<string, any> | null;
+  defaultLayout?: Record<string, any> | null;
   wasReset?: boolean;
 }
 

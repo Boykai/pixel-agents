@@ -518,6 +518,7 @@ export function sendLayout(
   webview.postMessage({
     type: 'layoutLoaded',
     layout: result?.layout ?? null,
+    defaultLayout: defaultLayout ?? null,
     wasReset: result?.wasReset ?? false,
   });
 }

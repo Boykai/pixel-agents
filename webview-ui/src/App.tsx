@@ -78,6 +78,7 @@ function App() {
     subagentCharacters,
     layoutReady,
     layoutWasReset,
+    defaultLayout,
     loadedAssets,
     workspaceFolders,
     agentFolderNames,
@@ -416,6 +417,8 @@ function App() {
                   onGenerateRoom={editor.handleGenerateRoom}
                   isGeneratingRoom={editor.isGeneratingRoom}
                   roomFeedback={editor.roomFeedback}
+                  onResetToDefault={() => editor.handleResetToDefault(defaultLayout)}
+                  canResetToDefault={defaultLayout !== null}
                   activeTool={editorState.activeTool}
                   selectedTileType={editorState.selectedTileType}
                   selectedFurnitureType={editorState.selectedFurnitureType}
