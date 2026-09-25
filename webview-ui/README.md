@@ -90,3 +90,14 @@ export default defineConfig([
   },
 ]);
 ```
+
+### Agent hover details
+
+Always-visible labels show the normalized project name, not activity or status.
+Repository owners and generated Copilot worktree names are omitted; original
+project spelling is preserved. Children inherit their parent's project, and
+missing metadata is shown as "No project". Hover a character or its label to
+inspect one opaque, scrollable details panel with the supplied project, session,
+role, source, current activity and context usage. Label buttons also support
+keyboard focus and tapping; selection keeps details available. Escape or
+**Hide agent details** dismisses the panel without dismissing the agent.

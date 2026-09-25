@@ -196,6 +196,8 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
       safeSend(socket, {
         type: 'agentCreated',
         id,
+        providerId: agent.providerId,
+        observation: agent.observation,
         folderName: agent.folderName,
         sessionName: agent.sessionName,
         isExternal: agent.isExternal || undefined,

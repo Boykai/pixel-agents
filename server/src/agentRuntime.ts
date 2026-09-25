@@ -30,6 +30,7 @@ import {
   getCopilotSnapshot,
   hookToCopilotRecords,
   processCopilotRecord,
+  promoteCopilotChildRequests,
 } from './providers/hook/copilot/eventReducer.js';
 import { SessionRouter } from './sessionRouter.js';
 import { SubagentWatch } from './subagentWatch.js';
@@ -638,8 +639,8 @@ export class AgentRuntime {
       leadAgentId: lead.id,
     });
     this.store.broadcast({ type: 'subagentClear', id: lead.id, parentToolId: child.parentToolId });
-    // Recovery retains known child tool identities, but not their old payloads.
-    // Hydrate only those identities; never replay historical child completions.
+    // Hydrate current tool identities and move pending requests to their new
+    // owner; never replay historical child completions.
     for (const toolId of lead.activeSubagentToolIds.get(child.parentToolId) ?? []) {
       const toolName = lead.activeSubagentToolNames.get(child.parentToolId)?.get(toolId);
       if (!toolName) continue;
@@ -653,6 +654,9 @@ export class AgentRuntime {
         { replay: true },
       );
     }
+    promoteCopilotChildRequests(lead, teammate, child, (message) =>
+      this.store.broadcast({ ...message, ...(replay ? { replay: true } : {}) }),
+    );
     if (replay && lead.observation === 'unknown') teammate.observation = 'unknown';
     resendAgentActivity((message) => this.store.broadcast(message), this.store, teammate.id);
     if (!replay) this.store.persist();
@@ -903,7 +907,7 @@ export class AgentRuntime {
         lastDataAt: 0,
         linesProcessed: 0,
         seenUnknownRecordTypes: new Set(),
-        folderName: p.folderName,
+        folderName: context.provider.resolveSessionFolderName?.(p.projectDir) ?? p.folderName,
         sessionName: p.sessionName,
         hookDelivered: false,
         contextTokens: 0,

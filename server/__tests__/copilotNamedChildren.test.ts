@@ -375,6 +375,133 @@ describe('Copilot named background teammates', () => {
     expect(b.store.size).toBe(0);
   });
 
+  it.each([
+    ['permission', 'agent'],
+    ['permission', 'parent'],
+    ['user_input', 'agent'],
+    ['user_input', 'parent'],
+  ])(
+    'transfers recovered named teammate %s requests scoped by %s to their completion owner',
+    (kind, scope) => {
+      const agentScope = scope === 'agent' ? { agentId: 'restored-child' } : {};
+      const parentScope = scope === 'parent' ? { parentToolCallId: 'spawn' } : {};
+      const o = office([
+        task('spawn', 'restored'),
+        start('spawn', 'restored-child'),
+        completeTool('spawn'),
+        {
+          type: `${kind}.requested`,
+          ...agentScope,
+          data: { requestId: 'pending', permissionRequest: {}, ...parentScope },
+        },
+        { type: 'hook.start', data: { hookType: 'agentStop' } },
+      ]);
+      const child = o.children()[0];
+      expect(child.permissionSent).toBe(kind === 'permission');
+      expect(child.awaitingInput).toBe(kind === 'user_input');
+      expect(o.lead.permissionSent).toBe(false);
+      expect(o.lead.awaitingInput).toBe(false);
+      expect(o.lead.isWaiting).toBe(false);
+      expect(
+        o.messages.filter(
+          (message) =>
+            message.type === 'agentStatus' &&
+            message.status === 'waiting' &&
+            message.awaitingInput !== true,
+        ),
+      ).toEqual([]);
+
+      o.emit({
+        type: `${kind}.completed`,
+        ...agentScope,
+        data: { requestId: 'pending', ...parentScope },
+      });
+      expect(child.permissionSent).toBe(false);
+      expect(child.awaitingInput).toBe(false);
+      expect(child.isWaiting).toBe(false);
+      expect(o.lead.permissionSent).toBe(false);
+      expect(o.lead.isWaiting).toBe(false);
+      o.emit({ type: 'subagent.completed', data: { toolCallId: 'spawn' } });
+      expect(o.lead.isWaiting).toBe(true);
+      expect(o.lead.awaitingInput).toBe(false);
+      expect(o.lead.permissionSent).toBe(false);
+    },
+  );
+
+  it('moves pending requests on late promotion without moving an unrelated lead permission', () => {
+    const o = office();
+    o.emit(
+      start('late', 'child'),
+      {
+        type: 'permission.requested',
+        data: { requestId: 'same', permissionRequest: {} },
+      },
+      {
+        type: 'permission.requested',
+        agentId: 'child',
+        data: { requestId: 'same', permissionRequest: {} },
+      },
+      task('late', 'named-later'),
+      completeTool('late'),
+      { type: 'hook.start', data: { hookType: 'agentStop' } },
+    );
+    const child = o.children()[0];
+    expect(child.permissionSent).toBe(true);
+    expect(o.lead.permissionSent).toBe(true);
+    o.emit({
+      type: 'permission.completed',
+      agentId: 'child',
+      data: { requestId: 'same' },
+    });
+    expect(child.permissionSent).toBe(false);
+    expect(o.lead.permissionSent).toBe(true);
+    o.emit({ type: 'permission.completed', data: { requestId: 'same' } });
+    expect(o.lead.permissionSent).toBe(false);
+    expect(o.lead.isWaiting).toBe(false);
+    o.emit({ type: 'subagent.completed', data: { toolCallId: 'late' } });
+    expect(o.lead.isWaiting).toBe(true);
+  });
+
+  it('resolves recovered ask_user tool input without leaving the lead waiting for input', () => {
+    const o = office([
+      task('spawn', 'questioner'),
+      start('spawn', 'child'),
+      completeTool('spawn'),
+      {
+        type: 'tool.execution_start',
+        agentId: 'child',
+        data: { toolCallId: 'question', toolName: 'ask_user' },
+      },
+      {
+        type: 'user_input.requested',
+        agentId: 'child',
+        data: { requestId: 'answer', toolCallId: 'question' },
+      },
+      { type: 'hook.start', data: { hookType: 'agentStop' } },
+    ]);
+    const child = o.children()[0];
+    expect(child.awaitingInput).toBe(true);
+    expect(o.lead.awaitingInput).toBe(false);
+    o.emit({
+      type: 'user_input.completed',
+      agentId: 'child',
+      data: { requestId: 'answer' },
+    });
+    expect(child.awaitingInput).toBe(false);
+    expect(child.isWaiting).toBe(false);
+    expect(child.activeToolIds.has('question')).toBe(true);
+    expect(o.lead.isWaiting).toBe(false);
+    o.emit(
+      {
+        type: 'tool.execution_complete',
+        agentId: 'child',
+        data: { toolCallId: 'question' },
+      },
+      { type: 'subagent.completed', data: { toolCallId: 'spawn' } },
+    );
+    expect(o.lead.isWaiting).toBe(true);
+    expect(o.lead.awaitingInput).toBe(false);
+  });
   it('does not present recovered child activity as known across a malformed history gap', () => {
     const o = office([
       task('spawn', 'uncertain'),

@@ -71,6 +71,7 @@ export async function spawnMockCopilot(options: {
   homeDir: string;
   workspaceDir: string;
   sessionId: string;
+  repository?: string;
 }): Promise<MockCopilot> {
   const child: ChildProcessWithoutNullStreams = spawn(
     process.execPath,
@@ -78,6 +79,7 @@ export async function spawnMockCopilot(options: {
       path.join(__dirname, '..', 'fixtures', 'mock-copilot-runner.cjs'),
       '--session-id',
       options.sessionId,
+      ...(options.repository ? ['--repository', options.repository] : []),
     ],
     {
       cwd: options.workspaceDir,

@@ -621,6 +621,10 @@ export function createFileWatcherContext(
 
     for (const file of files) {
       if (knownJsonlFiles.has(file)) continue;
+      // Evidence-gated providers cannot correlate a transcript with an arbitrary
+      // focused terminal. External discovery owns adoption; launches register
+      // their exact session IDs before scanning.
+      if (hookProvider?.isSessionCandidate) continue;
 
       // Main scanner does NOT do /clear detection. /clear is handled per-agent
       // in startFileWatching's poll loop (500ms, requires CURRENT terminal focus).

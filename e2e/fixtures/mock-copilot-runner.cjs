@@ -21,10 +21,13 @@ if (!process.argv.includes('--session-id') || !/^[a-zA-Z0-9_-]+$/.test(sessionId
   throw new Error('mock-copilot requires a safe --session-id');
 }
 const sessionDir = path.join(process.env.COPILOT_HOME, 'session-state', sessionId);
+const repository = process.argv.includes('--repository')
+  ? process.argv[process.argv.indexOf('--repository') + 1]
+  : undefined;
 fs.mkdirSync(sessionDir, { recursive: true });
 fs.writeFileSync(
   path.join(sessionDir, 'workspace.yaml'),
-  `id: ${sessionId}\ncwd: ${process.cwd()}\n`,
+  `id: ${sessionId}\ncwd: ${process.cwd()}\n${repository ? `repository: ${JSON.stringify(repository)}\n` : ''}`,
   { flag: 'wx' },
 );
 

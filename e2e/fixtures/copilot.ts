@@ -2,16 +2,17 @@ import { type MockCopilot, spawnMockCopilot } from '../helpers/mock-copilot';
 import { test as base } from './standalone';
 
 export const test = base.extend<{
-  copilot: (sessionId: string) => Promise<MockCopilot>;
+  copilot: (sessionId: string, repository?: string) => Promise<MockCopilot>;
 }>({
   copilot: async ({ standalone }, use, testInfo) => {
     const processes: MockCopilot[] = [];
     try {
-      await use(async (sessionId) => {
+      await use(async (sessionId, repository) => {
         const mock = await spawnMockCopilot({
           homeDir: standalone.tmpHome,
           workspaceDir: standalone.workspaceDir,
           sessionId,
+          repository,
         });
         processes.push(mock);
         return mock;

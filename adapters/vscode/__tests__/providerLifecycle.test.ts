@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { terminal, createTerminal, existsSync } = vi.hoisted(() => {
+const { terminal, createTerminal, existsSync, workspace } = vi.hoisted(() => {
   const terminal = { name: 'Provider #1', show: vi.fn(), sendText: vi.fn(), dispose: vi.fn() };
-  return { terminal, createTerminal: vi.fn(() => terminal), existsSync: vi.fn(() => false) };
+  const workspace = { workspaceFolders: [] as Array<{ name: string; uri: { fsPath: string } }> };
+  return {
+    terminal,
+    createTerminal: vi.fn(() => terminal),
+    existsSync: vi.fn(() => false),
+    workspace,
+  };
 });
 vi.mock('vscode', () => ({
   window: { createTerminal, terminals: [terminal] },
-  workspace: { workspaceFolders: [] },
+  workspace,
 }));
 vi.mock('fs', () => ({ existsSync }));
 
@@ -58,6 +64,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   existsSync.mockReturnValue(false);
+  workspace.workspaceFolders = [];
 });
 
 describe('provider-aware VS Code lifecycle', () => {
@@ -86,6 +93,7 @@ describe('provider-aware VS Code lifecycle', () => {
     expect(agent.providerId).toBe(provider.id);
     expect(agent.jsonlFile).toBe(`C:\\sessions\\${agent.sessionId}\\events.jsonl`);
     expect(agent.observation).toBe('unknown');
+    expect(agent.folderName).toBe('workspace');
     expect(createTerminal).toHaveBeenCalledWith({
       name: 'Test Terminal #1',
       cwd: 'C:\\workspace',
@@ -97,6 +105,15 @@ describe('provider-aware VS Code lifecycle', () => {
     expect(rawRuntime.getKnownJsonlFiles().has(agent.jsonlFile)).toBe(true);
     expect(rawRuntime.knownJsonlFiles.size).toBe(0);
     expect(rawRuntime.registerAgent).toHaveBeenCalledWith(agent.sessionId, agent.id, provider.id);
+    for (const timer of runtime.jsonlPollTimers.values()) clearInterval(timer);
+  });
+
+  it('uses the owning workspace name for a single-folder launch', async () => {
+    vi.useFakeTimers();
+    workspace.workspaceFolders = [{ name: 'My Project', uri: { fsPath: 'C:\\workspace' } }];
+    const { store, runtime } = setup();
+    await launchNewTerminal(runtime, provider, store);
+    expect([...store.values()][0].folderName).toBe('My Project');
     for (const timer of runtime.jsonlPollTimers.values()) clearInterval(timer);
   });
 

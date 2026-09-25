@@ -283,6 +283,14 @@ describe('copilotProvider', () => {
       expect(copilotProvider.resolveSessionFolderName?.(tmpDir)).toBeUndefined();
     });
 
+    it.each([
+      'C:\\Users\\dev\\copilot-worktrees\\pixel-agents\\random-branch',
+      '/home/dev/copilot-worktrees/pixel-agents/random-branch/src',
+    ])('resolves the project rather than the App worktree name: %s', (cwd) => {
+      writeWorkspaceYaml(`cwd: ${cwd}\n`);
+      expect(copilotProvider.resolveSessionFolderName?.(tmpDir)).toBe('pixel-agents');
+    });
+
     it('resolveSessionName reads a plain inline name', () => {
       writeWorkspaceYaml('cwd: /home/user/onie\nname: Unraid docker network\nuser_named: true\n');
       expect(copilotProvider.resolveSessionName?.(tmpDir)).toBe('Unraid docker network');

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import { normalizeProjectName } from '../../../../core/src/normalizeProjectName.js';
 import { Button } from '../../components/ui/Button.js';
 import {
+  AGENT_DETAILS_HIDE_DELAY_MS,
+  AGENT_LABEL_EDGE_INSET_PX,
   CHARACTER_SITTING_OFFSET_PX,
   CONTEXT_CRITICAL_THRESHOLD,
   CONTEXT_DANGER_THRESHOLD,
@@ -95,6 +98,41 @@ export function ToolOverlay({
   alwaysShowOverlay,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
+  const [pointerId, setPointerId] = useState<number | null>(null);
+  const [focusedId, setFocusedId] = useState<number | null>(null);
+  const [recentHoverId, setRecentHoverId] = useState<number | null>(null);
+  const [dismissedId, setDismissedId] = useState<number | null>(null);
+  const selectedId = officeState.selectedAgentId;
+  const hoveredId = officeState.hoveredAgentId;
+  const hoverTarget = pointerId ?? hoveredId;
+  const detailId =
+    [focusedId, hoverTarget, recentHoverId, selectedId].find(
+      (id) => id !== null && officeState.characters.has(id),
+    ) ?? null;
+
+  useEffect(() => {
+    if (hoverTarget !== null) {
+      setRecentHoverId(hoverTarget);
+      setDismissedId(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => setRecentHoverId(null), AGENT_DETAILS_HIDE_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [hoverTarget]);
+
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDismissedId(detailId);
+        setFocusedId(null);
+        setPointerId(null);
+        setRecentHoverId(null);
+      }
+    };
+    window.addEventListener('keydown', dismiss);
+    return () => window.removeEventListener('keydown', dismiss);
+  }, [detailId]);
+
   useEffect(() => {
     let rafId = 0;
     const tick = () => {
@@ -115,208 +153,331 @@ export function ToolOverlay({
     window.devicePixelRatio || 1,
   );
 
-  const selectedId = officeState.selectedAgentId;
-  const hoveredId = officeState.hoveredAgentId;
-
   // All character IDs
   const allIds = [...agents, ...subagentCharacters.map((s) => s.id)];
 
+  const overlays = allIds.flatMap((id) => {
+    const ch = officeState.characters.get(id);
+    if (!ch) return [];
+
+    const isSelected = selectedId === id;
+    const isHovered = hoveredId === id;
+    const isInspected = detailId === id && dismissedId !== id;
+    const isSub = ch.isSubagent;
+
+    // Position above character
+    const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+    const screenX = project.toScreenX(ch.x);
+    const screenY = project.toScreenY(ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET);
+
+    const subCharacter = isSub ? subagentCharacters.find((entry) => entry.id === id) : undefined;
+    const parentCharacter = subCharacter
+      ? officeState.characters.get(subCharacter.parentAgentId)
+      : ch.leadAgentId !== undefined
+        ? officeState.characters.get(ch.leadAgentId)
+        : undefined;
+    const projectName =
+      normalizeProjectName(ch.folderName || parentCharacter?.folderName) || 'No project';
+
+    // Get activity text
+    const subHasPermission = isSub && ch.bubbleType === 'permission';
+    let activityText: string;
+    if (ch.observation === 'unknown') {
+      activityText = 'Unknown';
+    } else if (ch.waitingAwaitingInput) {
+      // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
+      // shows only the checkmark and falls through to the normal idle text.
+      activityText = WAITING_INPUT_ACTIVITY_TEXT;
+    } else if (isSub) {
+      if (subHasPermission) {
+        activityText = 'Needs approval';
+      } else {
+        const sub = subagentCharacters.find((s) => s.id === id);
+        const rows = sub ? subagentTools[sub.parentAgentId]?.[sub.parentToolId] : undefined;
+        const activeRow =
+          (isSelected || isInspected) && rows
+            ? [...rows].reverse().find((t) => !t.done)
+            : undefined;
+        activityText = activeRow?.status ?? (sub?.label || 'Subtask');
+      }
+    } else {
+      activityText = getActivityText(
+        id,
+        agentTools,
+        ch.isActive,
+        ch.bubbleType,
+        ch.waitingAwaitingInput ?? false,
+      );
+    }
+
+    // Determine dot color
+    const tools = agentTools[id];
+    const hasPermission =
+      ch.bubbleType === 'permission' || tools?.some((t) => t.permissionWait && !t.done);
+    const hasActiveTools = tools?.some((t) => !t.done);
+    const isActive = ch.isActive;
+    const hasWaiting = ch.bubbleType === 'waiting' || ch.waitingAwaitingInput;
+
+    let dotColor: string | null = null;
+    if (ch.observation === 'unknown') {
+      dotColor = 'var(--color-text-muted)';
+    } else if (hasPermission || hasWaiting) {
+      dotColor = 'var(--color-status-permission)';
+    } else if (isActive && hasActiveTools) {
+      dotColor = 'var(--color-status-active)';
+    }
+
+    // Team info
+    const teamRoleLabel = ch.isTeamLead ? 'LEAD' : ch.agentName || null;
+
+    // Context gauge. Every agent gets one — lead, teammate, adopted,
+    // headless — as soon as it has taken a turn. Sub-agents never do: they
+    // have no session of their own, so contextTokens stays 0.
+    const contextRatio = ch.contextTokens / ch.maxContextTokens;
+    const showContextGauge = !isSub && ch.contextTokens > 0 && ch.maxContextTokens > 0;
+
+    return [
+      {
+        id,
+        ch,
+        isSelected,
+        isHovered,
+        isInspected,
+        isSub,
+        projectName,
+        screenX,
+        screenY,
+        activityText,
+        teamRoleLabel,
+        dotColor,
+        showContextGauge,
+        contextRatio,
+      },
+    ];
+  });
+  const detail = overlays.find((overlay) => overlay.isInspected);
+  const sub = detail?.isSub
+    ? subagentCharacters.find((entry) => entry.id === detail.id)
+    : undefined;
+  const parent = sub ? officeState.characters.get(sub.parentAgentId) : undefined;
+  const identity =
+    detail?.ch.agentName ||
+    detail?.ch.sessionName ||
+    detail?.ch.folderName ||
+    (detail?.isSub ? 'Sub-agent' : 'Agent');
+
   return (
     <>
-      {allIds.map((id) => {
-        const ch = officeState.characters.get(id);
-        if (!ch) return null;
-
-        const isSelected = selectedId === id;
-        const isHovered = hoveredId === id;
-        const isSub = ch.isSubagent;
-
-        // Only show for hovered or selected agents (unless always-show is on)
-        if (!alwaysShowOverlay && !isSelected && !isHovered) return null;
-
-        // Position above character
-        const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-        const screenX = project.toScreenX(ch.x);
-        const screenY = project.toScreenY(ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET);
-
-        // A "Done" agent (finished turn: waiting bubble without awaitingInput)
-        // shows ONLY its floating green checkmark bubble, never the label panel
-        // (the panel would cover the bubble). Render an empty positioned marker
-        // so overlay counts stay stable and hover/select can still bring the
-        // panel back. When always-show is off, the early return above already
-        // keeps the panel hidden for idle agents.
-        const isDone = ch.bubbleType === 'waiting' && !ch.waitingAwaitingInput;
-        if (isDone && !isSelected && !isHovered) {
+      {overlays.map(
+        ({
+          id,
+          ch,
+          isSelected,
+          isHovered,
+          isInspected,
+          isSub,
+          projectName,
+          screenX,
+          screenY,
+          activityText,
+          teamRoleLabel,
+          dotColor,
+          showContextGauge,
+          contextRatio,
+        }) => {
+          if (!alwaysShowOverlay && !isSelected && !isHovered && !isInspected) return null;
           return (
             <div
               key={id}
-              className="absolute"
-              style={{ left: screenX, top: screenY, pointerEvents: 'none' }}
+              className="absolute flex flex-col items-center"
+              style={{
+                left: Math.max(0, Math.min(screenX, el.clientWidth)),
+                top: Math.max(AGENT_LABEL_EDGE_INSET_PX, Math.min(screenY, el.clientHeight)),
+                transform:
+                  screenX < el.clientWidth / 2 ? 'translateY(-100%)' : 'translate(-100%, -100%)',
+                maxWidth: '100%',
+                zIndex: isSelected ? 42 : 41,
+              }}
               data-testid="agent-overlay"
               data-agent-id={id}
-            />
-          );
-        }
-
-        // Get activity text
-        const subHasPermission = isSub && ch.bubbleType === 'permission';
-        let activityText: string;
-        if (ch.observation === 'unknown') {
-          activityText = 'Unknown';
-        } else if (ch.waitingAwaitingInput) {
-          // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
-          // shows only the checkmark and falls through to the normal idle text.
-          activityText = WAITING_INPUT_ACTIVITY_TEXT;
-        } else if (isSub) {
-          if (subHasPermission) {
-            activityText = 'Needs approval';
-          } else {
-            // Hover shows the subtask title; SELECTING the sub reveals its live
-            // tool activity (watched sub-agents stream it via subagentToolStart).
-            const sub = subagentCharacters.find((s) => s.id === id);
-            const rows = sub ? subagentTools[sub.parentAgentId]?.[sub.parentToolId] : undefined;
-            const activeRow =
-              isSelected && rows ? [...rows].reverse().find((t) => !t.done) : undefined;
-            activityText = activeRow?.status ?? (sub?.label || 'Subtask');
-          }
-        } else {
-          activityText = getActivityText(
-            id,
-            agentTools,
-            ch.isActive,
-            ch.bubbleType,
-            ch.waitingAwaitingInput ?? false,
-          );
-        }
-
-        // Determine dot color
-        const tools = agentTools[id];
-        const hasPermission = subHasPermission || tools?.some((t) => t.permissionWait && !t.done);
-        const hasActiveTools = tools?.some((t) => !t.done);
-        const isActive = ch.isActive;
-        const hasWaiting = ch.bubbleType === 'waiting' || ch.waitingAwaitingInput;
-
-        let dotColor: string | null = null;
-        if (ch.observation === 'unknown') {
-          dotColor = 'var(--color-text-muted)';
-        } else if (hasPermission || hasWaiting) {
-          dotColor = 'var(--color-status-permission)';
-        } else if (isActive && hasActiveTools) {
-          dotColor = 'var(--color-status-active)';
-        }
-
-        // Team info
-        const teamRoleLabel = ch.isTeamLead ? 'LEAD' : ch.agentName || null;
-        const extraLineCount =
-          (teamRoleLabel ? 1 : 0) +
-          (ch.folderName ? 1 : 0) +
-          (ch.sessionName ? 1 : 0) +
-          (ch.providerId ? 1 : 0);
-
-        // Context gauge. Every agent gets one — lead, teammate, adopted,
-        // headless — as soon as it has taken a turn. Sub-agents never do: they
-        // have no session of their own, so contextTokens stays 0.
-        const contextRatio = ch.contextTokens / ch.maxContextTokens;
-        const showContextGauge = !isSub && ch.contextTokens > 0 && ch.maxContextTokens > 0;
-
-        return (
-          <div
-            key={id}
-            className="absolute flex flex-col items-center -translate-x-1/2"
-            style={{
-              left: screenX,
-              top: screenY - (28 + extraLineCount * 6),
-              pointerEvents: isSelected ? 'auto' : 'none',
-              opacity: alwaysShowOverlay && !isSelected && !isHovered ? (isSub ? 0.5 : 0.75) : 1,
-              zIndex: isSelected ? 42 : 41,
-            }}
-            data-testid="agent-overlay"
-            data-agent-id={id}
-          >
-            <div className="flex items-center border-border px-8 pt-2 pb-4 gap-5 pixel-panel whitespace-nowrap max-w-2xs">
-              {dotColor && (
-                <span
-                  className={`w-6 h-6 rounded-full shrink-0 ${isActive && !hasPermission && !hasWaiting ? 'pixel-pulse' : ''}`}
-                  style={{ background: dotColor }}
-                />
-              )}
-              <div className="flex flex-col gap-0 overflow-hidden">
-                {teamRoleLabel && (
-                  <span
-                    className="overflow-hidden text-ellipsis block leading-none"
-                    style={{
-                      fontSize: '18px',
-                      color: ch.isTeamLead ? TEAM_LEAD_COLOR : TEAM_ROLE_COLOR,
-                      fontWeight: ch.isTeamLead ? 'bold' : undefined,
-                    }}
-                  >
-                    {teamRoleLabel}
-                  </span>
-                )}
-                <span
-                  className="overflow-hidden text-ellipsis block leading-none"
-                  style={{
-                    fontSize: isSub ? '20px' : '22px',
-                    fontStyle: isSub ? 'italic' : undefined,
+              data-activity={activityText}
+            >
+              <div className="agent-label pixel-panel">
+                <button
+                  type="button"
+                  className="agent-label-inspect"
+                  aria-label={`Inspect ${projectName}: ${ch.agentName || ch.sessionName || (isSub ? 'sub-agent' : 'agent')}`}
+                  aria-expanded={isInspected}
+                  aria-controls={isInspected ? 'agent-details' : undefined}
+                  onMouseEnter={() => setPointerId(id)}
+                  onMouseLeave={() => setPointerId(null)}
+                  onFocus={() => {
+                    setFocusedId(id);
+                    setDismissedId(null);
+                  }}
+                  onBlur={() => setFocusedId(null)}
+                  onClick={() => {
+                    setFocusedId(id);
+                    setDismissedId(null);
                   }}
                 >
-                  {activityText}
-                </span>
-                {ch.folderName && (
-                  <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
-                    {ch.folderName}
+                  {dotColor && (
+                    <span className="w-6 h-6 shrink-0" style={{ background: dotColor }} />
+                  )}
+                  <span className="flex flex-col gap-0 overflow-hidden whitespace-nowrap">
+                    {teamRoleLabel && (
+                      <span
+                        className="overflow-hidden text-ellipsis block leading-none"
+                        style={{
+                          fontSize: '16px',
+                          color: ch.isTeamLead ? TEAM_LEAD_COLOR : TEAM_ROLE_COLOR,
+                          fontWeight: ch.isTeamLead ? 'bold' : undefined,
+                        }}
+                      >
+                        {teamRoleLabel}
+                      </span>
+                    )}
+                    <span
+                      className="overflow-hidden text-ellipsis block leading-none"
+                      style={{
+                        fontSize: '18px',
+                        fontStyle: isSub ? 'italic' : undefined,
+                      }}
+                    >
+                      {projectName}
+                    </span>
                   </span>
-                )}
-                {ch.sessionName && (
-                  <span className="text-2xs leading-none overflow-hidden text-ellipsis block opacity-75">
-                    {ch.sessionName}
-                  </span>
-                )}
-                {ch.providerId && (
-                  <span className="text-2xs leading-none overflow-hidden text-ellipsis block opacity-75">
-                    {providerDisplayName(ch.providerId)}
-                  </span>
+                </button>
+                {isSelected && !isSub && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCloseAgent(id);
+                    }}
+                    title="Close agent"
+                    className="ml-2 shrink-0 leading-none"
+                  >
+                    ×
+                  </Button>
                 )}
               </div>
-              {isSelected && !isSub && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCloseAgent(id);
-                  }}
-                  title="Close agent"
-                  className="ml-2 shrink-0 leading-none"
-                >
-                  ×
-                </Button>
-              )}
-            </div>
-            {showContextGauge && (
-              <div
-                style={{
-                  width: CONTEXT_GAUGE_WIDTH_PX,
-                  height: CONTEXT_GAUGE_HEIGHT_PX,
-                  background: CONTEXT_GAUGE_BG,
-                  marginTop: 2,
-                }}
-                title={`${Math.round(contextRatio * 100)}% context used (${(ch.contextTokens / 1000).toFixed(0)}k of ${(ch.maxContextTokens / 1000).toFixed(0)}k tokens)`}
-                data-testid="context-gauge"
-                data-context-pct={Math.round(contextRatio * 100)}
-              >
+              {showContextGauge && (
                 <div
                   style={{
-                    width: `${Math.min(contextRatio * 100, 100)}%`,
-                    height: '100%',
-                    background: getFuelColor(contextRatio),
+                    width: CONTEXT_GAUGE_WIDTH_PX,
+                    height: CONTEXT_GAUGE_HEIGHT_PX,
+                    background: CONTEXT_GAUGE_BG,
+                    marginTop: 2,
                   }}
-                />
-              </div>
-            )}
+                  title={`${Math.round(contextRatio * 100)}% context used (${(ch.contextTokens / 1000).toFixed(0)}k of ${(ch.maxContextTokens / 1000).toFixed(0)}k tokens)`}
+                  data-testid="context-gauge"
+                  data-context-pct={Math.round(contextRatio * 100)}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(contextRatio * 100, 100)}%`,
+                      height: '100%',
+                      background: getFuelColor(contextRatio),
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        },
+      )}
+      {detail && (
+        <section
+          id="agent-details"
+          aria-label="Agent details"
+          tabIndex={0}
+          className="agent-details pixel-panel pixel-scrollbar"
+          data-testid="agent-details"
+          data-agent-id={detail.id}
+          onMouseEnter={() => setPointerId(detail.id)}
+          onMouseLeave={() => setPointerId(null)}
+          onFocusCapture={() => setFocusedId(detail.id)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setFocusedId(null);
+          }}
+        >
+          <div className="flex items-start justify-between gap-12">
+            <h2 className="text-base leading-tight m-0 min-w-0 wrap-anywhere">{identity}</h2>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Hide agent details"
+              aria-label="Hide agent details"
+              onClick={() => {
+                setDismissedId(detail.id);
+                setFocusedId(null);
+                setPointerId(null);
+                setRecentHoverId(null);
+              }}
+            >
+              ×
+            </Button>
           </div>
-        );
-      })}
+          <p className="agent-details-activity">{detail.activityText}</p>
+          {detail.ch.observation === 'unknown' && (
+            <p className="text-xs m-0">Current activity could not be confirmed.</p>
+          )}
+          <dl className="agent-details-facts">
+            {(detail.ch.folderName || parent?.folderName) && (
+              <>
+                <dt>Project</dt>
+                <dd>{detail.projectName}</dd>
+              </>
+            )}
+            {(detail.ch.sessionName || parent?.sessionName) && (
+              <>
+                <dt>Session</dt>
+                <dd>{detail.ch.sessionName || parent?.sessionName}</dd>
+              </>
+            )}
+            <dt>Role</dt>
+            <dd>
+              {detail.isSub
+                ? 'Sub-agent'
+                : detail.ch.isTeamLead
+                  ? 'Lead'
+                  : detail.ch.agentName
+                    ? 'Teammate'
+                    : 'Agent'}
+            </dd>
+            {sub && (
+              <>
+                <dt>Task</dt>
+                <dd>{sub.label}</dd>
+              </>
+            )}
+            {parent && (
+              <>
+                <dt>Parent</dt>
+                <dd>{parent.agentName || parent.sessionName || parent.folderName || 'Agent'}</dd>
+              </>
+            )}
+            {detail.ch.providerId && (
+              <>
+                <dt>Source</dt>
+                <dd>{providerDisplayName(detail.ch.providerId)}</dd>
+              </>
+            )}
+            {detail.showContextGauge && (
+              <>
+                <dt>Context</dt>
+                <dd>
+                  {Math.round(detail.contextRatio * 100)}% used (
+                  {(detail.ch.contextTokens / 1000).toFixed(0)}k of{' '}
+                  {(detail.ch.maxContextTokens / 1000).toFixed(0)}k tokens)
+                </dd>
+              </>
+            )}
+          </dl>
+        </section>
+      )}
     </>
   );
 }

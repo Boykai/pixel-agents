@@ -164,13 +164,36 @@ describe('Copilot hooks share the transcript reducer', () => {
     expect(getCopilotActivity(agent)).toBe('done');
   });
 
-  it('older timestamped stops cannot resolve newer prompt evidence', () => {
-    permission({ timestamp: '2026-09-24T12:00:02Z' });
-    stop({ timestamp: '2026-09-24T12:00:01Z' });
+  it.each([
+    ['ISO', (value: string) => value],
+    ['numeric milliseconds', (value: string) => Date.parse(value)],
+  ])('older %s stops cannot resolve newer prompt evidence', (_label, timestamp) => {
+    permission({ timestamp: timestamp('2026-09-24T12:00:02Z') });
+    stop({ timestamp: timestamp('2026-09-24T12:00:01Z') });
     expect(agent.permissionSent).toBe(true);
-    stop({ timestamp: '2026-09-24T12:00:03Z' });
+    expect(getCopilotActivity(agent)).toBe('permission');
+    expect(messages).not.toContainEqual(expect.objectContaining({ status: 'waiting' }));
+    stop({ timestamp: timestamp('2026-09-24T12:00:03Z') });
     expect(agent.permissionSent).toBe(false);
   });
+
+  it.each([0, -8640000000000000, 8640000000000000])(
+    'normalizes valid numeric timestamp %s',
+    (timestamp) => {
+      expect(
+        hookToCopilotRecords({ sessionId: 'session', hookType: 'agentStop', timestamp })[0],
+      ).toHaveProperty('timestamp', new Date(timestamp).toISOString());
+    },
+  );
+
+  it.each([NaN, Infinity, -Infinity, -8640000000000001, 8640000000000001, 'invalid'])(
+    'ignores invalid timestamp %s without throwing',
+    (timestamp) => {
+      expect(
+        hookToCopilotRecords({ sessionId: 'session', hookType: 'agentStop', timestamp })[0],
+      ).not.toHaveProperty('timestamp');
+    },
+  );
 
   it('keeps native tombstones distinct from reusable internal hook slots', () => {
     transcript('permission.requested', { requestId: 'native', permissionRequest: {} });

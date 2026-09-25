@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import { normalizeProjectName } from '../../core/src/normalizeProjectName.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity } from '../../server/src/agentActivityResend.js';
 import { migrateAgentIdentity } from '../../server/src/agentMigration.js';
@@ -46,7 +47,6 @@ export async function launchNewTerminal(
   // Use home directory as fallback cwd when no workspace is open (common on Linux/macOS).
   // This ensures the terminal starts in a predictable location.
   const cwd = folderPath || folders?.[0]?.uri.fsPath || os.homedir();
-  const isMultiRoot = !!(folders && folders.length > 1);
   const sessionId = crypto.randomUUID();
   const launch = provider.buildLaunchCommand?.(sessionId, cwd, { bypassPermissions });
   if (!launch) throw new Error(`${provider.displayName} does not support terminal launch`);
@@ -84,9 +84,7 @@ export async function launchNewTerminal(
   const owningFolder = (folders ?? [])
     .filter((f) => cwd === f.uri.fsPath || cwd.startsWith(f.uri.fsPath + path.sep))
     .sort((a, b) => b.uri.fsPath.length - a.uri.fsPath.length)[0];
-  const folderName = isMultiRoot
-    ? (owningFolder?.name ?? (cwd ? path.basename(cwd) : undefined))
-    : undefined;
+  const folderName = owningFolder?.name ?? normalizeProjectName(cwd);
   const agent: AgentState = {
     id,
     providerId: provider.id,
@@ -357,7 +355,7 @@ export function restoreAgents(
       lastDataAt: 0,
       linesProcessed: 0,
       seenUnknownRecordTypes: new Set(),
-      folderName: p.folderName,
+      folderName: provider.resolveSessionFolderName?.(p.projectDir) ?? p.folderName,
       sessionName: p.sessionName,
       hookDelivered: false,
       contextTokens: 0,

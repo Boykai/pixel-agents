@@ -43,6 +43,7 @@ interface Tool {
 }
 
 interface Request {
+  requestId?: string;
   toolId?: string;
   parentToolId?: string;
   agentId?: string;
@@ -103,10 +104,14 @@ function toolKey(toolId: string, parentToolId?: string): string {
 export function hookToCopilotRecords(raw: unknown): Record<string, unknown>[] {
   const hook = objectValue(raw);
   if (!hook || !text(hook.sessionId)) return [];
+  const numericTimestamp =
+    typeof hook.timestamp === 'number' ? new Date(hook.timestamp) : undefined;
   const timestamp =
     typeof hook.timestamp === 'string' && Number.isFinite(Date.parse(hook.timestamp))
       ? { timestamp: hook.timestamp }
-      : {};
+      : numericTimestamp && Number.isFinite(numericTimestamp.getTime())
+        ? { timestamp: numericTimestamp.toISOString() }
+        : {};
   const agentId = text(hook.agentId);
   const parentToolCallId = text(hook.parentToolCallId);
   const scope = agentId ? { agentId } : {};
@@ -231,6 +236,141 @@ function remember(set: Set<string>, key: string): void {
   }
 }
 
+type Emit = (message: Record<string, unknown>) => void;
+
+function publishActivity(
+  state: CopilotState,
+  agent: AgentState,
+  activity: CopilotActivity,
+  emit: Emit,
+  onObservation?: CopilotRecordOptions['onObservation'],
+): void {
+  const changed = state.activity !== activity;
+  state.activity = activity;
+  const previousObservation = agent.observation;
+  agent.observation = activity === 'unknown' ? 'unknown' : 'known';
+  agent.isWaiting = activity === 'done' || activity === 'input';
+  agent.awaitingInput = activity === 'input';
+  if (previousObservation !== agent.observation) {
+    emit({ type: 'agentObservation', id: agent.id, observation: agent.observation });
+  }
+  if (!changed) return;
+  onObservation?.(activity);
+  if (activity === 'unknown') {
+    emit({ type: 'agentStatus', id: agent.id, status: 'unknown' });
+  } else {
+    emit({
+      type: 'agentStatus',
+      id: agent.id,
+      status: agent.isWaiting ? 'waiting' : 'active',
+      ...(agent.isWaiting ? { awaitingInput: activity === 'input' } : {}),
+    });
+  }
+}
+
+function reconcileActivity(
+  state: CopilotState,
+  agent: AgentState,
+  emit: Emit,
+  onObservation?: CopilotRecordOptions['onObservation'],
+): void {
+  // A stopped main interaction plus no independent work is matching completion
+  // evidence for root hook-only hints. It never resolves richer native requests.
+  if (state.mainStopped && state.children.size === 0 && state.tools.size === 0) {
+    for (const requests of [state.inputs, state.permissions]) {
+      for (const [key, request] of requests) {
+        if (
+          request.hookOnly &&
+          !request.parentToolId &&
+          !request.agentId &&
+          !(
+            state.mainStopAt !== undefined &&
+            request.observedAt !== undefined &&
+            state.mainStopAt < request.observedAt
+          )
+        )
+          requests.delete(key);
+      }
+    }
+  }
+  const permission = state.permissions.size > 0;
+  if (agent.permissionSent !== permission) {
+    agent.permissionSent = permission;
+    emit({ type: permission ? 'agentToolPermission' : 'agentToolPermissionClear', id: agent.id });
+  }
+  const pendingChildren = new Set<string>();
+  for (const request of state.permissions.values()) {
+    if (request.parentToolId) pendingChildren.add(request.parentToolId);
+  }
+  if (permission) {
+    for (const parentToolId of state.permissionChildren) {
+      if (!pendingChildren.has(parentToolId)) {
+        emit({ type: 'agentToolPermissionClear', id: agent.id, parentToolId });
+      }
+    }
+    for (const parentToolId of pendingChildren) {
+      if (!state.permissionChildren.has(parentToolId)) {
+        emit({ type: 'subagentToolPermission', id: agent.id, parentToolId });
+      }
+    }
+  }
+  state.permissionChildren = pendingChildren;
+  publishActivity(
+    state,
+    agent,
+    permission
+      ? 'permission'
+      : state.inputs.size > 0
+        ? 'input'
+        : state.mainIdle && state.children.size === 0 && state.tools.size === 0
+          ? state.historyComplete
+            ? 'done'
+            : 'unknown'
+          : 'active',
+    emit,
+    onObservation,
+  );
+}
+
+/** Pending requests follow the teammate that will receive their live completions. */
+export function promoteCopilotChildRequests(
+  lead: AgentState,
+  teammate: AgentState,
+  child: CopilotChild,
+  emit: Emit,
+): void {
+  const state = states.get(lead);
+  if (!state) return;
+  const target = states.get(teammate) ?? newState();
+  let transferred = false;
+  for (const kind of ['permissions', 'inputs'] as const) {
+    for (const [key, request] of state[kind]) {
+      if (
+        request.parentToolId !== child.parentToolId &&
+        (!child.agentId || request.agentId !== child.agentId)
+      )
+        continue;
+      const localKey = request.requestId
+        ? `${kind === 'permissions' ? 'permission' : 'input'}:${toolKey(request.requestId)}`
+        : `tool:${toolKey(request.toolId!)}`;
+      target[kind].set(localKey, { ...request, parentToolId: undefined, agentId: undefined });
+      state[kind].delete(key);
+      transferred = true;
+    }
+  }
+  if (!transferred) return;
+  states.set(teammate, target);
+  const unknown = lead.observation === 'unknown';
+  const hadPermission = lead.permissionSent;
+  reconcileActivity(target, teammate, () => {});
+  reconcileActivity(state, lead, unknown ? () => {} : emit);
+  if (unknown) {
+    markCopilotObservationUnknown(lead);
+    if (hadPermission && !lead.permissionSent)
+      emit({ type: 'agentToolPermissionClear', id: lead.id });
+  }
+}
+
 export function getCopilotActivity(agent: AgentState): CopilotActivity {
   return states.get(agent)?.activity ?? 'unknown';
 }
@@ -345,83 +485,10 @@ export function processCopilotRecord(
   const emit = (message: Record<string, unknown>): void => {
     if (!options.replay) agents.broadcast(message);
   };
-  const publish = (activity: CopilotActivity): void => {
-    const changed = state.activity !== activity;
-    state.activity = activity;
-    const previousObservation = agent.observation;
-    agent.observation = activity === 'unknown' ? 'unknown' : 'known';
-    agent.isWaiting = activity === 'done' || activity === 'input';
-    agent.awaitingInput = activity === 'input';
-    if (previousObservation !== agent.observation) {
-      emit({ type: 'agentObservation', id: agentId, observation: agent.observation });
-    }
-    if (!changed) return;
-    if (!options.replay) options.onObservation?.(activity);
-    if (activity === 'unknown') {
-      emit({ type: 'agentStatus', id: agentId, status: 'unknown' });
-    } else {
-      emit({
-        type: 'agentStatus',
-        id: agentId,
-        status: agent.isWaiting ? 'waiting' : 'active',
-        ...(agent.isWaiting ? { awaitingInput: activity === 'input' } : {}),
-      });
-    }
-  };
-  const reconcile = (): void => {
-    // A stopped main interaction plus no independent work is matching completion
-    // evidence for root hook-only hints. It never resolves richer native requests.
-    if (state.mainStopped && state.children.size === 0 && state.tools.size === 0) {
-      for (const requests of [state.inputs, state.permissions]) {
-        for (const [key, request] of requests) {
-          if (
-            request.hookOnly &&
-            !request.parentToolId &&
-            !request.agentId &&
-            !(
-              state.mainStopAt !== undefined &&
-              request.observedAt !== undefined &&
-              state.mainStopAt < request.observedAt
-            )
-          )
-            requests.delete(key);
-        }
-      }
-    }
-    const permission = state.permissions.size > 0;
-    if (agent.permissionSent !== permission) {
-      agent.permissionSent = permission;
-      emit({ type: permission ? 'agentToolPermission' : 'agentToolPermissionClear', id: agentId });
-    }
-    const pendingChildren = new Set<string>();
-    for (const request of state.permissions.values()) {
-      if (request.parentToolId) pendingChildren.add(request.parentToolId);
-    }
-    if (permission) {
-      for (const parentToolId of state.permissionChildren) {
-        if (!pendingChildren.has(parentToolId)) {
-          emit({ type: 'agentToolPermissionClear', id: agentId, parentToolId });
-        }
-      }
-      for (const parentToolId of pendingChildren) {
-        if (!state.permissionChildren.has(parentToolId)) {
-          emit({ type: 'subagentToolPermission', id: agentId, parentToolId });
-        }
-      }
-    }
-    state.permissionChildren = pendingChildren;
-    publish(
-      permission
-        ? 'permission'
-        : state.inputs.size > 0
-          ? 'input'
-          : state.mainIdle && state.children.size === 0 && state.tools.size === 0
-            ? state.historyComplete
-              ? 'done'
-              : 'unknown'
-            : 'active',
-    );
-  };
+  const onObservation = options.replay ? undefined : options.onObservation;
+  const publish = (activity: CopilotActivity): void =>
+    publishActivity(state, agent, activity, emit, onObservation);
+  const reconcile = (): void => reconcileActivity(state, agent, emit, onObservation);
   const clearTool = (key: string): void => {
     const tool = state.tools.get(key);
     if (!tool) return;
@@ -786,6 +853,7 @@ export function processCopilotRecord(
       const toolId = text(data.toolCallId) ?? text(permission?.toolCallId);
       if (toolId && state.completedTools.has(toolKey(toolId, parentToolId))) return;
       const request = {
+        requestId,
         toolId,
         parentToolId,
         agentId: childAgentId,

@@ -15,6 +15,128 @@ import { setSettings } from '../../helpers/webview';
 test.describe('Standalone / Copilot transcript observation', () => {
   test.use({ provider: 'copilot', seedHooksEnabled: false });
 
+  test('compact labels reveal one readable hover inspector with keyboard and narrow-screen support @area:standalone', async ({
+    page,
+    copilot,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 660, height: 520 });
+    await setSettings(page, { alwaysShowLabels: true, watchAllSessions: false });
+    const title =
+      'Investigate session discovery and provide clear progress for the GitHub Copilot application';
+    const first = await copilot('hover-first', 'pixel-agents-hq/pixel-agents');
+    await first.run(
+      copilotScenario()
+        .append('session.title_changed', { title })
+        .toolStart('reading', 'view', { path: 'hover-first.ts' }),
+    );
+    await expectOverlayVisible(page, 'Reading hover-first.ts');
+    const second = await copilot('hover-second', 'pixel-agents-hq/pixel-agents');
+    await second.run(
+      copilotScenario()
+        .append('session.title_changed', { title: 'Review the second session' })
+        .toolStart('reading', 'view', { path: 'hover-second.ts' }),
+    );
+    await expectOverlayCount(page, 2);
+
+    const details = page.getByRole('region', { name: 'Agent details' });
+    await expect(details).toHaveCount(0);
+    await expect(getAgentOverlays(page)).not.toContainText(['GitHub Copilot CLI']);
+    const projectName = 'pixel-agents';
+    await expect(getAgentOverlays(page)).toHaveText([projectName, projectName]);
+    const firstLabel = page.getByRole('button', {
+      name: `Inspect ${projectName}: ${title}`,
+      exact: true,
+    });
+    await firstLabel.hover();
+    await expect(details).toHaveCount(1);
+    await expect(details).toContainText(title);
+    await expect(details).toContainText('Reading hover-first.ts');
+    await expect(details).toContainText('GitHub Copilot CLI');
+    await expect(details).toHaveCSS('background-color', 'rgb(30, 30, 46)');
+    await details.hover();
+    await page.waitForTimeout(600);
+    await expect(details).toBeVisible();
+    await testInfo.attach('hover-details-desktop', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.keyboard.press('Escape');
+    await expect(details).toHaveCount(0);
+
+    await page
+      .getByRole('button', {
+        name: `Inspect ${projectName}: Review the second session`,
+        exact: true,
+      })
+      .hover();
+    await expect(details).toHaveCount(1);
+    await expect(details).toContainText('Reading hover-second.ts');
+    await page.mouse.move(650, 510);
+    await expect(details).toHaveCount(0);
+
+    await firstLabel.focus();
+    await expect(details).toBeVisible();
+    await page.setViewportSize({ width: 360, height: 520 });
+    await expect
+      .poll(async () => {
+        const box = await details.boundingBox();
+        return (
+          !!box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 360 && box.y + box.height <= 520
+        );
+      })
+      .toBe(true);
+    await testInfo.attach('hover-details-narrow', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await details.getByRole('button', { name: 'Hide agent details' }).click();
+    await expect(details).toHaveCount(0);
+    await expectOverlayCount(page, 2);
+    await first.run(copilotScenario().toolComplete('reading').interactionDone('hover-first'));
+    await expectOverlayVisible(page, 'Idle');
+    await expect(getAgentOverlays(page)).toHaveText([projectName, projectName]);
+    await page.reload();
+    await expect(getAgentOverlays(page)).toHaveText([projectName, projectName]);
+  });
+
+  test('sub-agents inherit project labels while live activity remains in hover details @area:standalone', async ({
+    page,
+    copilot,
+  }) => {
+    await setSettings(page, { alwaysShowLabels: true, watchAllSessions: false });
+    const mock = await copilot('project-child', 'example/Laughingman');
+    await mock.run(
+      copilotScenario()
+        .toolStart('spawn', 'task', { description: 'Research project labels' })
+        .subagentStart('child', {
+          toolCallId: 'spawn',
+          agentName: 'general-purpose',
+          agentDisplayName: 'Research',
+          agentType: 'general-purpose',
+          executionMode: 'background',
+        }),
+    );
+    await expectOverlayCount(page, 2);
+    await mock.run(
+      copilotScenario().append(
+        'tool.execution_start',
+        {
+          toolCallId: 'child-read',
+          toolName: 'view',
+          arguments: { path: 'labels.ts' },
+        },
+        { agentId: 'child' },
+      ),
+    );
+    await expect(getAgentOverlays(page)).toHaveText(['Laughingman', 'Laughingman']);
+    await page.locator('[data-agent-id="-1"] .agent-label-inspect').focus();
+    const details = page.getByRole('region', { name: 'Agent details' });
+    await expect(details).toContainText('Laughingman');
+    await expect(details).toContainText('Reading labels.ts');
+    await expect(details).toContainText('Sub-agent');
+    await expect(getAgentOverlays(page)).toHaveText(['Laughingman', 'Laughingman']);
+  });
+
   test('discovers new same-workspace sessions after empty boot and restores active labels on reload @area:standalone', async ({
     page,
     copilot,

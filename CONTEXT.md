@@ -112,7 +112,7 @@ The inactive form where the agent asked the user something and is blocked on a r
 The inactive form where the agent is blocked until the user approves a tool use. Unlike the other two forms, it can occur mid-turn.
 
 **Activity label**:
-The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown above its character.
+The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown in its hover/focus details. The compact label above the character shows the normalized project name instead.
 _Avoid_: status text, tool status
 
 **Speech bubble**:

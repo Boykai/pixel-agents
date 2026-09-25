@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { normalizeProjectName } from '../../../../../core/src/normalizeProjectName.js';
 import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.js';
 import { pathsMatch } from '../../../pathKey.js';
 import { CONSENT_DISCLOSURE, CONSENT_INSTALL_HEADLINE } from './consentCopy.js';
@@ -189,14 +190,14 @@ function getSessionFile(sessionId: string): string | undefined {
  *  an authoritative App project identifier. It is a useful label when Watch
  *  All Sessions mixes different repos into one office. `repository` is
  *  absent for sessions whose cwd isn't inside a tracked GitHub repo, so those
- *  fall back to the cwd's own basename, matching what Claude agents show. */
+ *  fall back to the cwd's project name, not an App-generated worktree name. */
 function resolveSessionFolderName(dirPath: string): string | undefined {
   const workspaceYamlPath = path.join(dirPath, 'workspace.yaml');
   const content = readWorkspaceYamlContent(workspaceYamlPath);
   const repository = content ? readWorkspaceYamlField(content, 'repository') : undefined;
   if (repository) return repository;
   const cwd = readWorkspaceCwd(workspaceYamlPath);
-  return cwd ? base(cwd) : undefined;
+  return normalizeProjectName(cwd);
 }
 
 /** Use the session title supplied by the CLI instead of an opaque UUID.

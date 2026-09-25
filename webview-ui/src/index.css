@@ -106,6 +106,70 @@
     @apply bg-bg border-2 border-border rounded-none shadow-pixel;
   }
 
+  .agent-label {
+    display: flex;
+    align-items: center;
+    max-width: 170px;
+  }
+
+  .agent-label-inspect {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    min-width: 0;
+    text-align: left;
+    color: inherit;
+    cursor: help;
+  }
+
+  .agent-label-inspect:hover {
+    background: var(--color-btn-hover);
+  }
+
+  .agent-label-inspect:focus-visible,
+  .agent-details:focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
+  }
+
+  .agent-details {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 43;
+    width: min(340px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+    padding: 14px;
+    pointer-events: auto;
+  }
+
+  .agent-details-activity {
+    margin: 12px 0;
+    font-size: var(--text-sm);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-details-facts {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 14px 0 0;
+    font-size: var(--text-xs);
+    line-height: 1.25;
+  }
+
+  .agent-details-facts dt {
+    color: var(--color-text);
+  }
+
+  .agent-details-facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
   /* Horizontal carousel for editor items */
   .carousel {
     @apply flex gap-8 overflow-x-auto flex-nowrap pb-2;

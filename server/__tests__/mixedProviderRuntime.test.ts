@@ -13,6 +13,7 @@ import {
   EXTERNAL_SCAN_INTERVAL_MS,
   EXTERNAL_STALE_CHECK_INTERVAL_MS,
   FILE_WATCHER_POLL_INTERVAL_MS,
+  PROJECT_SCAN_INTERVAL_MS,
 } from '../src/constants.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { recoverCopilotTranscript } from '../src/providers/hook/copilot/recovery.js';
@@ -192,6 +193,7 @@ describe('provider-scoped runtime and bounded discovery', () => {
         type: 'tool.execution_start',
         data: { toolCallId: 'same-tool', toolName: 'view', arguments: {} },
       });
+
     vi.advanceTimersByTime(EXTERNAL_SCAN_INTERVAL_MS);
     expect([...store.values()].map((a) => a.sessionId).sort()).toEqual(['one', 'two']);
     for (const agent of store.values()) {
@@ -203,6 +205,35 @@ describe('provider-scoped runtime and bounded discovery', () => {
     expect(
       [...store.values()].find((a) => a.sessionId === 'two')?.activeToolIds.has('same-tool'),
     ).toBe(true);
+  });
+
+  it('does not assign historical or growing Copilot transcripts to an unrelated terminal', () => {
+    const file = session('historical', [{ type: 'session.idle', data: {} }]);
+    const provider = {
+      ...copilot(() => [path.dirname(file)]),
+      terminalNamePrefix: 'GitHub Copilot',
+    };
+    const { instance, store } = runtime(provider);
+    const terminal = { name: 'GitHub Copilot #99' };
+    instance.setTerminalAdapter({
+      activeTerminal: () => terminal,
+      allTerminals: () => [terminal],
+    });
+    instance.startDiscovery([root]);
+    vi.advanceTimersByTime(PROJECT_SCAN_INTERVAL_MS + EXTERNAL_SCAN_INTERVAL_MS);
+    expect(store.size).toBe(0);
+    expect(instance.getKnownJsonlFiles(provider.id).has(file)).toBe(false);
+
+    append(file, {
+      type: 'tool.execution_start',
+      data: { toolCallId: 'live', toolName: 'view' },
+    });
+    vi.advanceTimersByTime(EXTERNAL_SCAN_INTERVAL_MS);
+    expect(store.size).toBe(1);
+    const agent = [...store.values()][0];
+    expect(agent.sessionId).toBe('historical');
+    expect(agent.isExternal).toBe(true);
+    expect(agent.terminalRef).toBeUndefined();
   });
 
   it('adopts a new active first batch after empty boot without requiring another write', () => {

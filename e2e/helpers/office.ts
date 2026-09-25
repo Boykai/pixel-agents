@@ -38,12 +38,39 @@ export function getAgentOverlays(frame: OverlaySurface): Locator {
 }
 
 export function getOverlayByText(frame: OverlaySurface, text: string): Locator {
-  return getAgentOverlays(frame).filter({ hasText: text });
+  return matchOverlayText(frame, getAgentOverlays(frame), text);
+}
+
+function matchOverlayText(frame: OverlaySurface, overlays: Locator, text: string): Locator {
+  return overlays
+    .filter({ hasText: text })
+    .or(overlays.and(frame.locator(`[data-activity*=${JSON.stringify(text)}]`)));
+}
+
+/** Locate by activity, then assert the actual hover/focus details the user sees. */
+async function expectInspectedText(
+  frame: OverlaySurface,
+  overlay: Locator,
+  texts: string[],
+  timeout: number,
+): Promise<void> {
+  await expect(overlay).toBeVisible({ timeout });
+  const id = await overlay.getAttribute('data-agent-id');
+  const stableOverlay = frame.locator(`[data-testid="agent-overlay"][data-agent-id="${id}"]`);
+  const labelText = await stableOverlay.innerText();
+  const detailTexts = texts.filter((text) => !labelText.includes(text));
+  if (!detailTexts.length) return;
+  const button = stableOverlay.locator('.agent-label-inspect');
+  await button.focus();
+  const details = frame.getByRole('region', { name: 'Agent details' });
+  for (const text of detailTexts) await expect(details).toContainText(text, { timeout });
+  await button.press('Escape');
+  await button.evaluate((element) => element.blur());
 }
 
 export function getOverlayByTexts(frame: OverlaySurface, texts: string[]): Locator {
   return texts.reduce<Locator>(
-    (locator, text) => locator.filter({ hasText: text }),
+    (locator, text) => matchOverlayText(frame, locator, text),
     getAgentOverlays(frame),
   );
 }
@@ -65,7 +92,7 @@ export async function expectOverlayVisible(
   text: string,
   timeout = OVERLAY_TIMEOUT_MS,
 ): Promise<void> {
-  await expect(getOverlayByText(frame, text).first()).toBeVisible({ timeout });
+  await expectInspectedText(frame, getOverlayByText(frame, text).first(), [text], timeout);
 }
 
 export async function expectOverlayVisibleWithTexts(
@@ -73,7 +100,7 @@ export async function expectOverlayVisibleWithTexts(
   texts: string[],
   timeout = OVERLAY_TIMEOUT_MS,
 ): Promise<void> {
-  await expect(getOverlayByTexts(frame, texts).first()).toBeVisible({ timeout });
+  await expectInspectedText(frame, getOverlayByTexts(frame, texts).first(), texts, timeout);
 }
 
 export async function expectOverlayVisibleForAgent(
@@ -82,9 +109,12 @@ export async function expectOverlayVisibleForAgent(
   text: string,
   timeout = OVERLAY_TIMEOUT_MS,
 ): Promise<void> {
-  await expect(getOverlayByAgentId(frame, agentId).filter({ hasText: text })).toBeVisible({
+  await expectInspectedText(
+    frame,
+    matchOverlayText(frame, getOverlayByAgentId(frame, agentId), text),
+    [text],
     timeout,
-  });
+  );
 }
 
 export async function expectNoOverlay(

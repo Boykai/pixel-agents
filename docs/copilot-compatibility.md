@@ -42,6 +42,10 @@ This is source-based capability coverage, not a claim that every installed App
 version emits every event. Existing CLI/App processes may need a user-initiated
 restart to load newly consented hooks; Pixel Agents never restarts them.
 
+Copilot terminals launched by Pixel Agents are linked through their allocated
+session UUID. Other Copilot sessions are observed as external agents: a terminal
+name or focus alone cannot establish which transcript it owns.
+
 ## Transcript semantics
 
 These distinctions are essential to avoid false status and missing characters:
