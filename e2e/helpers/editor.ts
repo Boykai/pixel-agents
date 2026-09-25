@@ -27,6 +27,7 @@ export interface TestHooksWindow extends Window {
     getAreaTiles?: () => Array<{ col: number; row: number; label: string }>;
     getAreaMappings?: () => Record<string, string[]>;
     getShowAreas?: () => boolean;
+    getFurnitureCount?: () => number;
     getAgentSeats?: () => Array<{
       id: number;
       seatId: string | null;
@@ -67,6 +68,20 @@ export async function dismissFirstRunTooltips(frame: Frame): Promise<void> {
 export async function enterEditMode(frame: Frame): Promise<void> {
   await dismissFirstRunTooltips(frame);
   await frame.locator('button[title="Edit office layout"]').click();
+}
+
+export async function readFurnitureCount(frame: Frame): Promise<number> {
+  return frame.evaluate(
+    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getFurnitureCount?.() ?? -1,
+  );
+}
+
+export async function generateRoomFromToolbar(frame: Frame): Promise<void> {
+  const before = await readFurnitureCount(frame);
+  expect(before).toBeGreaterThanOrEqual(0);
+  await frame.getByRole('button', { name: 'Generate Room', exact: true }).click();
+  await expect.poll(() => readFurnitureCount(frame)).toBeGreaterThan(before);
+  await expect(frame.getByRole('status').filter({ hasText: /^Added / })).toBeVisible();
 }
 
 /**

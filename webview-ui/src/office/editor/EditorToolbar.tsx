@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, Ref } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
@@ -14,6 +14,7 @@ import {
   PET_THUMB_SCALE_MARGIN,
   PET_THUMB_ZOOM,
 } from '../../constants.js';
+import type { RoomFeedback } from '../../hooks/useEditorActions.js';
 import { getColorizedSprite } from '../colorize.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
@@ -39,6 +40,10 @@ type CarpetCategoryId = typeof CARPET_CATEGORY_ID;
 type FurniturePanelCategory = FurnitureCategory | CarpetCategoryId;
 
 interface EditorToolbarProps {
+  toolbarRef?: Ref<HTMLDivElement>;
+  onGenerateRoom: () => void;
+  isGeneratingRoom: boolean;
+  roomFeedback: RoomFeedback | null;
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
   selectedFurnitureType: string;
@@ -88,6 +93,10 @@ const THUMB_ZOOM = 2;
 const DEFAULT_FURNITURE_COLOR: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
 
 export function EditorToolbar({
+  toolbarRef,
+  onGenerateRoom,
+  isGeneratingRoom,
+  roomFeedback,
   activeTool,
   selectedTileType,
   selectedFurnitureType,
@@ -232,9 +241,26 @@ export function EditorToolbar({
   };
 
   return (
-    <div className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]">
+    <div
+      ref={toolbarRef}
+      className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]"
+    >
       {/* Tool row — at the bottom */}
       <div className="flex gap-4 flex-wrap">
+        <Button
+          variant={isGeneratingRoom || !loadedAssets ? 'disabled' : 'accent'}
+          size="md"
+          disabled={isGeneratingRoom || !loadedAssets}
+          onClick={onGenerateRoom}
+          title={
+            loadedAssets
+              ? 'Add a furnished room connected to the office'
+              : 'Waiting for furniture assets'
+          }
+          aria-describedby="room-generation-feedback"
+        >
+          {isGeneratingRoom ? 'Generating...' : 'Generate Room'}
+        </Button>
         <Button
           variant={isFurnitureActive ? 'active' : 'default'}
           size="md"
@@ -285,6 +311,21 @@ export function EditorToolbar({
         >
           Erase
         </Button>
+      </div>
+
+      <div
+        id="room-generation-feedback"
+        className="max-w-[min(520px,calc(100vw-40px))] px-4 text-xs leading-snug wrap-anywhere"
+      >
+        {roomFeedback ? (
+          <p role={roomFeedback.kind === 'error' ? 'alert' : 'status'} className="m-0 py-4">
+            {roomFeedback.message}
+          </p>
+        ) : !loadedAssets ? (
+          <p role="status" className="m-0 py-4">
+            Waiting for furniture assets before generating rooms.
+          </p>
+        ) : null}
       </div>
 
       {/* Sub-panel: Floor tiles — stacked bottom-to-top via column-reverse */}

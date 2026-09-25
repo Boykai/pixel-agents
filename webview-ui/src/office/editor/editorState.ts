@@ -9,6 +9,16 @@ import {
 import type { OfficeLayout, TileType as TileTypeVal } from '../types.js';
 import { EditTool, TileType } from '../types.js';
 
+export interface GridOffset {
+  col: number;
+  row: number;
+}
+
+export interface EditorSnapshot {
+  layout: OfficeLayout;
+  offset: GridOffset;
+}
+
 export class EditorState {
   isEditMode = false;
   activeTool: EditTool = EditTool.SELECT;
@@ -42,8 +52,9 @@ export class EditorState {
   isDragging = false;
 
   // Undo / Redo stacks
-  undoStack: OfficeLayout[] = [];
-  redoStack: OfficeLayout[] = [];
+  undoStack: EditorSnapshot[] = [];
+  redoStack: EditorSnapshot[] = [];
+  gridOffset: GridOffset = { col: 0, row: 0 };
 
   // Dirty flag — true when layout differs from last save
   isDirty = false;
@@ -74,26 +85,46 @@ export class EditorState {
   /** First tile of an area drag sets direction: true=erase same label, false=paint. */
   areaDragErasing: boolean | null = null;
 
+  snapshot(layout: OfficeLayout): EditorSnapshot {
+    return { layout, offset: { ...this.gridOffset } };
+  }
+
+  restoreOffset(snapshot: EditorSnapshot): GridOffset {
+    const shift = {
+      col: snapshot.offset.col - this.gridOffset.col,
+      row: snapshot.offset.row - this.gridOffset.row,
+    };
+    this.gridOffset = { ...snapshot.offset };
+    return shift;
+  }
+
+  resetHistory(): void {
+    this.undoStack = [];
+    this.redoStack = [];
+    this.gridOffset = { col: 0, row: 0 };
+    this.carpetStrokeInitialLayout = null;
+  }
+
   pushUndo(layout: OfficeLayout): void {
-    this.undoStack.push(layout);
+    this.undoStack.push(this.snapshot(layout));
     // Limit undo stack size
     if (this.undoStack.length > UNDO_STACK_MAX_SIZE) {
       this.undoStack.shift();
     }
   }
 
-  popUndo(): OfficeLayout | null {
+  popUndo(): EditorSnapshot | null {
     return this.undoStack.pop() || null;
   }
 
   pushRedo(layout: OfficeLayout): void {
-    this.redoStack.push(layout);
+    this.redoStack.push(this.snapshot(layout));
     if (this.redoStack.length > UNDO_STACK_MAX_SIZE) {
       this.redoStack.shift();
     }
   }
 
-  popRedo(): OfficeLayout | null {
+  popRedo(): EditorSnapshot | null {
     return this.redoStack.pop() || null;
   }
 

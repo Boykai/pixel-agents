@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
@@ -13,6 +13,7 @@ import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
 import { ZoomControls } from './components/ZoomControls.js';
+import { ROOM_FRAME_TOP_INSET_PX } from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
 import { useExtensionMessages } from './hooks/useExtensionMessages.js';
@@ -21,10 +22,12 @@ import { OfficeCanvas } from './office/components/OfficeCanvas.js';
 import { ToolOverlay } from './office/components/ToolOverlay.js';
 import { EditorState } from './office/editor/editorState.js';
 import { EditorToolbar } from './office/editor/EditorToolbar.js';
+import type { RoomBounds } from './office/editor/roomGeneration.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { exportLayoutToFile } from './office/layout/exportLayout.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from './office/layout/layoutSerializer.js';
+import { frameLayoutBounds } from './office/projection.js';
 import { getPetCount } from './office/sprites/petSpriteData.js';
 import { EditTool, type OfficeLayout } from './office/types.js';
 import { isBrowserRuntime, isE2E } from './runtime.js';
@@ -215,6 +218,31 @@ function App() {
   }, [handleEditorTileAction, handleEditorEraseAction, effectiveShowAreas]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const editorToolbarRef = useRef<HTMLDivElement>(null);
+  const framedRoomRef = useRef<RoomBounds | null>(null);
+  const { roomToFrame, zoom, panRef, handleZoomChange } = editor;
+
+  useLayoutEffect(() => {
+    if (!roomToFrame || framedRoomRef.current === roomToFrame) return;
+    const container = containerRef.current?.getBoundingClientRect();
+    const toolbar = editorToolbarRef.current?.getBoundingClientRect();
+    if (!container || !toolbar) return;
+    framedRoomRef.current = roomToFrame;
+    const frame = frameLayoutBounds(
+      getOfficeState().getLayout(),
+      roomToFrame,
+      {
+        width: container.width,
+        height: container.height,
+        top: ROOM_FRAME_TOP_INSET_PX,
+        bottom: toolbar.top - container.top,
+      },
+      zoom,
+      window.devicePixelRatio || 1,
+    );
+    panRef.current = frame.pan;
+    handleZoomChange(frame.zoom);
+  }, [roomToFrame, zoom, panRef, handleZoomChange]);
 
   const [editorTickForKeyboard, setEditorTickForKeyboard] = useState(0);
   useEditorKeyboard(
@@ -384,6 +412,10 @@ function App() {
                 : null;
               return (
                 <EditorToolbar
+                  toolbarRef={editorToolbarRef}
+                  onGenerateRoom={editor.handleGenerateRoom}
+                  isGeneratingRoom={editor.isGeneratingRoom}
+                  roomFeedback={editor.roomFeedback}
                   activeTool={editorState.activeTool}
                   selectedTileType={editorState.selectedTileType}
                   selectedFurnitureType={editorState.selectedFurnitureType}

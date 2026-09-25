@@ -1,5 +1,35 @@
 # React + TypeScript + Vite
 
+## Generate Room
+
+Open **Layout**, then select **Generate Room** to add a furnished workspace,
+meeting room, or lounge. Each interior is randomly chosen from 5 to 8 tiles wide
+and 5 to 8 tiles high, before furnishing. A one-tile wall perimeter lies outside
+those dimensions. The room attaches through an open passage to existing
+walkable floor, including hand-built layouts without enclosing walls.
+
+Generation uses small arrangements made from available bundled catalog assets:
+a desk/chair/computer, a meeting table with chairs, or a sofa and coffee table,
+each with decor. Larger rooms can receive additional workspaces or seats. The
+generator keeps an aisle clear and verifies each seat is reachable with other
+chairs still blocked. Missing theme assets are reported; if nothing usable fits,
+the existing layout stays unchanged. It never downloads assets or uses an
+external generation service.
+
+Existing floor, furniture, entrances, carpets, and Areas are preserved. The
+generator first searches unused space inside the grid, then tries expansion up
+to the existing 64-by-64 limit. Geometry, furniture, the connecting opening, and
+expansion form one Undo/Redo edit; Redo restores the same room and furniture IDs.
+Left/up expansion and reversal retain the coordinate relationships of all layers
+and inhabitants. Undo relocates occupants safely when their room disappears.
+
+The camera reveals the new room and the editor returns to Select. All generated
+tiles and furnishings remain editable normally. Chairs and sofas create ordinary
+assignable seats; generation does not create Areas or change folder mappings.
+Save/Reset, debounced persistence, import/export, and both adapters use the same
+version-1 layout format. As with other edits, changes autosave; **Save** also
+sets the checkpoint used by **Reset**.
+
 ## Provider-aware office
 
 The shared office renders both standalone and VS Code sessions. Provider capability messages
