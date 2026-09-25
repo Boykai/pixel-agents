@@ -39,7 +39,7 @@ retain Claude behavior.
 
 Settings shows each enabled provider's actual hook installation state and its own disclosure.
 Installed hooks do not prove event delivery. Unknown observations keep the last activity state
-but pause character animation and clear speech bubbles, without announcing completion.
+but hide the character and its sub-agents until activity is observed again, without announcing completion.
 Recovered status messages do not replay sounds or finished-turn bubbles. Renaming a session
 updates its label without recreating its character or changing seats, palette, or selection.
 

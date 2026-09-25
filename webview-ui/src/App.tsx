@@ -527,7 +527,7 @@ function App() {
               Existing sessions may need a restart to load newly installed hooks
             </li>
             <li className="text-sm mb-2">
-              Unknown activity is shown without a completion notification
+              Agents with unknown activity are hidden until activity is observed
             </li>
           </ul>
           <p className="mb-12 text-text-muted">

@@ -34,26 +34,55 @@ test('tool classifications stay provider-scoped regardless of arrival order', ()
   assert.equal(isReadingToolName('Read'), true, 'legacy snapshots keep Claude taxonomy');
 });
 
-test('unknown observation freezes activity without inventing a done state', () => {
+test('unknown observation hides the character without inventing a done state', () => {
   const office = new OfficeState();
   const character = createCharacter(1, 2, null, null, 90);
   office.characters.set(1, character);
+  const subId = office.addSubagent(1, 'tool');
   character.path = [{ col: 2, row: 1 }];
   character.state = CharacterState.WALK;
-  office.selectedAgentId = 1;
-  office.cameraFollowId = 1;
+  office.selectedAgentId = subId;
+  office.cameraFollowId = subId;
+  office.hoveredAgentId = 1;
   assert.equal(applyAgentStatus(office, 1, 'unknown'), false);
   const before = { ...character };
   updateCharacter(character, 100, [], new Map(), [], new Set());
   assert.deepEqual(character, before);
   assert.equal(character.isActive, true, 'the last observed active state is preserved');
   assert.equal(character.bubbleType, null);
+  assert.equal(office.characters.has(1), true, 'the agent remains tracked');
+  assert.equal(office.isCharacterVisible(1), false);
+  assert.equal(office.isCharacterVisible(subId), false);
+  assert.deepEqual(office.getCharacters(), []);
+  assert.equal(office.getCharacterAt(character.x, character.y - 1), null);
+  assert.equal(office.selectedAgentId, null);
+  assert.equal(office.hoveredAgentId, null);
+  assert.equal(office.cameraFollowId, null);
   office.setAgentMetadata(1, { providerId: 'copilot', sessionName: 'Renamed task' });
   assert.equal(character.sessionName, 'Renamed task');
   assert.equal(character.palette, 2);
   assert.equal(character.hueShift, 90);
-  assert.equal(office.selectedAgentId, 1);
-  assert.equal(office.cameraFollowId, 1);
+  applyAgentStatus(office, 1, 'active');
+  assert.equal(office.isCharacterVisible(1), true);
+  assert.equal(office.isCharacterVisible(subId), true);
+  assert.equal(office.getCharacters().length, 2);
+  assert.equal(office.getCharacterAt(character.x, character.y - 1), 1);
+});
+
+test('snapshot observations hide restored agents until they become known', () => {
+  const office = new OfficeState();
+  office.characters.set(1, createCharacter(1, 0, null, null));
+  office.characters.set(2, createCharacter(2, 1, null, null));
+  office.setAgentMetadata(1, { observation: 'unknown' });
+  assert.deepEqual(
+    office.getCharacters().map((ch) => ch.id),
+    [2],
+  );
+  office.setAgentObservation(1, 'known');
+  assert.deepEqual(
+    office.getCharacters().map((ch) => ch.id),
+    [1, 2],
+  );
 });
 
 test('recovery and repeated status messages never replay done notifications', () => {

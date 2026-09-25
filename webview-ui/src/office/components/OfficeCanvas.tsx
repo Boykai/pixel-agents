@@ -238,7 +238,8 @@ export function OfficeCanvas({
         // overlay feeds via greeterCameraTarget. An explicit follow (clicking an
         // agent) outranks the greeter target; a manual pan cancels both.
         const followCh =
-          officeState.cameraFollowId !== null
+          officeState.cameraFollowId !== null &&
+          officeState.isCharacterVisible(officeState.cameraFollowId)
             ? officeState.characters.get(officeState.cameraFollowId)
             : undefined;
         const cameraFocus = followCh ?? officeState.greeterCameraTarget;

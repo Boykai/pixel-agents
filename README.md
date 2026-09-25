@@ -122,7 +122,7 @@ pixel-agents --providers all
 Copilot discovery reads `~/.copilot/session-state/` (or `COPILOT_HOME/session-state/`).
 Enable **Watch All Sessions** to include other workspaces. Only newly observed
 activity adopts an untracked session; saved history alone does not. A tracked
-session with insufficient evidence displays **Unknown**, not a guessed Idle.
+session with insufficient evidence is hidden until its activity is known, not shown as a guessed Idle.
 Remote/cloud sessions without local events are not visible.
 
 Copilot hooks require separate consent and install only an owned
@@ -184,7 +184,7 @@ Copilot uses its own consented observational hooks and `events.jsonl` reducer.
 Tool and child identities are merged across sources, and long-running tools do
 not become permission waits merely because they are quiet. Copilot's model-step
 `assistant.turn_end` and the App's recurring `sessionEnd` are not treated as
-session termination. Insufficient evidence is shown as Unknown.
+session termination. Agents with insufficient evidence are hidden until their activity is known.
 
 Pixel Agents does not modify Claude Code. Its hook configuration and persistent data live under `~/.claude/` and `~/.pixel-agents/` respectively.
 

@@ -828,6 +828,16 @@ export class OfficeState {
     if (observation === 'unknown') {
       ch.bubbleType = null;
       ch.waitingAwaitingInput = false;
+      const hiddenIds = new Set([id]);
+      for (const [subId, meta] of this.subagentMeta) {
+        if (meta.parentAgentId === id) hiddenIds.add(subId);
+      }
+      if (this.selectedAgentId !== null && hiddenIds.has(this.selectedAgentId))
+        this.selectedAgentId = null;
+      if (this.hoveredAgentId !== null && hiddenIds.has(this.hoveredAgentId))
+        this.hoveredAgentId = null;
+      if (this.cameraFollowId !== null && hiddenIds.has(this.cameraFollowId))
+        this.cameraFollowId = null;
     }
     this.rebuildFurnitureInstances();
   }
@@ -1205,11 +1215,19 @@ export class OfficeState {
     return seats;
   }
 
-  /** Everything the renderer draws: the agents plus, while the first-run ask
-   *  is up, the consent greeter. This is the ONE place the greeter joins the
-   *  agents — every other consumer reads `characters` and gets agents only. */
+  /** Unknown agents and their sub-agents stay tracked but are not displayed. */
+  isCharacterVisible(id: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || ch.observation === 'unknown') return false;
+    const parentId = this.subagentMeta.get(id)?.parentAgentId;
+    return parentId === undefined || this.characters.get(parentId)?.observation !== 'unknown';
+  }
+
+  /** Everything the renderer draws: visible agents plus the consent greeter. */
   getCharacters(): Character[] {
-    const chars = Array.from(this.characters.values());
+    const chars = Array.from(this.characters.values()).filter((ch) =>
+      this.isCharacterVisible(ch.id),
+    );
     if (this.greeter) chars.push(this.greeter);
     return chars;
   }
@@ -1221,7 +1239,7 @@ export class OfficeState {
     const chars = Array.from(this.characters.values()).sort((a, b) => b.y - a.y);
     for (const ch of chars) {
       // Skip characters that are despawning
-      if (ch.matrixEffect === 'despawn') continue;
+      if (ch.matrixEffect === 'despawn' || !this.isCharacterVisible(ch.id)) continue;
       // Character sprite is 16x24, anchored bottom-center
       // Apply sitting offset to match visual position
       const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;

@@ -294,7 +294,8 @@ export function IntroBubble({
             </p>
             <p className="text-sm m-0 mb-8">
               Available activity details depend on the provider. When the office cannot establish a
-              session's current activity, it shows Unknown rather than guessing.
+              session's current activity, it hides that agent until activity is known rather than
+              guessing.
             </p>
           </>
         )}

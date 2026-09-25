@@ -107,7 +107,7 @@ export function ToolOverlay({
   const hoverTarget = pointerId ?? hoveredId;
   const detailId =
     [focusedId, hoverTarget, recentHoverId, selectedId].find(
-      (id) => id !== null && officeState.characters.has(id),
+      (id) => id !== null && officeState.isCharacterVisible(id),
     ) ?? null;
 
   useEffect(() => {
@@ -158,7 +158,7 @@ export function ToolOverlay({
 
   const overlays = allIds.flatMap((id) => {
     const ch = officeState.characters.get(id);
-    if (!ch) return [];
+    if (!ch || !officeState.isCharacterVisible(id)) return [];
 
     const isSelected = selectedId === id;
     const isHovered = hoveredId === id;
@@ -182,9 +182,7 @@ export function ToolOverlay({
     // Get activity text
     const subHasPermission = isSub && ch.bubbleType === 'permission';
     let activityText: string;
-    if (ch.observation === 'unknown') {
-      activityText = 'Unknown';
-    } else if (ch.waitingAwaitingInput) {
+    if (ch.waitingAwaitingInput) {
       // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
       // shows only the checkmark and falls through to the normal idle text.
       activityText = WAITING_INPUT_ACTIVITY_TEXT;
@@ -219,9 +217,7 @@ export function ToolOverlay({
     const hasWaiting = ch.bubbleType === 'waiting' || ch.waitingAwaitingInput;
 
     let dotColor: string | null = null;
-    if (ch.observation === 'unknown') {
-      dotColor = 'var(--color-text-muted)';
-    } else if (hasPermission || hasWaiting) {
+    if (hasPermission || hasWaiting) {
       dotColor = 'var(--color-status-permission)';
     } else if (isActive && hasActiveTools) {
       dotColor = 'var(--color-status-active)';
@@ -421,9 +417,6 @@ export function ToolOverlay({
             </Button>
           </div>
           <p className="agent-details-activity">{detail.activityText}</p>
-          {detail.ch.observation === 'unknown' && (
-            <p className="text-xs m-0">Current activity could not be confirmed.</p>
-          )}
           <dl className="agent-details-facts">
             {(detail.ch.folderName || parent?.folderName) && (
               <>
