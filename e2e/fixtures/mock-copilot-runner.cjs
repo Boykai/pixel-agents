@@ -57,15 +57,26 @@ async function emitHook(hookType, input) {
     throw new Error(`No installed Copilot hook for ${hookType}`);
   }
   for (const command of commands) {
-    if (
-      command.type !== 'command' ||
-      typeof command.exec !== 'string' ||
-      !Array.isArray(command.args)
-    ) {
+    const shellCommand = process.platform === 'win32' ? command.powershell : command.bash;
+    const executable =
+      typeof command.exec === 'string'
+        ? command.exec
+        : process.platform === 'win32'
+          ? 'powershell.exe'
+          : 'bash';
+    const args =
+      typeof command.exec === 'string' && Array.isArray(command.args)
+        ? command.args
+        : typeof shellCommand === 'string'
+          ? process.platform === 'win32'
+            ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', shellCommand]
+            : ['-c', shellCommand]
+          : undefined;
+    if (command.type !== 'command' || !args) {
       throw new Error(`Unsupported installed Copilot command for ${hookType}`);
     }
     await new Promise((resolve, reject) => {
-      const child = spawn(command.exec, command.args, {
+      const child = spawn(executable, args, {
         cwd: process.cwd(),
         env: {
           ...process.env,

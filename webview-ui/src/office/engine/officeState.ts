@@ -125,7 +125,10 @@ export class OfficeState {
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
-    for (const ch of this.getCharacters()) {
+    // Visibility is a rendering concern; hidden occupants still need valid coordinates.
+    const occupants = Array.from(this.characters.values());
+    if (this.greeter) occupants.push(this.greeter);
+    for (const ch of occupants) {
       if (shift) {
         ch.tileCol += shift.col;
         ch.tileRow += shift.row;
@@ -209,7 +212,7 @@ export class OfficeState {
     }
 
     // Relocate any characters that ended up outside bounds or on non-walkable tiles
-    for (const ch of this.getCharacters()) {
+    for (const ch of occupants) {
       if (ch.seatId) continue; // seated characters are fine
       if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
         this.relocateCharacterToWalkable(ch);

@@ -250,7 +250,7 @@ describe('Copilot evidence-based observation', () => {
     expect(messages.filter((m) => m.type === 'agentToolDone')).toHaveLength(1);
   });
 
-  it('converts only exact-ID hook tools and safe lifecycle boundaries without retaining payloads', () => {
+  it('converts lifecycle boundaries but ignores even undocumented exact-ID tool hooks', () => {
     const sessionId = 'session';
     expect(
       hookToCopilotRecord({
@@ -295,10 +295,7 @@ describe('Copilot evidence-based observation', () => {
         { toolCallId: 'b', toolName: 'powershell' },
       ],
     };
-    expect(hookToCopilotRecords(batch)).toEqual([
-      { type: 'tool.execution_start', data: { toolCallId: 'a', toolName: 'view' } },
-      { type: 'tool.execution_start', data: { toolCallId: 'b', toolName: 'powershell' } },
-    ]);
+    expect(hookToCopilotRecords(batch)).toEqual([]);
     expect(hookToCopilotRecord(batch)).toBeUndefined();
     expect(
       hookToCopilotRecord({
@@ -314,8 +311,13 @@ describe('Copilot evidence-based observation', () => {
     });
   });
 
-  it('enriches hook-first tools from transcripts without duplicate activity notifications', () => {
-    event('tool.execution_start', { toolCallId: 'read', toolName: 'view' }, {}, { source: 'hook' });
+  it('deduplicates repeated transcript tools without losing activity labels', () => {
+    event('tool.execution_start', {
+      toolCallId: 'read',
+      toolName: 'view',
+      arguments: { path: 'foo.ts' },
+      turnId: 't',
+    });
     event(
       'tool.execution_start',
       {
@@ -330,7 +332,7 @@ describe('Copilot evidence-based observation', () => {
     expect(agent.activeToolIds.size).toBe(1);
     expect(agent.activeToolStatuses.get('read')).toBe('Reading foo.ts');
     expect(messages.filter((message) => message.type === 'agentStatus')).toHaveLength(1);
-    event('tool.execution_complete', { toolCallId: 'read' }, {}, { source: 'hook' });
+    event('tool.execution_complete', { toolCallId: 'read' });
     event(
       'tool.execution_start',
       { toolCallId: 'read', toolName: 'view' },
@@ -340,14 +342,14 @@ describe('Copilot evidence-based observation', () => {
     expect(agent.activeToolIds.size).toBe(0);
   });
 
-  it('recovers a real task name even when its exact-ID hook returned before transcript arrival', () => {
+  it('retains a real transcript task name after its spawning tool completes', () => {
     event(
       'tool.execution_start',
-      { toolCallId: 'spawn', toolName: 'task' },
+      { toolCallId: 'spawn', toolName: 'task', arguments: { name: 'Analyst' } },
       {},
-      { source: 'hook' },
+      { source: 'transcript' },
     );
-    event('tool.execution_complete', { toolCallId: 'spawn' }, {}, { source: 'hook' });
+    event('tool.execution_complete', { toolCallId: 'spawn' });
     event(
       'tool.execution_start',
       {

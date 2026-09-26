@@ -20,7 +20,6 @@ import {
   COPILOT_HOOK_MAX_INPUT_BYTES,
   COPILOT_HOOK_MAX_PAYLOAD_BYTES,
   COPILOT_HOOK_MAX_TARGETS,
-  COPILOT_HOOK_MAX_TOOL_CALLS,
   COPILOT_NOTIFICATION_TYPES,
 } from '../constants.js';
 
@@ -68,25 +67,9 @@ function sanitize(event: string, input: unknown): Record<string, unknown> | unde
   ) {
     fields.push('notification_type');
   }
-  if (['preToolUse', 'postToolUse', 'postToolUseFailure'].includes(event)) {
-    fields.push('toolName', 'toolCallId');
-  }
   for (const key of fields) {
     const value = stringField(key);
     if (value !== undefined) result[key] = value;
-  }
-  // App transcripts expose a batched pre-tool input; retain its shape, never its arguments.
-  if (event === 'preToolUse' && Array.isArray(input.toolCalls)) {
-    if (input.toolCalls.length > COPILOT_HOOK_MAX_TOOL_CALLS) return undefined;
-    result.toolCalls = input.toolCalls.flatMap((call: unknown) => {
-      if (!record(call)) return [];
-      const sanitized: Record<string, string> = {};
-      for (const key of ['toolName', 'toolCallId', 'name', 'id']) {
-        const value = stringField(key, call);
-        if (value !== undefined) sanitized[key] = value;
-      }
-      return Object.keys(sanitized).length ? [sanitized] : [];
-    });
   }
   if (Number.isSafeInteger(input.timestamp) && (input.timestamp as number) >= 0) {
     result.timestamp = input.timestamp;

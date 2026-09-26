@@ -9,8 +9,8 @@ import {
   COPILOT_HOOK_BOOTSTRAP,
   COPILOT_HOOK_EVENTS,
   COPILOT_HOOK_MAX_INPUT_BYTES,
-  COPILOT_HOOK_MAX_TOOL_CALLS,
 } from '../src/providers/hook/copilot/constants.js';
+import { copilotToolHookPayloads } from './fixtures/copilotHookPayloads.js';
 
 const script = path.resolve(__dirname, '../../dist/hooks/copilot-hook.js');
 let home: string;
@@ -127,42 +127,16 @@ const cleanExit = { code: 0, stdout: '', stderr: '' };
 const common = { sessionId: 'session-123', cwd: 'C:\\work\\project', timestamp: 123456 };
 
 describe('bundled Copilot hook process', () => {
-  it('retains the observed batched pre-tool shape without arguments or invented correlation', async () => {
-    const server = await recordingServer();
-    discovery(server.port);
-    expect(
-      await run('preToolUse', {
-        sessionId: common.sessionId,
-        cwd: common.cwd,
-        toolCalls: [
-          { toolName: 'view', toolCallId: 'one', toolArgs: { path: 'private' } },
-          { name: 'powershell', id: 'two', arguments: { command: 'private' } },
-          { toolName: 'view', prompt: 'private', result: 'private' },
-          { toolName: {}, toolCallId: 1, args: 'private' },
-          null,
-        ],
-      }),
-    ).toEqual(cleanExit);
-    expect(server.received[0].body).toEqual({
-      hookType: 'preToolUse',
-      sessionId: common.sessionId,
-      cwd: common.cwd,
-      toolCalls: [
-        { toolName: 'view', toolCallId: 'one' },
-        { name: 'powershell', id: 'two' },
-        { toolName: 'view' },
-      ],
-    });
-    expect(
-      await run('preToolUse', {
-        ...common,
-        toolCalls: Array.from({ length: COPILOT_HOOK_MAX_TOOL_CALLS + 1 }, () => ({
-          toolName: 'view',
-        })),
-      }),
-    ).toEqual(cleanExit);
-    expect(server.received).toHaveLength(1);
-  });
+  it.each(copilotToolHookPayloads)(
+    'does not install or forward uncorrelated $event tool hooks',
+    async ({ event, input }) => {
+      const server = await recordingServer();
+      discovery(server.port);
+      expect(COPILOT_HOOK_EVENTS).not.toContain(event);
+      expect(await run(event, input)).toEqual(cleanExit);
+      expect(server.received).toHaveLength(0);
+    },
+  );
 
   it.each(COPILOT_HOOK_EVENTS)(
     'posts authenticated minimized %s without changing Copilot output',
@@ -207,9 +181,6 @@ describe('bundled Copilot hook process', () => {
           stop_hook_active: false,
         });
       if (event === 'notification') expected.notification_type = 'permission_prompt';
-      if (['preToolUse', 'postToolUse', 'postToolUseFailure'].includes(event)) {
-        Object.assign(expected, { toolName: 'view', toolCallId: 'call-1' });
-      }
       expect(request.body).toEqual(expected);
       expect(JSON.stringify(request.body)).not.toContain('secret');
     },
@@ -244,7 +215,7 @@ describe('bundled Copilot hook process', () => {
     async (input) => {
       const server = await recordingServer();
       discovery(server.port);
-      expect(await run('preToolUse', input, { raw: true })).toEqual(cleanExit);
+      expect(await run('sessionStart', input, { raw: true })).toEqual(cleanExit);
       expect(server.received).toHaveLength(0);
     },
   );
@@ -253,7 +224,7 @@ describe('bundled Copilot hook process', () => {
     const server = await recordingServer();
     discovery(server.port);
     expect(
-      await run('preToolUse', 'x'.repeat(COPILOT_HOOK_MAX_INPUT_BYTES + 1), {
+      await run('sessionStart', 'x'.repeat(COPILOT_HOOK_MAX_INPUT_BYTES + 1), {
         raw: true,
         leaveOpen: true,
       }),
@@ -262,12 +233,12 @@ describe('bundled Copilot hook process', () => {
   });
 
   it('bounds incomplete stdin by a total deadline', async () => {
-    expect(await run('preToolUse', '{', { raw: true, leaveOpen: true })).toEqual(cleanExit);
+    expect(await run('sessionStart', '{', { raw: true, leaveOpen: true })).toEqual(cleanExit);
   });
 
   it('silently ignores unavailable server, missing bridge and invalid discovery', async () => {
-    expect(await run('preToolUse', common)).toEqual(cleanExit);
-    expect(await run('preToolUse', common, { missingScript: true })).toEqual(cleanExit);
+    expect(await run('sessionStart', common)).toEqual(cleanExit);
+    expect(await run('sessionStart', common, { missingScript: true })).toEqual(cleanExit);
     fs.writeFileSync(
       path.join(home, '.pixel-agents', 'server.json'),
       JSON.stringify({
@@ -276,9 +247,9 @@ describe('bundled Copilot hook process', () => {
         pid: process.pid,
       }),
     );
-    expect(await run('preToolUse', common)).toEqual(cleanExit);
+    expect(await run('sessionStart', common)).toEqual(cleanExit);
     discovery(1);
-    expect(await run('preToolUse', common)).toEqual(cleanExit);
+    expect(await run('sessionStart', common)).toEqual(cleanExit);
   });
 
   it('passes a script path with spaces and shell characters without shell interpretation', async () => {
@@ -288,10 +259,10 @@ describe('bundled Copilot hook process', () => {
     fs.mkdirSync(directory);
     const scriptPath = path.join(directory, 'copilot-hook.js');
     fs.copyFileSync(script, scriptPath);
-    expect(await run('preToolUse', common, { scriptPath })).toEqual(cleanExit);
+    expect(await run('sessionStart', common, { scriptPath })).toEqual(cleanExit);
     expect(server.received).toHaveLength(1);
     fs.writeFileSync(scriptPath, 'this is invalid JavaScript');
-    expect(await run('preToolUse', common, { scriptPath })).toEqual(cleanExit);
+    expect(await run('sessionStart', common, { scriptPath })).toEqual(cleanExit);
   });
 
   it.each([401, 500])(
@@ -299,14 +270,14 @@ describe('bundled Copilot hook process', () => {
     async (status) => {
       const server = await recordingServer(status);
       discovery(server.port);
-      expect(await run('preToolUse', common)).toEqual(cleanExit);
+      expect(await run('sessionStart', common)).toEqual(cleanExit);
     },
   );
 
   it('finishes successfully when a server never responds', async () => {
     const server = await recordingServer(200, true);
     discovery(server.port);
-    expect(await run('preToolUse', common)).toEqual(cleanExit);
+    expect(await run('sessionStart', common)).toEqual(cleanExit);
     expect(server.received).toHaveLength(1);
   });
 
@@ -314,7 +285,7 @@ describe('bundled Copilot hook process', () => {
     const server = await recordingServer();
     discovery(server.port);
     expect(
-      await run('preToolUse', {
+      await run('sessionStart', {
         ...common,
         timestamp: -1,
         cwd: {},
@@ -324,7 +295,7 @@ describe('bundled Copilot hook process', () => {
       }),
     ).toEqual(cleanExit);
     expect(server.received[0].body).toEqual({
-      hookType: 'preToolUse',
+      hookType: 'sessionStart',
       sessionId: common.sessionId,
     });
   });

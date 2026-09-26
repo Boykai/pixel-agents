@@ -161,7 +161,8 @@ export function createFileWatcherContext(
     waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
     permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
   ): void {
-    agent.observation = 'unknown';
+    // Only providers with snapshot recovery require proof before becoming visible.
+    agent.observation = hookProvider?.recoverTranscript ? 'unknown' : 'known';
     const recovery = readCopilotRecovery(agent.jsonlFile);
     if (!recovery.available) return;
     if (hookProvider?.id === 'copilot') {

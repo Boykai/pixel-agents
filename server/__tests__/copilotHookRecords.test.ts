@@ -7,6 +7,7 @@ import {
   processCopilotRecord,
 } from '../src/providers/hook/copilot/eventReducer.js';
 import type { AgentState } from '../src/types.js';
+import { copilotToolHookPayloads } from './fixtures/copilotHookPayloads.js';
 
 describe('Copilot hooks share the transcript reducer', () => {
   let agent: AgentState;
@@ -22,8 +23,8 @@ describe('Copilot hooks share the transcript reducer', () => {
   const transcript = (type: string, data = {}, envelope = {}): void =>
     processCopilotRecord(1, { type, data, ...envelope }, agent, store, waiting, permissions);
   const start = (toolCallId: string): void =>
-    hook({ hookType: 'preToolUse', toolCallId, toolName: 'view' });
-  const end = (toolCallId: string): void => hook({ hookType: 'postToolUse', toolCallId });
+    transcript('tool.execution_start', { toolCallId, toolName: 'view' });
+  const end = (toolCallId: string): void => transcript('tool.execution_complete', { toolCallId });
   const permission = (extra = {}): void =>
     hook({ hookType: 'notification', notification_type: 'permission_prompt', ...extra });
   const stop = (extra = {}): void => hook({ hookType: 'agentStop', ...extra });
@@ -68,8 +69,8 @@ describe('Copilot hooks share the transcript reducer', () => {
     expect(messages).toEqual([]);
   });
 
-  it('shares tool state and tombstones across hook/transcript observations', () => {
-    start('read');
+  it('shares transcript tool state and hook lifecycle without duplicate completions', () => {
+    hook({ hookType: 'userPromptSubmitted' });
     transcript('tool.execution_start', {
       toolCallId: 'read',
       toolName: 'view',
@@ -80,20 +81,26 @@ describe('Copilot hooks share the transcript reducer', () => {
     transcript('tool.execution_complete', { toolCallId: 'read' });
     expect(agent.activeToolIds.size).toBe(0);
     expect(messages.filter((message) => message.type === 'agentToolDone')).toHaveLength(1);
+    stop();
+    expect(getCopilotActivity(agent)).toBe('done');
   });
 
-  it('handles exact-ID batches without pairing an ID-less completion by name', () => {
-    hook({
-      hookType: 'preToolUse',
-      toolCalls: [
-        { toolCallId: 'a', toolName: 'view' },
-        { toolCallId: 'b', toolName: 'view' },
-      ],
-    });
-    hook({ hookType: 'postToolUse', toolName: 'view' });
+  it('ignores documented tool hooks without pairing concurrent transcript tools by name', () => {
+    start('a');
+    start('b');
+    const before = messages.length;
+    for (const { event, input } of copilotToolHookPayloads) {
+      const raw = { hookType: event, ...input };
+      expect(hookToCopilotRecords(raw)).toEqual([]);
+      hook(raw);
+    }
     expect([...agent.activeToolIds]).toEqual(['a', 'b']);
+    expect(messages).toHaveLength(before);
     end('a');
     expect([...agent.activeToolIds]).toEqual(['b']);
+    end('b');
+    stop();
+    expect(getCopilotActivity(agent)).toBe('done');
   });
 
   it('settles failed tools and their matching prompts without clearing concurrent work', () => {
@@ -103,7 +110,7 @@ describe('Copilot hooks share the transcript reducer', () => {
     hook({ hookType: 'postToolUseFailure', toolName: 'view' });
     expect(agent.permissionSent).toBe(true);
     expect(agent.activeToolIds.size).toBe(2);
-    hook({ hookType: 'postToolUseFailure', toolCallId: 'failed' });
+    transcript('tool.execution_failed', { toolCallId: 'failed' });
     expect(agent.permissionSent).toBe(false);
     expect([...agent.activeToolIds]).toEqual(['running']);
     expect(messages.filter((message) => message.type === 'agentToolDone')).toEqual([

@@ -9,6 +9,7 @@ import type { PersistedAgent } from '../../core/src/schemas.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
+import { copilotToolHookPayloads } from './fixtures/copilotHookPayloads.js';
 
 type RecordEvent = Record<string, unknown>;
 const task = (toolCallId: string, name?: string): RecordEvent => ({
@@ -165,16 +166,29 @@ describe('Copilot named background teammates', () => {
     expect(consume).toHaveBeenCalledWith(expect.anything(), o.lead, expect.anything());
   });
 
-  it('automatically consumes batched exact-ID hooks and enriches them from the transcript', () => {
+  it('ignores stale documented tool hooks and keeps transcript tools live after lifecycle delivery', () => {
     const o = office();
+    for (const { event, input } of copilotToolHookPayloads) {
+      o.runtime.handleHookEvent('copilot', {
+        ...input,
+        hookType: event,
+        sessionId: o.lead.sessionId,
+      });
+    }
+    expect(o.lead.hookDelivered).toBe(false);
+    expect(o.lead.activeToolIds.size).toBe(0);
     o.runtime.handleHookEvent('copilot', {
-      hookType: 'preToolUse',
+      hookType: 'userPromptSubmitted',
       sessionId: o.lead.sessionId,
-      toolCalls: [
-        { toolCallId: 'a', toolName: 'view' },
-        { toolCallId: 'b', toolName: 'powershell' },
-      ],
     });
+    expect(o.lead.hookDelivered).toBe(true);
+    o.emit(
+      {
+        type: 'tool.execution_start',
+        data: { toolCallId: 'a', toolName: 'view', arguments: { path: 'enriched.ts' } },
+      },
+      { type: 'tool.execution_start', data: { toolCallId: 'b', toolName: 'view' } },
+    );
     expect([...o.lead.activeToolIds].sort()).toEqual(['a', 'b']);
     expect(o.lead.currentHookToolId).toBeUndefined();
     o.emit({
@@ -182,12 +196,13 @@ describe('Copilot named background teammates', () => {
       data: { toolCallId: 'a', toolName: 'view', arguments: { path: 'enriched.ts' } },
     });
     expect(o.lead.activeToolStatuses.get('a')).toBe('Reading enriched.ts');
-    o.runtime.handleHookEvent('copilot', {
-      hookType: 'postToolUse',
-      sessionId: o.lead.sessionId,
-      toolCallId: 'a',
-      toolName: 'view',
-    });
+    for (const { event, input } of copilotToolHookPayloads) {
+      o.runtime.handleHookEvent('copilot', {
+        ...input,
+        hookType: event,
+        sessionId: o.lead.sessionId,
+      });
+    }
     o.emit(completeTool('a'), {
       type: 'tool.execution_start',
       data: { toolCallId: 'a', toolName: 'view', arguments: { path: 'stale.ts' } },
@@ -197,18 +212,27 @@ describe('Copilot named background teammates', () => {
     expect(
       o.messages.filter((message) => message.type === 'agentToolDone' && message.toolId === 'a'),
     ).toHaveLength(1);
+    o.emit(completeTool('b'), { type: 'assistant.turn_end', data: {} });
+    expect(o.lead.isWaiting).toBe(false);
+    o.runtime.handleHookEvent('copilot', {
+      hookType: 'agentStop',
+      sessionId: o.lead.sessionId,
+    });
+    expect(o.lead.isWaiting).toBe(true);
   });
 
-  it('uses the shared child callbacks for hooks and retains hook source during child enrichment', () => {
+  it('routes child transcript activity while hook completion preserves independent children', () => {
     const o = office();
     o.emit(task('spawn', 'hook-child'), start('spawn', 'child'), completeTool('spawn'));
     const child = o.children()[0];
-    o.runtime.handleHookEvent('copilot', {
-      hookType: 'preToolUse',
-      sessionId: o.lead.sessionId,
+    o.emit({
+      type: 'tool.execution_start',
       agentId: 'child',
-      toolCallId: 'child-tool',
-      toolName: 'view',
+      data: {
+        toolCallId: 'child-tool',
+        toolName: 'view',
+        arguments: { path: 'child-enriched.ts' },
+      },
     });
     expect(child.activeToolNames.get('child-tool')).toBe('view');
     o.emit({

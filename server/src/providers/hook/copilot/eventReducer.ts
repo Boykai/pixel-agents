@@ -8,7 +8,6 @@ import { formatToolStatus } from './copilot.js';
 // assertion that installed CLI/App versions emit its optional/ephemeral events.
 const MAX_REMEMBERED_EVENTS = 4096;
 const MAX_TRACKED_ENTRIES = 4096;
-const MAX_HOOK_TOOL_CALLS = 64;
 const HOOK_REQUEST_PREFIX = 'pixel-agents:copilot-hook';
 
 export type CopilotActivity = 'active' | 'done' | 'input' | 'permission' | 'unknown';
@@ -155,44 +154,8 @@ export function hookToCopilotRecords(raw: unknown): Record<string, unknown>[] {
       },
     ];
   }
-  if (hookType === 'preToolUse') {
-    const calls = Array.isArray(hook.toolCalls)
-      ? hook.toolCalls.slice(0, MAX_HOOK_TOOL_CALLS)
-      : [hook];
-    const records: Record<string, unknown>[] = [];
-    for (const value of calls) {
-      const call = objectValue(value);
-      const toolCallId = text(call?.toolCallId);
-      const toolName = text(call?.toolName);
-      // `id` and `name` aliases are retained by the bridge, but their correlation
-      // semantics are not established by installed-version evidence.
-      if (!toolCallId || !toolName) continue;
-      records.push({
-        type: 'tool.execution_start',
-        data: { toolCallId, toolName, ...parent },
-        ...scope,
-        ...timestamp,
-      });
-    }
-    return records.length === 1 ? [{ ...records[0], ...identity }] : records;
-  }
-  if (hookType === 'postToolUse' || hookType === 'postToolUseFailure') {
-    const toolCallId = text(hook.toolCallId);
-    return toolCallId
-      ? [
-          {
-            type:
-              hookType === 'postToolUseFailure'
-                ? 'tool.execution_failed'
-                : 'tool.execution_complete',
-            data: { toolCallId, ...parent },
-            ...scope,
-            ...timestamp,
-            ...identity,
-          },
-        ]
-      : [];
-  }
+  // Documented tool hooks have no call ID. Never pair by name/order or treat
+  // an undocumented ID as correlation evidence; transcripts own tool activity.
   // sessionStart stays in runtime discovery; sessionEnd is never destruction.
   return [];
 }

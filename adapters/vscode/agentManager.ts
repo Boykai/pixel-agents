@@ -88,7 +88,7 @@ export async function launchNewTerminal(
   const agent: AgentState = {
     id,
     providerId: provider.id,
-    observation: 'unknown',
+    observation: provider.recoverTranscript ? 'unknown' : 'known',
     sessionId,
     terminalRef: terminal,
     isExternal: false,
@@ -330,7 +330,7 @@ export function restoreAgents(
     const agent: AgentState = {
       id: p.id,
       providerId: provider.id,
-      observation: 'unknown',
+      observation: provider.recoverTranscript ? 'unknown' : 'known',
       sessionId:
         provider.resolveSessionId?.(p.jsonlFile) ??
         p.sessionId ??

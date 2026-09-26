@@ -254,23 +254,10 @@ function normalizeHookEvent(
       }
       return { sessionId, event: { kind: 'observation' } };
     case 'preToolUse':
-      if (typeof raw.toolCallId !== 'string' || typeof raw.toolName !== 'string') {
-        return { sessionId, event: { kind: 'observation' } };
-      }
-      return {
-        sessionId,
-        event: {
-          kind: 'toolStart',
-          toolId: raw.toolCallId,
-          toolName: raw.toolName,
-          input: raw.toolArgs,
-        },
-      };
     case 'postToolUse':
     case 'postToolUseFailure':
-      return typeof raw.toolCallId === 'string'
-        ? { sessionId, event: { kind: 'toolEnd', toolId: raw.toolCallId } }
-        : { sessionId, event: { kind: 'observation' } };
+      // No documented call identity: stale tool hooks must not mark hookDelivered.
+      return null;
     // Neither permission evaluation nor the App's recurring sessionEnd proves a terminal state.
     default:
       return null;

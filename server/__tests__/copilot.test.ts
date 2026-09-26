@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
+import { copilotToolHookPayloads } from './fixtures/copilotHookPayloads.js';
 
 describe('copilotProvider', () => {
   describe('identity', () => {
@@ -79,22 +80,12 @@ describe('copilotProvider', () => {
         }),
       ).toEqual({ sessionId: 'session-a', event: { kind: 'turnEnd', awaitingInput: true } });
     });
-    it('does not guess concurrent hook tool IDs from tool names', () => {
-      expect(
-        copilotProvider.normalizeHookEvent({
-          hookType: 'preToolUse',
-          sessionId: 'session-a',
-          toolName: 'view',
-        }),
-      ).toEqual({ sessionId: 'session-a', event: { kind: 'observation' } });
-      expect(
-        copilotProvider.normalizeHookEvent({
-          hookType: 'postToolUse',
-          sessionId: 'session-a',
-          toolName: 'view',
-        }),
-      ).toEqual({ sessionId: 'session-a', event: { kind: 'observation' } });
-    });
+    it.each(copilotToolHookPayloads)(
+      'ignores documented $event payloads rather than claiming hook delivery',
+      ({ event, input }) => {
+        expect(copilotProvider.normalizeHookEvent({ hookType: event, ...input })).toBeNull();
+      },
+    );
   });
 
   describe('hooks disclosure', () => {

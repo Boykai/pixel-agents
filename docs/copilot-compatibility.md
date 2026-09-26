@@ -30,7 +30,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Mixed offices                      | Claude and Copilot have independent session identities, discovery, tool classifications and consent in both surfaces.                                     |
 | Local discovery                    | New first-batch activity is detected even after an empty startup. Existing saved history is baselined rather than imported wholesale.                     |
-| Activity and requests              | Explicit tool, input and permission evidence is reduced together across hooks and transcripts. Silence never establishes a Copilot permission wait.       |
+| Activity and requests              | Tool activity comes from transcripts; supported lifecycle/request hooks supplement it. Silence never establishes a Copilot permission wait.               |
 | Children                           | Unnamed work remains a Sub-agent; positively named background work becomes a Teammate. Child activity and completion are routed separately from the lead. |
 | Recovery                           | Bounded tail reads hydrate current state without replaying historical notifications. Incomplete evidence produces Unknown.                                |
 | Labels                             | CLI-provided repository/workspace and session titles are used, including observed title changes. No guessed App IDs or metadata mapping files are used.   |
@@ -45,6 +45,39 @@ restart to load newly consented hooks; Pixel Agents never restarts them.
 Copilot terminals launched by Pixel Agents are linked through their allocated
 session UUID. Other Copilot sessions are observed as external agents: a terminal
 name or focus alone cannot establish which transcript it owns.
+
+### Tool hooks are deliberately not installed
+
+Installation uses portable `bash`/`powershell` command fields and migrates only
+the exact earlier Pixel Agents `exec`/`args` configuration. Both forms are
+supported by the current CLI; modified or foreign configurations are refused.
+Replacement/removal validates the file after moving it into a private quarantine
+directory. If concurrent changes prevent restoration, the error identifies the
+preserved file for manual recovery without overwriting the new destination.
+A process crash can also leave a quarantine directory; retain it until recovery
+is complete. This protects pathname replacements, not writes through an already
+open file descriptor.
+
+The [first-party command-hook reference](https://docs.github.com/en/copilot/reference/hooks-reference#pretooluse--pretooluse),
+checked on 2026-09-26, documents camelCase `preToolUse`, `postToolUse` and
+`postToolUseFailure` inputs with `sessionId`, `timestamp`, `cwd`, `toolName`
+and `toolArgs` (plus `toolResult` or `error` for completion). **None has a
+`toolCallId`.** SDK events and App transcript hook inputs are not evidence that
+these external commands receive a matching call identity.
+
+Pixel Agents therefore installs only `sessionStart`, `userPromptSubmitted`,
+`agentStop` and `notification`. Tool starts, successes/failures, concurrent calls
+and child activity are correlated using the real IDs in local `events.jsonl`
+records. It never invents IDs or matches tool calls by name, arguments, timestamp
+or arrival order. Old tool-hook invocations are ignored by both the bridge and
+the runtime, rather than setting `hookDelivered` for an unusable event.
+
+Tool activity still depends on readable, updating local transcripts, even when
+hooks are enabled and lifecycle hooks have arrived. Hook installation is not a
+claim of hook-only tool tracking or live App connectivity. Without transcript
+evidence, detailed tool/child activity is unavailable; lifecycle/request hooks
+can only supply their narrower signals. Transcript processing remains active
+after hook delivery, and `assistant.turn_end` still is not interaction completion.
 
 ## Transcript semantics
 

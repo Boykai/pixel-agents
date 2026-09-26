@@ -382,13 +382,13 @@ test.describe('Standalone / Copilot installed hooks', () => {
     await mock.run(
       copilotScenario()
         .emitHook('sessionStart', { source: 'startup' })
-        .emitHook('preToolUse', { toolCallId: 'hook-tool', toolName: 'view' }),
+        .toolStart('transcript-tool', 'view', { path: 'hook-session.ts' }),
     );
     await expectOverlayCount(page, 1);
-    await expectOverlayVisible(page, 'Reading');
+    await expectOverlayVisible(page, 'Reading hook-session.ts');
     await mock.run(
       copilotScenario()
-        .emitHook('postToolUse', { toolCallId: 'hook-tool', toolName: 'view' })
+        .toolComplete('transcript-tool')
         .emitHook('notification', { notification_type: 'elicitation_dialog' }),
     );
     await expectOverlayVisible(page, 'Waiting for input');

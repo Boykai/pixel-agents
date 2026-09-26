@@ -881,7 +881,7 @@ export class AgentRuntime {
       const agent: AgentState = {
         id: p.id,
         providerId: context.provider.id,
-        observation: 'unknown',
+        observation: context.provider.recoverTranscript ? 'unknown' : 'known',
         sessionId:
           context.provider.resolveSessionId?.(p.jsonlFile) ??
           p.sessionId ??

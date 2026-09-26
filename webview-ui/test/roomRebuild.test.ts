@@ -44,10 +44,14 @@ it('translates seats, unseated characters, pets, Greeter, and camera target in b
   seated.currentTool = 'view';
   seated.observation = 'unknown';
   const unseated = createCharacter(2, 0, null, null);
+  unseated.observation = 'unknown';
   position(unseated, 2, 2);
   unseated.state = CharacterState.WALK;
   unseated.path = [{ col: 3, row: 2 }];
   os.characters.set(2, unseated);
+  const sub = os.characters.get(os.addSubagent(2, 'hidden-task'))!;
+  position(sub, 3, 2);
+  sub.path = [{ col: 4, row: 2 }];
   os.spawnGreeter();
   position(os.greeter!, 1, 3);
   os.greeterCameraTarget = { x: 16, y: 24 };
@@ -64,6 +68,9 @@ it('translates seats, unseated characters, pets, Greeter, and camera target in b
   expect([unseated.tileCol, unseated.tileRow, unseated.seatId]).toEqual([5, 4, null]);
   expect(unseated.path).toHaveLength(0);
   expect(unseated.state).toBe(CharacterState.IDLE);
+  expect([sub.tileCol, sub.tileRow]).toEqual([6, 4]);
+  expect(sub.path).toHaveLength(0);
+  expect(os.isCharacterVisible(sub.id)).toBe(false);
   expect([pet.tileCol, pet.tileRow]).toEqual([6, 6]);
   expect(pet.path).toEqual([{ col: 7, row: 6 }]);
   expect([os.greeter!.tileCol, os.greeter!.tileRow]).toEqual([4, 5]);
@@ -72,6 +79,7 @@ it('translates seats, unseated characters, pets, Greeter, and camera target in b
   os.rebuildFromLayout(layout, { col: -3, row: -2 });
   expect([seated.tileCol, seated.tileRow, seated.seatId]).toEqual([5, 5, 'original-seat']);
   expect([unseated.tileCol, unseated.tileRow]).toEqual([2, 2]);
+  expect([sub.tileCol, sub.tileRow]).toEqual([3, 2]);
   expect([pet.tileCol, pet.tileRow]).toEqual([3, 4]);
   expect(pet.path).toEqual([{ col: 4, row: 4 }]);
   expect([os.greeter!.tileCol, os.greeter!.tileRow]).toEqual([1, 3]);
@@ -94,6 +102,7 @@ it('Undo relocates inhabitants whose room becomes in-bounds VOID, without undoin
   const agent = os.characters.get(1)!;
   agent.currentTool = 'Bash';
   agent.bubbleType = 'permission';
+  agent.observation = 'unknown';
   const sub = os.characters.get(os.addSubagent(1, 'task'))!;
   const inside = { col: generated.interior.col, row: generated.interior.row };
   position(sub, inside.col, inside.row);
@@ -104,7 +113,7 @@ it('Undo relocates inhabitants whose room becomes in-bounds VOID, without undoin
   position(os.greeter!, inside.col, inside.row);
 
   os.rebuildFromLayout(original);
-  for (const inhabitant of [...os.getCharacters(), ...os.pets]) {
+  for (const inhabitant of [...os.characters.values(), os.greeter!, ...os.pets]) {
     expect(isWalkable(inhabitant.tileCol, inhabitant.tileRow, os.tileMap, os.blockedTiles)).toBe(
       true,
     );
@@ -114,6 +123,9 @@ it('Undo relocates inhabitants whose room becomes in-bounds VOID, without undoin
   expect(agent.bubbleType).toBe('permission');
   expect(agent.seatId).toBeNull();
   expect(sub.isSubagent).toBe(true);
+  expect(os.isCharacterVisible(sub.id)).toBe(false);
+  os.setAgentObservation(1, 'known');
+  expect(os.isCharacterVisible(sub.id)).toBe(true);
   expect(os.pets).toHaveLength(1);
 });
 
