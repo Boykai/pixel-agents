@@ -185,7 +185,9 @@ export function DebugView({
     <div className="absolute inset-0 overflow-auto bg-bg z-15">
       <div className="px-12 py-6 text-2xl">
         <h2 className="text-3xl font-bold mb-8">Debug View</h2>
-        <div className="flex flex-col gap-6">{agents.map(renderAgentCard)}</div>
+        <div className="flex flex-col gap-6">
+          {agents.filter((id) => officeState.isCharacterVisible(id)).map(renderAgentCard)}
+        </div>
       </div>
     </div>
   );

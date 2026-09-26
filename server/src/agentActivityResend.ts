@@ -14,8 +14,13 @@ import { hasPromotedBackgroundAgent } from './teamUtils.js';
 export function resendAgentActivity(
   send: (message: Record<string, unknown>) => void,
   store: AgentStateStore,
+  onlyAgentId?: number,
 ): void {
   for (const [id, agent] of store) {
+    if (onlyAgentId !== undefined && id !== onlyAgentId) continue;
+    if (agent.observation) {
+      send({ type: 'agentObservation', id, observation: agent.observation });
+    }
     // 1. Team metadata first — webview uses this to route tool messages correctly.
     // Derived teams (named background spawns) have a name and a lead link but NO
     // teamName, so gate on any team field.
@@ -67,13 +72,20 @@ export function resendAgentActivity(
     }
 
     // 4. Waiting status
-    if (agent.isWaiting) {
+    if (agent.observation === 'unknown') {
+      send({ type: 'agentStatus', id, status: 'unknown', replay: true });
+    } else if (agent.isWaiting) {
       send({
         type: 'agentStatus',
         id,
         status: 'waiting',
+        ...(agent.awaitingInput ? { awaitingInput: true } : {}),
+        replay: true,
       });
+    } else if (agent.observation === 'known') {
+      send({ type: 'agentStatus', id, status: 'active', replay: true });
     }
+    if (agent.permissionSent) send({ type: 'agentToolPermission', id, replay: true });
 
     // 5. Context usage
     if (agent.contextTokens > 0) {

@@ -112,7 +112,7 @@ The inactive form where the agent asked the user something and is blocked on a r
 The inactive form where the agent is blocked until the user approves a tool use. Unlike the other two forms, it can occur mid-turn.
 
 **Activity label**:
-The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown above its character.
+The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown in its hover/focus details. The compact label above the character shows the normalized project name instead.
 _Avoid_: status text, tool status
 
 **Speech bubble**:
@@ -132,6 +132,18 @@ _Avoid_: map, scene, room, level
 **Layout**:
 The office's spatial arrangement: the tile grid, floors, walls, carpets, areas, and furniture. It is the part of the office that the editor edits and that can be exported and shared.
 _Avoid_: floor plan, blueprint, map
+
+**Default layout**:
+The layout bundled with the build, used for a first run and restored on demand by Reset to Default
+in the Layout toolbar. That action discards the whole office in one undoable edit, so it is behind
+two confirmations; it is distinct from Reset, which only reverts to the last save.
+_Avoid_: factory layout, stock layout
+
+**Room**:
+A furnished floor rectangle bounded by walls and connected to existing floor through an opening.
+Generate Room adds one room from the Layout toolbar; its interior is 5 to 8 tiles on each side,
+with walls outside those dimensions. Rooms are ordinary editable tiles and furniture, not
+persisted entities or Areas. Open floor space can also receive a room attachment.
 
 **Tile**:
 One cell of the office grid.

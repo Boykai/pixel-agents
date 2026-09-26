@@ -17,7 +17,7 @@ import { expect } from '@playwright/test';
 export async function advanceIntroToConsentStep(dialog: Locator): Promise<void> {
   await expect(dialog).toContainText('Welcome to Pixel Agents!');
   await dialog.getByRole('button', { name: 'Continue' }).click();
-  await expect(dialog).toContainText('Claude Code');
+  await expect(dialog).toContainText('Your coding agents, together');
   await dialog.getByRole('button', { name: 'Continue' }).click();
   await expect(dialog.getByRole('button', { name: 'Install Hooks' })).toBeVisible();
 }

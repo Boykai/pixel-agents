@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
+import type { HooksFeedback, ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
 import { Button } from './ui/Button.js';
@@ -21,12 +22,11 @@ interface SettingsModalProps {
   externalAssetDirectories: string[];
   watchAllSessions: boolean;
   onToggleWatchAllSessions: () => void;
-  /** ACTUAL install state (the hooksStatus message), not the hooksEnabled
-   *  preference. The preference defaults to true while first-run consent is
-   *  still pending, so binding the checkbox to it renders "on" over an empty
-   *  ~/.claude/settings.json. */
-  hooksInstalled: boolean;
-  onToggleHooksEnabled: () => void;
+  providers: ProviderSettings[];
+  /** Actual on-disk state, independent of preference and event connectivity. */
+  hooksInstalled: Record<string, boolean>;
+  hooksFeedback: Record<string, HooksFeedback>;
+  onToggleHooksEnabled: (providerId: string) => void;
   /** Whether the areas overlay is rendered outside of the Areas edit tool. */
   showAreas: boolean;
   onToggleShowAreas: () => void;
@@ -51,6 +51,8 @@ export function SettingsModal({
   watchAllSessions,
   onToggleWatchAllSessions,
   hooksInstalled,
+  hooksFeedback,
+  providers,
   onToggleHooksEnabled,
   showAreas,
   onToggleShowAreas,
@@ -61,9 +63,15 @@ export function SettingsModal({
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [assetDirDraft, setAssetDirDraft] = useState('');
+  const [confirmProviderId, setConfirmProviderId] = useState<string | null>(null);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Settings">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Settings"
+      className="min-w-0! w-[min(480px,calc(100vw-32px))] max-h-[calc(100dvh-32px)] overflow-y-auto"
+    >
       {/* Open Sessions Folder opens an OS file manager — impossible in the browser. */}
       {!isBrowserRuntime && (
         <MenuItem
@@ -184,11 +192,90 @@ export function SettingsModal({
         checked={watchAllSessions}
         onChange={onToggleWatchAllSessions}
       />
-      <Checkbox
-        label="Instant Detection (Hooks)"
-        checked={hooksInstalled}
-        onChange={onToggleHooksEnabled}
-      />
+      {providers.map((provider) => (
+        <div key={provider.providerId}>
+          <Checkbox
+            label={`${provider.displayName} — Instant Detection (Hooks)`}
+            checked={hooksInstalled[provider.providerId] === true}
+            disabled={
+              provider.capabilities?.hooks === false ||
+              hooksFeedback[provider.providerId]?.canManage === false ||
+              hooksInstalled[provider.providerId] === undefined
+            }
+            onChange={() => {
+              if (hooksInstalled[provider.providerId]) {
+                onToggleHooksEnabled(provider.providerId);
+              } else {
+                setConfirmProviderId(provider.providerId);
+              }
+            }}
+          />
+          <p className="text-xs text-text-muted px-10 m-0 mb-8">
+            {provider.capabilities?.hooks === false
+              ? 'Hook installation is unavailable for this provider.'
+              : hooksInstalled[provider.providerId] === undefined
+                ? 'Checking installation…'
+                : hooksInstalled[provider.providerId]
+                  ? 'Installed. Event delivery depends on the running session.'
+                  : 'Not installed. Available transcript observations remain enabled.'}
+          </p>
+          {hooksFeedback[provider.providerId]?.canManage === false && (
+            <p className="text-xs text-text px-10 m-0 mb-8">
+              Hook changes are locked for this connection. Open the latest URL printed by the Pixel
+              Agents server (including ?token=...) to install or remove hooks. Transcript watching
+              still works.
+            </p>
+          )}
+          {hooksFeedback[provider.providerId]?.error && (
+            <p role="alert" className="text-xs text-text px-10 m-0 mb-8 wrap-anywhere">
+              {hooksFeedback[provider.providerId].error}
+            </p>
+          )}
+          {provider.capabilities?.permissionRequests === false && (
+            <p className="text-xs text-text-muted px-10 m-0 mb-8">
+              Permission detection is unavailable from this provider's current sources.
+            </p>
+          )}
+          {provider.capabilities?.contextUsage === false && (
+            <p className="text-xs text-text-muted px-10 m-0 mb-8">
+              Context occupancy is unavailable from this provider's current sources.
+            </p>
+          )}
+          {provider.capabilities?.subagents === false && (
+            <p className="text-xs text-text-muted px-10 m-0 mb-8">
+              Sub-agent activity is unavailable from this provider's current sources.
+            </p>
+          )}
+          {confirmProviderId === provider.providerId &&
+            hooksFeedback[provider.providerId]?.canManage !== false && (
+              <div className="px-10 pb-8">
+                {(
+                  provider.disclosure ??
+                  'Hook installation details are unavailable. Reopen the office to refresh them.'
+                )
+                  .split('\n\n')
+                  .map((paragraph, index) => (
+                    <p key={index} className="text-sm mb-8">
+                      {paragraph}
+                    </p>
+                  ))}
+                <div className="flex gap-8 flex-wrap">
+                  <Button
+                    variant="accent"
+                    disabled={!provider.disclosure}
+                    onClick={() => {
+                      onToggleHooksEnabled(provider.providerId);
+                      setConfirmProviderId(null);
+                    }}
+                  >
+                    Install hooks
+                  </Button>
+                  <Button onClick={() => setConfirmProviderId(null)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+        </div>
+      ))}
       <Checkbox
         label="Always Show Labels"
         checked={alwaysShowOverlay}

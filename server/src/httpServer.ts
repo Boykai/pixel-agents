@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 
+import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type {
@@ -19,8 +20,8 @@ import {
   WS_CLOSE_FORBIDDEN_ORIGIN,
   WS_CLOSE_UNAUTHORIZED,
 } from './constants.js';
+import { hookProviders } from './providers/index.js';
 import type { AgentState } from './types.js';
-
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
   /** true = VS Code embedded mode (ephemeral port, no static, quiet logging) */
@@ -45,6 +46,13 @@ export interface HttpServerOptions {
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
   /** Invoked when an external asset directory is added/removed. Standalone reloads + re-broadcasts assets here. */
   onReloadAssets?: ReloadAssetsSideEffect;
+  /**
+   * Providers this running process actually tracks; forwarded verbatim to
+   * ClientMessageContext.activeProviders (see its doc comment). Standalone
+   * sets this to the single --provider <id> selection; embedded (VS Code)
+   * omits it to keep asking about every registered provider.
+   */
+  activeProviders?: HookProvider[];
 }
 
 /** Result of createHttpServer(). */
@@ -130,10 +138,25 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
     async (request, reply) => {
       const { providerId } = request.params;
       const event = request.body;
-
-      if (event.session_id && event.hook_event_name) {
-        options.onHookEvent?.(providerId, event);
+      if (
+        !(options.activeProviders ?? hookProviders).some((provider) => provider.id === providerId)
+      ) {
+        return reply.code(404).send({ error: 'Provider is not enabled' });
       }
+      if (!event || typeof event !== 'object' || Array.isArray(event)) {
+        return reply.code(400).send({ error: 'Hook event must be an object' });
+      }
+      const sessionId = event.sessionId ?? event.session_id;
+      const eventName = event.hookType ?? event.hook_event_name;
+      if (
+        typeof sessionId !== 'string' ||
+        !sessionId ||
+        typeof eventName !== 'string' ||
+        !eventName
+      ) {
+        return reply.code(400).send({ error: 'Hook event requires a session ID and event name' });
+      }
+      options.onHookEvent?.(providerId, event);
 
       reply.send('ok');
     },
@@ -173,7 +196,10 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
       safeSend(socket, {
         type: 'agentCreated',
         id,
+        providerId: agent.providerId,
+        observation: agent.observation,
         folderName: agent.folderName,
+        sessionName: agent.sessionName,
         isExternal: agent.isExternal || undefined,
         isTeammate: agent.leadAgentId !== undefined || undefined,
         teammateName: agent.agentName,
@@ -210,6 +236,7 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
           cache: options.assetCache ?? null,
           onSetHooksEnabled: options.onSetHooksEnabled,
           onReloadAssets: options.onReloadAssets,
+          activeProviders: options.activeProviders,
           privileged,
         });
       } catch {

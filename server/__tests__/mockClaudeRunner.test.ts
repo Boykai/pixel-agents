@@ -11,6 +11,7 @@ let tmpHome: string;
 let workspaceDir: string;
 
 function makeNodeCommand(scriptPath: string): string {
+  if (process.platform === 'win32') return `"${process.execPath}" "${scriptPath}"`;
   return `${JSON.stringify(process.execPath)} ${JSON.stringify(scriptPath)}`;
 }
 
@@ -54,8 +55,10 @@ function runMockClaude(
       env: {
         ...process.env,
         HOME: tmpHome,
+        USERPROFILE: tmpHome,
       },
       stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 5000,
     });
 
     let stderr = '';

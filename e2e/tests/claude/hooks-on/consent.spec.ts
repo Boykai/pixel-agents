@@ -12,7 +12,7 @@ import { getSettingChecked, setSettings } from '../../../helpers/webview';
  * The Intro — the four-step first-run tour — and, inside it, the consent gate for modifying ~/.claude/settings.json.
  * Every other spec seeds a granted Claude consent so hooks flow silently; these opt OUT via `seedConfig`, which is
  * what a real first run looks like. The tour is diegetic: a greeter stands near the office's bottom-left corner and
- * the IntroBubble is its speech bubble, driven by the server's `hooksConsentRequest`, paging welcome → Claude Code →
+ * the IntroBubble is its speech bubble, driven by the server's `hooksConsentRequest`, paging welcome → providers →
  * consent → all set. A choice sends immediately and moves to the closing step, from which Back allows a genuine
  * change of mind. Both surfaces render this component off the same message (standalone: standalone/hooks.spec.ts).
  * The gate answers a 1-star review — a settings.json replaced with no prompt, backup or disclosure — so these assert
@@ -274,7 +274,7 @@ test.describe('Hooks consent gate', () => {
     const dialog = await openConsentDialog(frame);
     // The x is on every step — here, mid-tour, one step before the disclosure.
     await dialog.getByRole('button', { name: 'Continue' }).click();
-    await expect(dialog).toContainText('Claude Code');
+    await expect(dialog).toContainText('Your coding agents, together');
 
     narrator.step('aborting the tour with the x — no choice made');
     await dialog.getByRole('button', { name: 'Close' }).click();

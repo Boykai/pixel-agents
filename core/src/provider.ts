@@ -1,17 +1,55 @@
 /**
  * Provider abstraction for AI agent tools.
  *
- * Only HookProvider ships today (Claude Code). Transcript-polling and push-based
- * provider types will be added when a real second provider (Codex, Goose,
- * Discord, etc.) actually lands, derived from that provider's needs rather than
- * speculation.
+ * Providers own source formats, session identity and evidence-based capabilities.
+ * Runtime contexts isolate each provider's discovery, parser and lifecycle state.
  */
 
 import type { TeamProvider } from './teamProvider.js';
 
+export interface ObservationCapabilities {
+  hooks?: boolean;
+  discovery?: boolean;
+  permissionRequests?: boolean;
+  userInput?: boolean;
+  contextUsage?: boolean;
+  subagents?: boolean;
+  teams?: boolean;
+  sessionEnd?: boolean;
+}
+
+export interface SessionCandidate {
+  transcriptPath: string;
+  previousSize: number | undefined;
+  size: number;
+  mtimeMs: number;
+  now: number;
+}
+
+/** Bounded recovery is observational: it must never replay notifications or hooks. */
+export interface TranscriptSnapshot {
+  observation: 'known' | 'unknown';
+  status?: 'active' | 'waiting' | 'idle';
+  contextTokens?: number;
+  maxContextTokens?: number;
+}
+
+/** Missing source metadata must never be replaced with fabricated causal ordering. */
+export interface NormalizedAgentEvent {
+  sessionId: string;
+  event: AgentEvent;
+  source?: 'hook' | 'transcript' | 'bridge';
+  eventId?: string;
+  generation?: string;
+  timestamp?: number;
+}
+
 // ── Normalized Events (all provider types produce these) ──────
 
 export type AgentEvent =
+  | { kind: 'turnStart' }
+  /** Provider-owned evidence consumed without inferring a lifecycle transition. */
+  | { kind: 'observation' }
   | {
       kind: 'toolStart';
       toolId: string;
@@ -77,10 +115,7 @@ export interface HookProvider {
    *  Each CLI sends different JSON (Claude: snake_case, Copilot: camelCase, etc.)
    *  The provider translates to the common AgentEvent format.
    *  Return null for events we should ignore. */
-  normalizeHookEvent(raw: Record<string, unknown>): {
-    sessionId: string;
-    event: AgentEvent;
-  } | null;
+  normalizeHookEvent(raw: Record<string, unknown>): NormalizedAgentEvent | null;
 
   /** Install hook scripts that POST to our server. */
   installHooks(serverUrl: string, authToken: string): Promise<void>;
@@ -118,6 +153,18 @@ export interface HookProvider {
 
   // ── Optional file fallback (heuristic mode) ──
 
+  readonly capabilities?: ObservationCapabilities;
+  /** Session identity need not be the transcript's basename. */
+  resolveSessionId?(transcriptPath: string): string | undefined;
+  /** Expected transcript location. Reject session IDs that cannot safely form a path. */
+  getSessionFile?(sessionId: string, cwd: string): string | undefined;
+  /** Authoritative workspace identity for a provider's session directory, when available. */
+  getSessionCwd?(projectDir: string): string | undefined;
+  /** Enumeration is not evidence of liveness. Called with the last scan's size. */
+  isSessionCandidate?(candidate: SessionCandidate): boolean;
+  /** Complete is false when the bounded tail omits earlier records. */
+  recoverTranscript?(lines: readonly string[], complete: boolean): TranscriptSnapshot;
+
   /** Session directories to scan. Undefined = no file fallback. */
   getSessionDirs?(workspacePath: string): string[];
   /** Root directories containing every session this provider may have started
@@ -125,8 +172,27 @@ export interface HookProvider {
    *  Sessions". Each returned dir contains subdirs whose entries are session
    *  transcript files. Undefined = this provider doesn't support global scan. */
   getAllSessionRoots?(): string[];
+  /** Resolve a per-workspace session directory (as returned within
+   *  getAllSessionRoots()'s roots) to a human-readable label for the office UI
+   *  (the "folder name" shown under an external agent's sprite). Only needed
+   *  when the directory name itself isn't already meaningful — e.g. Claude's
+   *  project dirs are the workspace path with separators replaced by `-`, so
+   *  its basename already decodes to a readable name and this can stay
+   *  unset; Copilot's session dirs are opaque UUIDs, so it implements this by
+   *  reading the session's own cwd. Undefined = fall back to decoding the
+   *  directory's basename (folderNameFromProjectDir). */
+  resolveSessionFolderName?(dirPath: string): string | undefined;
+  /** Resolve a per-workspace session directory to a human-readable session
+   *  title, shown as a second label distinct from the folder/project name.
+   *  Providers whose CLI has no concept of a named session (Claude: each
+   *  session IS the project, no separate title) leave this unset. Copilot
+   *  implements this by reading the session's own task description / user-
+   *  given name. Undefined = no session-title label is shown. */
+  resolveSessionName?(dirPath: string): string | undefined;
   /** Glob pattern for session files (e.g., '*.jsonl'). */
   readonly sessionFilePattern?: string;
+  /** Exact transcript path for a newly allocated session, before its directory exists. */
+  expectedTranscriptPath?(sessionId: string, cwd: string): string;
   /** Parse one line of a transcript file into an AgentEvent. */
   parseTranscriptLine?(line: string): AgentEvent | null;
   /** Build CLI launch command for +Agent button. */

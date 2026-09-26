@@ -21,6 +21,7 @@ import type * as fs from 'fs';
 
 import { AgentStateStore } from './agentStateStore.js';
 import { DEFAULT_MAX_CONTEXT_TOKENS } from './constants.js';
+import type { FileWatcherContext } from './fileWatcher.js';
 import { readNewLines, startFileWatching } from './fileWatcher.js';
 import { pathsMatch } from './pathKey.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
@@ -52,7 +53,13 @@ export class SubagentWatch {
   /** Shadow id → tool ids started but not yet done (for toolsClear synthesis). */
   private readonly liveToolIds = new Map<number, Set<string>>();
 
-  constructor(private readonly mainStore: AgentStateStore) {
+  constructor(
+    private readonly mainStore: AgentStateStore,
+    private readonly watcher: Pick<FileWatcherContext, 'startFileWatching' | 'readNewLines'> = {
+      startFileWatching,
+      readNewLines,
+    },
+  ) {
     this.store.nextAgentId.current = SHADOW_ID_BASE;
     this.store.on('broadcast', (message) => this.translate(message));
   }
@@ -70,6 +77,7 @@ export class SubagentWatch {
     const id = this.store.nextAgentId.current++;
     const agent: AgentState = {
       id,
+      providerId: lead.providerId,
       // Shares the lead's session like the transcript it mirrors. Never
       // registered with the session router.
       sessionId: lead.sessionId,
@@ -105,7 +113,7 @@ export class SubagentWatch {
       `[Pixel Agents] Watching background sub-agent transcript for lead Agent ${leadId} (${entry.toolUseId})`,
     );
 
-    startFileWatching(
+    this.watcher.startFileWatching(
       id,
       entry.jsonlPath,
       this.store,
@@ -114,7 +122,7 @@ export class SubagentWatch {
       this.waitingTimers,
       this.permissionTimers,
     );
-    readNewLines(id, this.store, this.waitingTimers, this.permissionTimers);
+    this.watcher.readNewLines(id, this.store, this.waitingTimers, this.permissionTimers);
   }
 
   /** Stop the watch matching a completed spawn (queue-operation on the lead). */
@@ -188,6 +196,7 @@ export class SubagentWatch {
           parentToolId: spawnToolUseId,
           toolId,
           status: message.status,
+          toolName: message.toolName,
         });
         break;
       }

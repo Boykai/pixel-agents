@@ -16,7 +16,7 @@ import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
-import { claudeProvider, hookProviderById, hookProviders } from './providers/index.js';
+import { claudeProvider } from './providers/index.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -60,6 +60,8 @@ export interface ClientMessageContext {
    * to false so a caller that forgets to pass it gets the safe answer.
    */
   privileged?: boolean;
+  /** Providers this process tracks and may configure; otherwise use the runtime's set. */
+  activeProviders?: HookProvider[];
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -99,7 +101,7 @@ export function handleClientMessage(
       const id = msg.id as number;
       const agent = store.get(id);
       if (agent && runtime) {
-        runtime.dismissalTracker.dismiss(agent.jsonlFile);
+        runtime.dismissAgent(id);
         runtime.removeAgent(id);
       }
       break;
@@ -180,11 +182,20 @@ export function handleClientMessage(
     }
 
     case 'setHooksEnabled': {
-      const enabled = msg.enabled as boolean;
+      if (typeof msg.enabled !== 'boolean') {
+        console.warn('[Pixel Agents] Ignoring invalid hooks preference');
+        break;
+      }
+      const enabled = msg.enabled;
       // The provider id is echoed by the client, never originated: an unknown
       // id names nothing to install into, so it is dropped like a junk choice.
-      const provider = hookProviderById(msg.providerId);
-      if (!provider) break;
+      const provider = (ctx.activeProviders ?? runtime?.getProviders() ?? [claudeProvider]).find(
+        (p) => p.id === msg.providerId,
+      );
+      if (!provider) {
+        console.warn('[Pixel Agents] Ignoring hooks preference for a disabled provider');
+        break;
+      }
       if (!ctx.privileged) {
         // No server token on this connection: the toggle would grant durable
         // consent to modify a settings file on THIS machine, and only the
@@ -194,9 +205,7 @@ export function handleClientMessage(
         console.warn(
           '[Pixel Agents] Ignoring setHooksEnabled from an untokened client — installing hooks needs approval from this machine (open the tokened URL the CLI printed).',
         );
-        void provider
-          .areHooksInstalled()
-          .then((installed) => send({ type: 'hooksStatus', providerId: provider.id, installed }));
+        void reportHooksStatus(ctx, send, provider);
         break;
       }
       void applyHooksPreference(ctx, send, provider, enabled);
@@ -215,8 +224,13 @@ export function handleClientMessage(
       }
       // Fail-closed on the provider exactly like on the choice: an id naming
       // no registered provider writes nothing.
-      const provider = hookProviderById(msg.providerId);
-      if (!provider) break;
+      const provider = (ctx.activeProviders ?? runtime?.getProviders() ?? [claudeProvider]).find(
+        (p) => p.id === msg.providerId,
+      );
+      if (!provider) {
+        console.warn('[Pixel Agents] Ignoring consent for a disabled provider');
+        break;
+      }
       void applyConsentChoice(
         provider.id,
         msg.choice,
@@ -282,7 +296,7 @@ export function handleClientMessage(
  * the on-disk result agrees. Writing it first strands the user when an uninstall fails: entries keep firing while the
  * persisted hooks-off makes the next startup skip the gate entirely. Shared by the Settings toggle and the consent
  * dialog's Install (both are grants). Never rejects — it is fire-and-forget and bound by the ConsentEffects contract,
- * so a failure surfaces on the console here or nowhere.
+ * so failures are reported to Settings as well as the console.
  */
 async function applyHooksPreference(
   ctx: ClientMessageContext,
@@ -290,24 +304,47 @@ async function applyHooksPreference(
   provider: HookProvider,
   enabled: boolean,
 ): Promise<void> {
+  let error: string | undefined;
   try {
     await ctx.onSetHooksEnabled?.(provider.id, enabled);
     const installed = await provider.areHooksInstalled();
     if (installed === enabled) {
       setHooksEnabled(provider.id, enabled);
-      // The runtime's single hooksEnabled ref gates the CLAUDE scanners; it
-      // follows only the Claude provider until the scanners grow per-provider
-      // awareness alongside the Settings UI.
-      if (ctx.runtime && provider.id === claudeProvider.id) {
-        ctx.runtime.hooksEnabled.current = enabled;
-      }
+      ctx.runtime?.setHooksEnabled(provider.id, enabled);
+    } else {
+      error = `Hooks could not be ${enabled ? 'installed' : 'removed'}. Check the server log and retry.`;
     }
     // Always report the ACTUAL install state — the toggle expresses intent,
     // not outcome (the installer refuses to touch an unparseable file).
-    send({ type: 'hooksStatus', providerId: provider.id, installed });
+    send({ type: 'hooksStatus', providerId: provider.id, installed, ...(error ? { error } : {}) });
   } catch (err) {
     console.error('[Pixel Agents] Applying the hooks preference failed:', err);
+    error =
+      err instanceof Error ? err.message : 'Hook operation failed. Check the server log and retry.';
+    await reportHooksStatus(ctx, send, provider, error);
   }
+}
+
+async function reportHooksStatus(
+  ctx: ClientMessageContext,
+  send: WsSend,
+  provider: HookProvider,
+  error?: string,
+): Promise<void> {
+  let installed = false;
+  try {
+    installed = await provider.areHooksInstalled();
+  } catch (err) {
+    console.error(`[Pixel Agents] Hook status check failed for ${provider.id}:`, err);
+    error ??= 'Could not check hook installation. Check the server log and retry.';
+  }
+  send({
+    type: 'hooksStatus',
+    providerId: provider.id,
+    installed,
+    canManage: ctx.privileged === true,
+    ...(error ? { error } : {}),
+  });
 }
 
 /**
@@ -334,12 +371,7 @@ function standaloneConsentEffects(
     },
     areHooksInstalled: () => provider.areHooksInstalled(),
     syncHooksPreferenceOff: () => {
-      // Durable writes are the executor's own atomic recordHooksDecline; this
-      // only mirrors the live runtime ref the CLAUDE scanners read, so another
-      // provider's answer can never flip Claude's fallback behavior.
-      if (ctx.runtime && provider.id === claudeProvider.id) {
-        ctx.runtime.hooksEnabled.current = false;
-      }
+      ctx.runtime?.setHooksEnabled(provider.id, false);
     },
     reportHooksStatus: async () => {
       try {
@@ -360,11 +392,17 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const adapter = store.getAdapter();
 
   // 1. Provider capabilities (must arrive before any agent messages)
-  send({
-    type: 'providerCapabilities',
-    readingTools: [...claudeProvider.readingTools],
-    subagentToolNames: [...claudeProvider.subagentToolNames],
-  });
+  for (const provider of ctx.activeProviders ?? runtime?.getProviders() ?? [claudeProvider]) {
+    send({
+      type: 'providerCapabilities',
+      providerId: provider.id,
+      displayName: provider.displayName,
+      consentDisclosure: provider.consentDisclosure(),
+      capabilities: provider.capabilities,
+      readingTools: [...provider.readingTools],
+      subagentToolNames: [...provider.subagentToolNames],
+    });
+  }
 
   // 2. Assets (from server cache, loaded at startup via pngjs)
   if (cache) {
@@ -405,13 +443,13 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 4. Settings (from adapter, with sensible defaults when adapter is absent)
   const cfg = readConfig();
   const watchAllSessions = adapter?.getSetting(KEY_WATCH_ALL_SESSIONS, false) ?? false;
-  // settingsLoaded.hooksEnabled stays a single boolean carrying the CLAUDE
-  // provider's preference until the Settings UI grows a per-provider list —
-  // its sole webview reader is the hooks tooltip gate.
-  const hooksEnabled = getHooksEnabled(claudeProvider.id);
+  // Retain the primary-provider preference for older clients.
+  const primaryProvider = ctx.activeProviders?.[0] ?? runtime?.getProviders()[0] ?? claudeProvider;
+  const hooksEnabled = getHooksEnabled(primaryProvider.id);
   const showAreas = adapter?.getSetting(KEY_SHOW_AREAS, false) ?? false;
   send({
     type: 'settingsLoaded',
+    launchProvider: primaryProvider.id,
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
     lastSeenVersion: adapter?.getSetting(KEY_LAST_SEEN_VERSION, '') ?? '',
     extensionVersion: process.env.PIXEL_AGENTS_VERSION ?? '',
@@ -428,8 +466,11 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // hooksEnabled defaults true while first-run consent is still pending. The
   // provider checks are async, so these land as follow-ups right after the
   // synchronous handshake; the webview's default (not installed) is the safe
-  // assumption until each arrives. One status + at most one ask PER PROVIDER.
-  for (const provider of hookProviders) {
+  // assumption until each arrives. One status + at most one ask PER PROVIDER
+  // this process actually tracks (ctx.activeProviders when scoped; otherwise
+  // every registered provider, matching the VS Code adapter's long-standing
+  // behavior).
+  for (const provider of ctx.activeProviders ?? runtime?.getProviders() ?? [claudeProvider]) {
     // One provider's unreadable settings file must degrade to
     // installed=false (matching the executor's fail-closed read: no choice
     // ever uninstalls on a guess) rather than surface as an unhandled
@@ -442,7 +483,12 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
         return false;
       })
       .then((installed) => {
-        send({ type: 'hooksStatus', providerId: provider.id, installed });
+        send({
+          type: 'hooksStatus',
+          providerId: provider.id,
+          installed,
+          canManage: ctx.privileged === true,
+        });
         // 4a-bis. First-run consent, asked in the app: this connect is the moment the user can be asked, so the ask
         // rides the handshake and consentGate owns every condition (VS Code calls the same function). The record is
         // re-read here rather than taken from startup — another tab may have answered while this one loaded.
@@ -471,7 +517,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // from the first tick after a server restart.
   if (runtime) {
     runtime.watchAllSessions.current = watchAllSessions;
-    runtime.hooksEnabled.current = hooksEnabled;
+    for (const provider of ctx.activeProviders ?? runtime.getProviders()) {
+      runtime.setHooksEnabled(provider.id, getHooksEnabled(provider.id));
+    }
   }
 
   // 5. Restore persisted external agents (standalone only; VS Code handles its own restore)
@@ -480,13 +528,21 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 6. Existing agents (either just restored, or from VS Code adapter if present)
   const agentIds: number[] = [];
   const folderNames: Record<number, string> = {};
+  const sessionNames: Record<number, string> = {};
   const externalAgents: Record<number, boolean> = {};
+  const providerIds: Record<number, string> = {};
+  const observations: Record<number, string> = {};
   const persistedSeats = adapter?.loadSeats() ?? {};
   const agentMeta: Record<number, { palette?: number; hueShift?: number; seatId?: string }> = {};
   for (const [id, agent] of store) {
     agentIds.push(id);
+    providerIds[id] = agent.providerId ?? 'claude';
+    observations[id] = agent.observation ?? 'known';
     if (agent.folderName) {
       folderNames[id] = agent.folderName;
+    }
+    if (agent.sessionName) {
+      sessionNames[id] = agent.sessionName;
     }
     if (agent.isExternal) {
       externalAgents[id] = true;
@@ -503,13 +559,20 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agents: agentIds,
     agentMeta,
     folderNames,
+    sessionNames,
     externalAgents,
+    providerIds,
+    observations,
   });
 
   // 7. Layout last (see step 3): flushes the webview's buffered existingAgents
   // into characters once seats are rebuilt.
   const savedLayout = readLayoutFromFile();
-  send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  send({
+    type: 'layoutLoaded',
+    layout: savedLayout ?? cache?.defaultLayout ?? null,
+    defaultLayout: cache?.defaultLayout ?? null,
+  });
 
   // 8. Agent state, AFTER layoutLoaded -- the characters they target only
   // exist once the layout flush creates them. Without this a reconnecting

@@ -24,26 +24,41 @@ export function extractToolName(status: string): string | null {
 // Modules classifying tools (character animation, subagent creation gate) read
 // from here instead of hardcoding Claude-specific tool names.
 
-const providerCaps: {
-  readingTools: Set<string>;
-  subagentToolNames: Set<string>;
-} = {
-  readingTools: new Set(),
-  subagentToolNames: new Set(),
-};
+const providerCaps = new Map<
+  string,
+  {
+    readingTools: Set<string>;
+    subagentToolNames: Set<string>;
+    displayName?: string;
+  }
+>();
 
 export function setProviderCapabilities(caps: {
+  providerId?: string;
+  displayName?: string;
   readingTools: string[];
   subagentToolNames: string[];
 }): void {
-  providerCaps.readingTools = new Set(caps.readingTools);
-  providerCaps.subagentToolNames = new Set(caps.subagentToolNames);
+  providerCaps.set(caps.providerId ?? 'claude', {
+    readingTools: new Set(caps.readingTools),
+    subagentToolNames: new Set(caps.subagentToolNames),
+    displayName: caps.displayName,
+  });
 }
 
-export function isReadingToolName(name: string | null | undefined): boolean {
-  return typeof name === 'string' && providerCaps.readingTools.has(name);
+export function providerDisplayName(providerId: string): string {
+  return providerCaps.get(providerId)?.displayName ?? providerId;
 }
 
-export function isSubagentToolName(name: string | null | undefined): boolean {
-  return typeof name === 'string' && providerCaps.subagentToolNames.has(name);
+export function isReadingToolName(name: string | null | undefined, providerId = 'claude'): boolean {
+  return typeof name === 'string' && providerCaps.get(providerId)?.readingTools.has(name) === true;
+}
+
+export function isSubagentToolName(
+  name: string | null | undefined,
+  providerId = 'claude',
+): boolean {
+  return (
+    typeof name === 'string' && providerCaps.get(providerId)?.subagentToolNames.has(name) === true
+  );
 }

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { CONFIG_FILE_NAME, LAYOUT_FILE_DIR } from './constants.js';
+import { CONFIG_FILE_NAME, HOOKS_CONSENT_SCOPES, LAYOUT_FILE_DIR } from './constants.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
@@ -50,6 +50,8 @@ export interface PixelAgentsConfig {
    *  per-provider, not per-adapter. A provider absent from the map has never
    *  been answered. */
   hooksConsent: Record<string, HooksConsentState>;
+  /** Scope approved by an explicit consent answer; absent for legacy grants. */
+  hooksConsentScopes?: Record<string, string>;
   /** Per-provider hooks preference, machine-global for the same reason as the
    *  consent above. A provider absent from the map takes the default (true). */
   hooksEnabled: Record<string, boolean>;
@@ -79,6 +81,13 @@ function parseHooksConsent(raw: unknown): Record<string, HooksConsentState> {
     if (state === 'granted' || state === 'declined') out[providerId] = state;
   }
   return out;
+}
+
+function parseHooksConsentScopes(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
 }
 
 /** Coerce a loose object into the per-provider hooks-preference map, dropping non-boolean values. */
@@ -169,6 +178,7 @@ export function readConfig(): PixelAgentsConfig {
         ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
         : [],
       hooksConsent: parseHooksConsent(parsed.hooksConsent),
+      hooksConsentScopes: parseHooksConsentScopes(parsed.hooksConsentScopes),
       hooksEnabled: parseHooksEnabled(parsed.hooksEnabled),
     };
   } catch (err) {
@@ -190,7 +200,13 @@ export function readConfig(): PixelAgentsConfig {
 
 /** What the user durably answered this provider's ask with, or 'unanswered'. */
 export function getHooksConsent(providerId: string): HooksConsentState | 'unanswered' {
-  return readConfig().hooksConsent[providerId] ?? 'unanswered';
+  const cfg = readConfig();
+  const consent = cfg.hooksConsent[providerId] ?? 'unanswered';
+  const scope = HOOKS_CONSENT_SCOPES[providerId];
+  if (consent === 'granted' && scope && cfg.hooksConsentScopes?.[providerId] !== scope) {
+    return 'unanswered';
+  }
+  return consent;
 }
 
 /** Persist the one-time approval for modifying this provider's settings file. A grant REPLACING a decline also
@@ -200,9 +216,16 @@ export function getHooksConsent(providerId: string): HooksConsentState | 'unansw
  *  anyway, so this only changes the failure path. */
 export function grantHooksConsent(providerId: string): void {
   const cfg = readConfig();
-  if (cfg.hooksConsent[providerId] !== 'granted') {
+  const scope = HOOKS_CONSENT_SCOPES[providerId];
+  if (
+    cfg.hooksConsent[providerId] !== 'granted' ||
+    (scope && cfg.hooksConsentScopes?.[providerId] !== scope)
+  ) {
     const replacingDecline = cfg.hooksConsent[providerId] === 'declined';
     cfg.hooksConsent[providerId] = 'granted';
+    if (scope) {
+      cfg.hooksConsentScopes = { ...cfg.hooksConsentScopes, [providerId]: scope };
+    }
     if (replacingDecline) delete cfg.hooksEnabled[providerId];
     writeConfig(cfg);
   }
@@ -227,6 +250,7 @@ export function clearHooksAnswer(providerId: string): void {
   const cfg = readConfig();
   if (providerId in cfg.hooksConsent || providerId in cfg.hooksEnabled) {
     delete cfg.hooksConsent[providerId];
+    if (cfg.hooksConsentScopes) delete cfg.hooksConsentScopes[providerId];
     delete cfg.hooksEnabled[providerId];
     writeConfig(cfg);
   }
@@ -241,6 +265,7 @@ export function clearHooksConsent(providerId: string): void {
   const cfg = readConfig();
   if (providerId in cfg.hooksConsent) {
     delete cfg.hooksConsent[providerId];
+    if (cfg.hooksConsentScopes) delete cfg.hooksConsentScopes[providerId];
     writeConfig(cfg);
   }
 }
@@ -275,6 +300,7 @@ export function clearHooksEnabled(providerId: string): void {
 export function resetHooksConfig(): void {
   const cfg = readConfig();
   cfg.hooksConsent = {};
+  cfg.hooksConsentScopes = {};
   cfg.hooksEnabled = {};
   for (const ns of ['vscode', 'standalone'] as const) {
     cfg[ns].hooksInfoShown = DEFAULT_ADAPTER_SETTINGS.hooksInfoShown;

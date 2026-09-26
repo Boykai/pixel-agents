@@ -116,8 +116,7 @@ export class OfficeState {
     this.rebuildPetsFromLayout(this.layout);
   }
 
-  /** Rebuild all derived state from a new layout. Reassigns existing characters.
-   *  @param shift Optional pixel shift to apply when grid expands left/up */
+  /** Rebuild derived state and reconcile seats. Shift is in tiles, including negative undo shifts. */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
@@ -126,28 +125,48 @@ export class OfficeState {
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
-    // Shift character positions when grid expands left/up
-    if (shift && (shift.col !== 0 || shift.row !== 0)) {
-      for (const ch of this.characters.values()) {
+    // Visibility is a rendering concern; hidden occupants still need valid coordinates.
+    const occupants = Array.from(this.characters.values());
+    if (this.greeter) occupants.push(this.greeter);
+    for (const ch of occupants) {
+      if (shift) {
         ch.tileCol += shift.col;
         ch.tileRow += shift.row;
         ch.x += shift.col * TILE_SIZE;
         ch.y += shift.row * TILE_SIZE;
-        // Clear path since tile coords changed
-        ch.path = [];
-        ch.moveProgress = 0;
+      }
+      ch.path = [];
+      ch.moveProgress = 0;
+      if (ch.state === CharacterState.WALK) {
+        ch.state = CharacterState.IDLE;
+        ch.x = ch.tileCol * TILE_SIZE + TILE_SIZE / 2;
+        ch.y = ch.tileRow * TILE_SIZE + TILE_SIZE / 2;
       }
     }
+    if (shift && this.greeterCameraTarget) {
+      this.greeterCameraTarget.x += shift.col * TILE_SIZE;
+      this.greeterCameraTarget.y += shift.row * TILE_SIZE;
+    }
 
-    // Shift pet positions when grid expands left/up
-    if (shift && (shift.col !== 0 || shift.row !== 0)) {
-      for (const pet of this.pets) {
+    for (const pet of this.pets) {
+      if (shift) {
         pet.tileCol += shift.col;
         pet.tileRow += shift.row;
         pet.x += shift.col * TILE_SIZE;
         pet.y += shift.row * TILE_SIZE;
+        pet.path = pet.path.map((tile) => ({
+          col: tile.col + shift.col,
+          row: tile.row + shift.row,
+        }));
+      }
+      if (
+        pet.path.some((tile) => !isWalkable(tile.col, tile.row, this.tileMap, this.blockedTiles))
+      ) {
         pet.path = [];
         pet.moveProgress = 0;
+        pet.state = PetState.IDLE;
+        pet.x = pet.tileCol * TILE_SIZE + TILE_SIZE / 2;
+        pet.y = pet.tileRow * TILE_SIZE + TILE_SIZE / 2;
       }
     }
 
@@ -158,7 +177,7 @@ export class OfficeState {
 
     // First pass: try to keep characters at their existing seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId && this.seats.has(ch.seatId)) {
+      if (!ch.isSubagent && ch.seatId && this.seats.has(ch.seatId)) {
         const seat = this.seats.get(ch.seatId)!;
         if (!seat.assigned) {
           seat.assigned = true;
@@ -178,7 +197,7 @@ export class OfficeState {
 
     // Second pass: assign remaining characters to free seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId) continue;
+      if (ch.seatId || ch.isSubagent) continue;
       const seatId = this.findFreeSeat(ch.folderName);
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
@@ -193,14 +212,9 @@ export class OfficeState {
     }
 
     // Relocate any characters that ended up outside bounds or on non-walkable tiles
-    for (const ch of this.characters.values()) {
+    for (const ch of occupants) {
       if (ch.seatId) continue; // seated characters are fine
-      if (
-        ch.tileCol < 0 ||
-        ch.tileCol >= layout.cols ||
-        ch.tileRow < 0 ||
-        ch.tileRow >= layout.rows
-      ) {
+      if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
         this.relocateCharacterToWalkable(ch);
       }
     }
@@ -234,10 +248,10 @@ export class OfficeState {
     this.rebuildPetsFromLayout(layout);
   }
 
-  /** Move a character to a random walkable tile */
+  /** Relocate only when a layout edit removed the character's tile. */
   private relocateCharacterToWalkable(ch: Character): void {
     if (this.walkableTiles.length === 0) return;
-    const spawn = this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)];
+    const spawn = this.closestFreeWalkableTile(ch.tileCol, ch.tileRow) ?? this.walkableTiles[0];
     ch.tileCol = spawn.col;
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -430,6 +444,7 @@ export class OfficeState {
     skipSpawnEffect?: boolean,
     folderName?: string,
     nearAgentId?: number,
+    sessionName?: string,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -487,6 +502,9 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName;
+    }
+    if (sessionName) {
+      ch.sessionName = sessionName;
     }
     if (!skipSpawnEffect) {
       startMatrixEffect(ch, 'spawn');
@@ -713,6 +731,7 @@ export class OfficeState {
     if (parentCh) ch.dir = parentCh.dir;
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
+    ch.providerId = parentCh?.providerId;
     startMatrixEffect(ch, 'spawn');
     this.characters.set(id, ch);
 
@@ -791,6 +810,8 @@ export class OfficeState {
   setAgentActive(id: number, active: boolean): void {
     const ch = this.characters.get(id);
     if (ch) {
+      ch.observation = 'known';
+      if (active) ch.waitingAwaitingInput = false;
       ch.isActive = active;
       if (!active) {
         // Sentinel -1: signals turn just ended, skip next seat rest timer.
@@ -803,12 +824,50 @@ export class OfficeState {
     }
   }
 
+  setAgentObservation(id: number, observation: 'known' | 'unknown'): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    ch.observation = observation;
+    if (observation === 'unknown') {
+      ch.bubbleType = null;
+      ch.waitingAwaitingInput = false;
+      const hiddenIds = new Set([id]);
+      for (const [subId, meta] of this.subagentMeta) {
+        if (meta.parentAgentId === id) hiddenIds.add(subId);
+      }
+      if (this.selectedAgentId !== null && hiddenIds.has(this.selectedAgentId))
+        this.selectedAgentId = null;
+      if (this.hoveredAgentId !== null && hiddenIds.has(this.hoveredAgentId))
+        this.hoveredAgentId = null;
+      if (this.cameraFollowId !== null && hiddenIds.has(this.cameraFollowId))
+        this.cameraFollowId = null;
+    }
+    this.rebuildFurnitureInstances();
+  }
+
+  setAgentMetadata(
+    id: number,
+    metadata: {
+      providerId?: string;
+      observation?: 'known' | 'unknown';
+      folderName?: string;
+      sessionName?: string;
+    },
+  ): void {
+    const ch = this.characters.get(id);
+    if (!ch) return;
+    if (metadata.providerId !== undefined) ch.providerId = metadata.providerId;
+    if (metadata.folderName !== undefined) ch.folderName = metadata.folderName;
+    if (metadata.sessionName !== undefined) ch.sessionName = metadata.sessionName;
+    if (metadata.observation !== undefined) this.setAgentObservation(id, metadata.observation);
+  }
+
   /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
   private rebuildFurnitureInstances(): void {
     // Collect tiles where active agents face desks
     const autoOnTiles = new Set<string>();
     for (const ch of this.characters.values()) {
-      if (!ch.isActive || !ch.seatId) continue;
+      if (!ch.isActive || !ch.seatId || ch.observation === 'unknown') continue;
       const seat = this.seats.get(ch.seatId);
       if (!seat) continue;
       // Find the desk tile(s) the agent faces from their seat
@@ -1159,11 +1218,19 @@ export class OfficeState {
     return seats;
   }
 
-  /** Everything the renderer draws: the agents plus, while the first-run ask
-   *  is up, the consent greeter. This is the ONE place the greeter joins the
-   *  agents — every other consumer reads `characters` and gets agents only. */
+  /** Unknown agents and their sub-agents stay tracked but are not displayed. */
+  isCharacterVisible(id: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || ch.observation === 'unknown') return false;
+    const parentId = this.subagentMeta.get(id)?.parentAgentId;
+    return parentId === undefined || this.characters.get(parentId)?.observation !== 'unknown';
+  }
+
+  /** Everything the renderer draws: visible agents plus the consent greeter. */
   getCharacters(): Character[] {
-    const chars = Array.from(this.characters.values());
+    const chars = Array.from(this.characters.values()).filter((ch) =>
+      this.isCharacterVisible(ch.id),
+    );
     if (this.greeter) chars.push(this.greeter);
     return chars;
   }
@@ -1175,7 +1242,7 @@ export class OfficeState {
     const chars = Array.from(this.characters.values()).sort((a, b) => b.y - a.y);
     for (const ch of chars) {
       // Skip characters that are despawning
-      if (ch.matrixEffect === 'despawn') continue;
+      if (ch.matrixEffect === 'despawn' || !this.isCharacterVisible(ch.id)) continue;
       // Character sprite is 16x24, anchored bottom-center
       // Apply sitting offset to match visual position
       const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;

@@ -87,6 +87,13 @@ describe('AgentRuntime -- restore preserves palette/hueShift', () => {
   });
 
   it('restoreExternalAgents keeps palette/hueShift from the persisted record', () => {
+    fs.writeFileSync(
+      jsonlPath,
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'historical', name: 'Read', input: {} }] },
+      }) + '\n',
+    );
     const persisted: PersistedAgent[] = [
       {
         id: 7,
@@ -109,6 +116,9 @@ describe('AgentRuntime -- restore preserves palette/hueShift', () => {
     expect(agent).toBeDefined();
     expect(agent?.palette).toBe(3);
     expect(agent?.hueShift).toBe(90);
+    expect(agent?.observation).toBe('known');
+    expect(agent?.fileOffset).toBe(fs.statSync(jsonlPath).size);
+    expect(agent?.activeToolIds.size).toBe(0);
   });
 
   it('persist() writes palette/hueShift onto the record that restoreExternalAgents copies back', () => {
@@ -154,6 +164,7 @@ describe('AgentRuntime -- restore preserves palette/hueShift', () => {
     expect(restored).toBeDefined();
     expect(restored?.palette).toBe(5);
     expect(restored?.hueShift).toBe(270);
+    expect(restored?.observation).toBe('known');
   });
 
   it('assigns a fresh palette when the persisted record has no palette', () => {

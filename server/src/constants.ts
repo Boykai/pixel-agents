@@ -3,6 +3,11 @@ export const JSONL_POLL_INTERVAL_MS = 1000;
 export const FILE_WATCHER_POLL_INTERVAL_MS = 500;
 export const PROJECT_SCAN_INTERVAL_MS = 1000;
 
+/** Legacy Copilot grants approved a no-op, not permission to install real hooks. */
+export const HOOKS_CONSENT_SCOPES: Readonly<Record<string, string>> = {
+  copilot: 'copilot-observation-hooks-v1',
+};
+
 // ── Heuristic Agent Status Detection ────────────────────────
 // These timers are the fallback when CLI hooks are not active
 // (hookDelivered = false). When hooks are working, these are
@@ -89,6 +94,9 @@ export const HOOK_EVENT_BUFFER_MS = 5_000;
  *  the agent is cleaned up instead of staying as a zombie with pendingClear forever. */
 export const SESSION_END_GRACE_MS = 2000;
 export const MAX_HOOK_BODY_SIZE = 65_536; // 64KB
+export const TRANSCRIPT_READ_BYTES = 65_536;
+export const TRANSCRIPT_MAX_LINE_CHARS = 1_048_576;
+export const MISSING_TRANSCRIPT_CONFIRMATIONS = 2;
 
 // ── Layout/Config Persistence ──────────────────────────────
 export const LAYOUT_FILE_DIR = '.pixel-agents';

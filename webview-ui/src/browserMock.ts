@@ -276,7 +276,7 @@ export function dispatchMockMessages(): void {
   dispatch({ type: 'wallTilesLoaded', sets: wallSets });
   dispatch({ type: 'carpetTilesLoaded', sets: carpetSets });
   dispatch({ type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites });
-  dispatch({ type: 'layoutLoaded', layout });
+  dispatch({ type: 'layoutLoaded', layout, defaultLayout: layout });
   dispatch({
     type: 'settingsLoaded',
     soundEnabled: false,

@@ -25,6 +25,48 @@ import type {
 } from '../src/office/engine/existingAgents.js';
 import { reconcileExistingAgents } from '../src/office/engine/existingAgents.js';
 
+test('provider identity and unknown observation survive both snapshot delivery orders', () => {
+  for (const ready of [true, false]) {
+    const office = fakeOffice();
+    const pending: PendingAgent[] = [];
+    const metadata: unknown[] = [];
+    office.setAgentMetadata = (id, value) => metadata.push({ id, ...value });
+    reconcileExistingAgents(
+      office,
+      [7],
+      { 7: { palette: 3 } },
+      { 7: 'Workspace' },
+      ready,
+      pending,
+      {},
+      { 7: 'Task title' },
+      { 7: 'copilot' },
+      { 7: 'unknown' },
+    );
+    const actual = ready ? metadata[0] : pending[0];
+    assert.deepEqual(actual, {
+      id: 7,
+      palette: 3,
+      hueShift: undefined,
+      seatId: undefined,
+      folderName: 'Workspace',
+      sessionName: 'Task title',
+      isHeadless: false,
+      providerId: 'copilot',
+      observation: 'unknown',
+    });
+  }
+});
+
+test('a reconnect updates labels without recreating an existing character', () => {
+  const office = fakeOffice([7]);
+  const metadata: unknown[] = [];
+  office.setAgentMetadata = (id, value) => metadata.push({ id, ...value });
+  reconcileExistingAgents(office, [7], {}, {}, true, [], {}, { 7: 'Renamed' }, { 7: 'copilot' });
+  assert.equal(office.calls.length, 0);
+  assert.equal((metadata[0] as PendingAgent).sessionName, 'Renamed');
+});
+
 // ── Helpers ────────────────────────────────────────────────────
 
 interface AddAgentCall {
@@ -100,7 +142,15 @@ test('layout not ready: buffers restored agents for the later layoutLoaded flush
   assert.equal(addedDirectly, false);
   assert.equal(os.calls.length, 0, 'no agent should be added before the layout is ready');
   assert.deepEqual(pending, [
-    { id: 5, palette: 2, hueShift: 90, seatId: 'seat-a', folderName: 'alpha', isHeadless: false },
+    {
+      id: 5,
+      palette: 2,
+      hueShift: 90,
+      seatId: 'seat-a',
+      folderName: 'alpha',
+      sessionName: undefined,
+      isHeadless: false,
+    },
   ]);
 });
 

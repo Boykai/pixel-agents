@@ -94,6 +94,34 @@ export const PAN_MARGIN_FRACTION = 0.25;
 export const UNDO_STACK_MAX_SIZE = 50;
 export const LAYOUT_SAVE_DEBOUNCE_MS = 500;
 
+// ── Room generation ──────────────────────────────────────────
+export const ROOM_INTERIOR_SIZES = [5, 6, 7, 8] as const;
+export const ROOM_WALL_THICKNESS = 1;
+export const ROOM_AISLE_WIDTH = 1;
+export const ROOM_LARGE_INTERIOR_MIN = 7;
+export const ROOM_FRAME_MARGIN_PX = 24;
+export const ROOM_FRAME_TOP_INSET_PX = 64;
+export const ROOM_FRAME_CONTEXT_TILES = 1;
+export const ROOM_FLOOR_PATTERNS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+export const ROOM_ASSETS = {
+  desk: 'DESK_FRONT',
+  computer: 'PC_FRONT_OFF',
+  deskChair: 'CUSHIONED_CHAIR_BACK',
+  table: 'SMALL_TABLE_SIDE',
+  rightChair: 'CUSHIONED_CHAIR_SIDE',
+  leftChair: 'CUSHIONED_CHAIR_SIDE:left',
+  sofa: 'SOFA_FRONT',
+  coffeeTable: 'COFFEE_TABLE',
+  decoration: 'POT',
+} as const;
+export const ROOM_THEME_LABELS = {
+  workspace: 'workspace',
+  meeting: 'meeting room',
+  lounge: 'lounge',
+} as const;
+export const ROOM_MIN_SEATS = { workspace: 1, meeting: 2, lounge: 2 } as const;
+export const ROOM_CANDIDATE_UID_PREFIX = 'generated-room-';
+
 // ── Layout Import/Export (browser-native, standalone) ────────
 /** Suggested filename when exporting the office layout from the standalone browser. */
 export const LAYOUT_EXPORT_FILENAME = 'pixel-agents-layout.json';
@@ -205,6 +233,8 @@ export const AUTO_ON_SIDE_DEPTH = 2;
 export const CHARACTER_HIT_HALF_WIDTH = 8;
 export const CHARACTER_HIT_HEIGHT = 24;
 export const TOOL_OVERLAY_VERTICAL_OFFSET = 32;
+export const AGENT_DETAILS_HIDE_DELAY_MS = 450;
+export const AGENT_LABEL_EDGE_INSET_PX = 56;
 
 // ── Greeter + Intro bubble ──────────────────────────────────
 /** Reserved character id for the Intro's greeter. Far outside both real agent

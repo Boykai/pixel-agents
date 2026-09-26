@@ -52,6 +52,65 @@ describe('AgentStateStore', () => {
   });
 
   describe('CRUD operations', () => {
+    it.each([true, false])(
+      'reserves persisted IDs regardless of adapter setup order: %s',
+      (adapterFirst) => {
+        const adapter = createMockAdapter();
+        adapter.setActiveProviders = vi.fn();
+        vi.mocked(adapter.loadAgents).mockReturnValue([
+          {
+            id: 42,
+            providerId: 'claude',
+            terminalName: '',
+            jsonlFile: 'claude.jsonl',
+            projectDir: '',
+          },
+        ]);
+        if (adapterFirst) store.setAdapter(adapter);
+        store.setActiveProviders(['copilot']);
+        if (!adapterFirst) store.setAdapter(adapter);
+        expect(adapter.setActiveProviders).toHaveBeenCalledWith(['copilot']);
+        expect(store.nextAgentId.current).toBe(43);
+      },
+    );
+
+    it('updates and persists labels without recreating the agent or altering activity', () => {
+      const adapter = createMockAdapter();
+      store.setAdapter(adapter);
+      const agent = createTestAgent({
+        sessionName: 'old',
+        folderName: 'workspace',
+        isWaiting: true,
+      });
+      store.set(1, agent);
+      const broadcast = vi.fn();
+      const updated = vi.fn();
+      const added = vi.fn();
+      store.on('broadcast', broadcast).on('agentUpdated', updated).on('agentAdded', added);
+
+      store.updateMetadata(1, { sessionName: 'new' });
+
+      expect(store.get(1)).toBe(agent);
+      expect(agent.sessionName).toBe('new');
+      expect(agent.folderName).toBe('workspace');
+      expect(agent.isWaiting).toBe(true);
+      expect(broadcast).toHaveBeenCalledWith({ type: 'agentMetadata', id: 1, sessionName: 'new' });
+      expect(updated).toHaveBeenCalledWith(1, agent, 'metadata');
+      expect(added).not.toHaveBeenCalled();
+      expect(adapter.saveAgents).toHaveBeenCalledWith([
+        expect.objectContaining({ id: 1, sessionName: 'new', folderName: 'workspace' }),
+      ]);
+    });
+
+    it('ignores unchanged metadata and missing agents', () => {
+      store.set(1, createTestAgent({ sessionName: 'same' }));
+      const broadcast = vi.fn();
+      store.on('broadcast', broadcast);
+      store.updateMetadata(1, { sessionName: 'same' });
+      store.updateMetadata(99, { sessionName: 'missing' });
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
     it('set and get', () => {
       const agent = createTestAgent({ id: 1 });
       store.set(1, agent);

@@ -34,7 +34,6 @@ import {
   setHooksEnabled as persistHooksEnabled,
   writeConfig,
 } from '../../server/src/configPersistence.js';
-import { setFolderNameResolver, setTerminalAdapter } from '../../server/src/fileWatcher.js';
 import type { LayoutWatcher } from '../../server/src/layoutPersistence.js';
 import {
   readLayoutFromFile,
@@ -45,12 +44,7 @@ import { PathSet } from '../../server/src/pathKey.js';
 import type { ConsentEffects } from '../../server/src/providers/hook/consentExecutor.js';
 import { applyConsentChoice } from '../../server/src/providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from '../../server/src/providers/hook/consentGate.js';
-import {
-  claudeProvider,
-  copyHookScript,
-  hookProviderById,
-  hookProviders,
-} from '../../server/src/providers/index.js';
+import { copyProviderHookScript } from '../../server/src/providers/index.js';
 import { PixelAgentsServer } from '../../server/src/server.js';
 import {
   getProjectDirPath,
@@ -72,6 +66,7 @@ import {
   GLOBAL_KEY_WATCH_ALL_SESSIONS,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
+import { enabledProviders, launchProvider } from './providerSelection.js';
 import { VscodeTerminalAdapter } from './vscodeTerminalAdapter.js';
 
 /** Cap on the pending-broadcast queue. If we exceed this, something has gone
@@ -93,9 +88,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
   // Shared agent lifecycle core (timer Maps, scanners, hook handler, dismissal tracker)
   private runtime: AgentRuntime;
+  private readonly providers = enabledProviders();
 
   // Global session scanning dismissal tracking
-  private globalDismissedFiles = new Set<string>();
+  private globalDismissedFiles = new Map<string, string>();
 
   // Bundled default layout (loaded from assets/default-layout.json)
   defaultLayout: Record<string, unknown> | null = null;
@@ -124,6 +120,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       this.sendOrBuffer({
         type: 'agentCreated',
         id,
+        providerId: agent.providerId,
+        observation: agent.observation,
+        sessionName: agent.sessionName,
         folderName: agent.folderName,
         isExternal: agent.isExternal || undefined,
         isTeammate: agent.leadAgentId !== undefined || undefined,
@@ -142,11 +141,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       this.sendOrBuffer(message);
     });
 
-    setTerminalAdapter(new VscodeTerminalAdapter());
+    this.runtime = new AgentRuntime(this.store, this.providers);
+    this.runtime.setTerminalAdapter(new VscodeTerminalAdapter());
 
     // Map an external agent's cwd/projectDir to its WorkspaceFolder.name — the
     // identity areaMappings is keyed on — so in-area seat placement works. Multi-root only.
-    setFolderNameResolver(({ cwd, projectDir }) => {
+    this.runtime.setFolderNameResolver(({ cwd, projectDir }) => {
       const folders = vscode.workspace.workspaceFolders;
       if (!folders || folders.length <= 1) return undefined;
       // Prefer a real cwd: most specific containing folder wins (nested folders).
@@ -160,15 +160,15 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       // allowing a `<hash>-<subpath>` prefix so subdirectory sessions still resolve.
       if (projectDir) {
         const target = path.basename(projectDir);
-        const hashOf = (fsPath: string): string => {
-          try {
-            return path.basename(getProjectDirPath(fsPath));
-          } catch {
-            return '';
-          }
-        };
         const owning = folders
-          .map((f) => ({ f, hash: hashOf(f.uri.fsPath) }))
+          .flatMap((f) =>
+            this.providers.flatMap((provider) =>
+              (provider.getSessionDirs?.(f.uri.fsPath) ?? []).map((dir) => ({
+                f,
+                hash: path.basename(dir),
+              })),
+            ),
+          )
           .filter(
             ({ hash }) => hash.length > 0 && (target === hash || target.startsWith(`${hash}-`)),
           )
@@ -177,9 +177,6 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       }
       return undefined;
     });
-
-    // Create shared runtime (owns timer Maps, scanners, hook handler, dismissal tracker)
-    this.runtime = new AgentRuntime(this.store, claudeProvider);
 
     this.initServer();
   }
@@ -222,13 +219,16 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       .then((config) => {
         // Server always starts regardless of hooks-enabled state.
         // It's the foundation for WebSocket transport and health monitoring.
-        // Only hook installation/script-copy is gated by the toggle. The
-        // runtime's single hooksEnabled ref follows the Claude provider until
-        // the scanners grow per-provider awareness with the Settings UI.
-        const hooksEnabled = getHooksEnabled(claudeProvider.id);
-        this.runtime.hooksEnabled.current = hooksEnabled;
-        if (hooksEnabled) {
-          void this.installHooksIfConsented(config.port, config.token);
+        // Only each provider's hook installation/script-copy is gated by its toggle.
+        for (const provider of this.providers) {
+          this.runtime.setHooksEnabled(provider.id, getHooksEnabled(provider.id));
+          if (getHooksEnabled(provider.id)) {
+            void this.installHooksIfConsented(provider, config.port, config.token).catch(
+              (error: unknown) => {
+                console.error(`[Pixel Agents] ${provider.displayName} hooks setup failed:`, error);
+              },
+            );
+          }
         }
         console.log(`[Pixel Agents] Server: ready on port ${config.port}`);
       })
@@ -241,7 +241,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
    *  every failure instead of swallowing it.
    *
    *  Script first, deliberately: an entry whose command points at a script that
-   *  is not on disk makes Claude Code spawn a dead `node` for every event, so a
+   *  is not on disk makes the CLI spawn a dead `node` for every event, so a
    *  failed copy must abort the install rather than run alongside it. And
    *  `hooksStatus: true` is sent ONLY after both steps succeeded — it reports
    *  actual install state, never intent (core/asyncapi.yaml). */
@@ -250,9 +250,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     port: number | undefined,
     token: string | undefined,
   ): Promise<void> {
-    // The bundled claude-hook.js script belongs to the Claude provider alone;
-    // another provider's install must neither copy it nor be blocked by it.
-    if (provider.id === claudeProvider.id && !copyHookScript(this.context.extensionPath)) {
+    if (!copyProviderHookScript(provider, this.context.extensionPath)) {
       vscode.window.showErrorMessage(
         'Pixel Agents: could not install the hook script — hooks not installed.',
       );
@@ -313,10 +311,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     }
     if (installed === enabled) {
       persistHooksEnabled(provider.id, enabled);
-      // The runtime's single hooksEnabled ref gates the CLAUDE scanners; it
-      // follows only the Claude provider until the scanners grow per-provider
-      // awareness alongside the Settings UI.
-      if (provider.id === claudeProvider.id) this.runtime.hooksEnabled.current = enabled;
+      this.runtime.setHooksEnabled(provider.id, enabled);
       console.log(`[Pixel Agents] Hooks ${enabled ? 'enabled' : 'disabled'} by user`);
     }
     // Report the truth either way: on failure the entries are still on disk and
@@ -339,7 +334,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** First-run consent gate: never touch ~/.claude/settings.json until the
+  /** First-run consent gate: never touch the provider's settings until the
    *  user has approved it once (persisted in config.json, shared with the
    *  standalone CLI).
    *
@@ -363,20 +358,24 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
    *  The fresh-install population gets nothing here — the ask happens when
    *  the office is opened, which also means hooks are not installed until the
    *  panel is first viewed. Fail-closed by construction: no answer, no write. */
-  private async installHooksIfConsented(port: number, token: string): Promise<void> {
-    if (getHooksConsent(claudeProvider.id) !== 'granted') {
-      if (!(await claudeProvider.areHooksInstalled())) {
+  private async installHooksIfConsented(
+    provider: HookProvider,
+    port: number,
+    token: string,
+  ): Promise<void> {
+    if (getHooksConsent(provider.id) !== 'granted') {
+      if (provider.id !== 'claude' || !(await provider.areHooksInstalled())) {
         return; // fresh install — the webview consent dialog owns this ask
       }
-      // Already installed and already firing: grant and migrate silently.
-      grantHooksConsent(claudeProvider.id);
+      // Only legacy Claude installs have a verified, scope-reducing silent migration.
+      grantHooksConsent(provider.id);
     }
-    await this.installHooksAndScript(claudeProvider, port, token);
+    await this.installHooksAndScript(provider, port, token);
     // Truthful success report for THIS path: a webviewReady handshake that
     // raced the install read the pre-install state, and installHooksAndScript
     // itself no longer sends an optimistic status (its other caller,
     // setHooksEnabled, re-derives on its own).
-    await this.reportHooksStatus(claudeProvider);
+    await this.reportHooksStatus(provider);
   }
 
   /** This surface's half of carrying out a consent answer for one provider. The choice→action rule and the write
@@ -397,10 +396,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       areHooksInstalled: () => provider.areHooksInstalled(),
       syncHooksPreferenceOff: () => {
         // Durable writes are the executor's own atomic recordHooksDecline;
-        // this only mirrors the live runtime ref the CLAUDE scanners read.
-        if (provider.id === claudeProvider.id) {
-          this.runtime.hooksEnabled.current = false;
-        }
+        // this only mirrors the provider's live runtime preference.
+        this.runtime.setHooksEnabled(provider.id, false);
       },
       reportHooksStatus: () => this.reportHooksStatus(provider),
     };
@@ -418,28 +415,25 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       if (message.type === 'launchAgent') {
-        const prevAgentIds = new Set(this.store.keys());
-        await launchNewTerminal(
-          this.store.nextAgentId,
-          this.store.nextTerminalIndex,
-          this.store,
-          this.runtime.activeAgentId,
-          this.runtime.knownJsonlFiles,
-          this.runtime.fileWatchers,
-          this.runtime.pollingTimers,
-          this.runtime.waitingTimers,
-          this.runtime.permissionTimers,
-          this.runtime.jsonlPollTimers,
-          this.runtime.projectScanTimer,
-          () => this.store.persist(),
-          message.folderPath as string | undefined,
-          message.bypassPermissions as boolean | undefined,
-        );
-        // Register newly created agent(s) with hook handler
-        for (const [id, agent] of this.store) {
-          if (!prevAgentIds.has(id)) {
-            this.runtime.registerAgent(agent.sessionId, id);
-          }
+        const provider = launchProvider(this.providers, message.providerId);
+        if (!provider) {
+          void vscode.window.showWarningMessage(
+            'Pixel Agents: the selected launch provider is not enabled.',
+          );
+          return;
+        }
+        try {
+          await launchNewTerminal(
+            this.runtime,
+            provider,
+            this.store,
+            message.folderPath as string | undefined,
+            message.bypassPermissions as boolean | undefined,
+          );
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `Pixel Agents: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       } else if (message.type === 'focusAgent') {
         const agent = this.store.get(message.id);
@@ -462,7 +456,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           } else {
             // External agent -- remove from tracking and dismiss the file
             // so the external scanner doesn't re-adopt it
-            this.runtime.dismissalTracker.dismiss(agent.jsonlFile);
+            this.runtime.dismissAgent(agent.id);
             this.runtime.removeAgent(message.id);
           }
         }
@@ -485,10 +479,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // The provider id is echoed by the webview, never originated; an
         // unknown id names nothing to install into, so it is dropped like a
         // junk consent choice.
-        const provider = hookProviderById(message.providerId);
+        const provider = this.providers.find((p) => p.id === message.providerId);
         if (provider) void this.setHooksEnabled(provider, message.enabled as boolean);
       } else if (message.type === 'hooksConsentResponse') {
-        const provider = hookProviderById(message.providerId);
+        const provider = this.providers.find((p) => p.id === message.providerId);
         if (provider) {
           void applyConsentChoice(provider.id, message.choice, this.consentEffects(provider));
         }
@@ -508,8 +502,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         this.runtime.watchAllSessions.current = enabled;
         if (enabled) {
           // Clear only toggle-specific dismissals so global agents can be re-adopted
-          for (const file of this.globalDismissedFiles) {
-            this.runtime.dismissalTracker.clearDismissal(file);
+          for (const [file, providerId] of this.globalDismissedFiles) {
+            this.runtime.getFileWatcher(providerId).getDismissalTracker()?.clearDismissal(file);
           }
           this.globalDismissedFiles.clear();
         } else {
@@ -518,8 +512,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           // project dir, which differs from VS Code's by drive-letter case on Windows.
           const workspaceDirs = new PathSet();
           for (const folder of vscode.workspace.workspaceFolders ?? []) {
-            const dir = getProjectDirPath(folder.uri.fsPath);
-            if (dir) workspaceDirs.add(dir);
+            for (const provider of this.providers) {
+              for (const dir of provider.getSessionDirs?.(folder.uri.fsPath) ?? [])
+                workspaceDirs.add(dir);
+            }
           }
           const toRemove: number[] = [];
           for (const [id, agent] of this.store) {
@@ -530,9 +526,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           for (const id of toRemove) {
             const agent = this.store.get(id);
             if (agent) {
-              this.runtime.dismissalTracker.dismiss(agent.jsonlFile);
-              this.globalDismissedFiles.add(agent.jsonlFile);
-              this.runtime.knownJsonlFiles.delete(agent.jsonlFile);
+              this.runtime.dismissAgent(id);
+              this.globalDismissedFiles.set(agent.jsonlFile, agent.providerId ?? 'claude');
+              this.runtime.getKnownJsonlFiles(agent.providerId).delete(agent.jsonlFile);
             }
             this.runtime.removeAgent(id);
           }
@@ -550,11 +546,17 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // Provider capabilities: tool taxonomy for webview animation + subagent rendering.
         // Sent once before restoreAgents so characters render with correct animations
         // from the first frame.
-        this.webview?.postMessage({
-          type: 'providerCapabilities',
-          readingTools: [...claudeProvider.readingTools],
-          subagentToolNames: [...claudeProvider.subagentToolNames],
-        });
+        for (const provider of this.providers) {
+          this.webview?.postMessage({
+            type: 'providerCapabilities',
+            providerId: provider.id,
+            displayName: provider.displayName,
+            readingTools: [...provider.readingTools],
+            subagentToolNames: [...provider.subagentToolNames],
+            capabilities: provider.capabilities,
+            consentDisclosure: provider.consentDisclosure(),
+          });
+        }
 
         // Settings + folder→Area mappings MUST be dispatched BEFORE restoreAgents
         // and the auto-spawn path. Both paths emit `agentCreated` postMessages via
@@ -579,10 +581,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           false,
         );
         this.runtime.watchAllSessions.current = watchAllSessions;
-        // settingsLoaded.hooksEnabled stays a single boolean carrying the
-        // CLAUDE provider's preference until the Settings UI grows a
-        // per-provider list — its sole webview reader is the hooks tooltip.
-        const hooksEnabled = getHooksEnabled(claudeProvider.id);
+        // Kept for legacy clients; new Settings rows use per-provider install state.
+        const hooksEnabled = this.providers.some((provider) => getHooksEnabled(provider.id));
         const hooksInfoShown = this.adapter.getSetting<boolean>(GLOBAL_KEY_HOOKS_INFO_SHOWN, false);
         const showAreas = this.adapter.getSetting<boolean>(GLOBAL_KEY_SHOW_AREAS, false);
         const config = readConfig();
@@ -596,6 +596,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           ghostHeadlessAgents,
           hooksEnabled,
           hooksInfoShown,
+          launchProvider: launchProvider(this.providers)?.id,
           externalAssetDirectories: config.externalAssetDirectories,
           showAreas,
         });
@@ -605,7 +606,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // asked, so the ask rides this handshake; consentGate owns every condition (standalone calls the same
         // function). Dismissing sends nothing and re-asks next handshake; either durable answer closes the gate for
         // good. An embedded webview is privileged by construction — our own iframe, reached through no socket.
-        for (const provider of hookProviders) {
+        for (const provider of this.providers) {
           // One provider's unreadable settings file degrades to installed=false (the executor's fail-closed read: no
           // choice uninstalls on a guess) rather than aborting the handshake before restored agents are sent, or
           // blocking the other providers' statuses.
@@ -640,24 +641,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           mappings: config.vscode.areaMappings ?? {},
         });
 
-        restoreAgents(
-          this.adapter,
-          this.store.nextAgentId,
-          this.store.nextTerminalIndex,
-          this.store,
-          this.runtime.knownJsonlFiles,
-          this.runtime.fileWatchers,
-          this.runtime.pollingTimers,
-          this.runtime.waitingTimers,
-          this.runtime.permissionTimers,
-          this.runtime.jsonlPollTimers,
-          this.runtime.projectScanTimer,
-          this.runtime.activeAgentId,
-        );
-        // Register all restored agents with hook handler
-        for (const agent of this.store.values()) {
-          this.runtime.registerAgent(agent.sessionId, agent.id);
-        }
+        restoreAgents(this.adapter, this.runtime, this.store);
 
         // Auto-spawn: launch one agent on first webviewReady if the setting is
         // enabled and no agents are currently running.
@@ -674,27 +658,21 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           const autoShowPanel = vscode.workspace
             .getConfiguration()
             .get<boolean>(CONFIG_KEY_AUTO_SHOW_PANEL, false);
-          const prevAgentIds = new Set(this.store.keys());
-          await launchNewTerminal(
-            this.store.nextAgentId,
-            this.store.nextTerminalIndex,
-            this.store,
-            this.runtime.activeAgentId,
-            this.runtime.knownJsonlFiles,
-            this.runtime.fileWatchers,
-            this.runtime.pollingTimers,
-            this.runtime.waitingTimers,
-            this.runtime.permissionTimers,
-            this.runtime.jsonlPollTimers,
-            this.runtime.projectScanTimer,
-            () => this.store.persist(),
-            undefined,
-            undefined,
-            autoShowPanel,
-          );
-          for (const [id, agent] of this.store) {
-            if (!prevAgentIds.has(id)) {
-              this.runtime.registerAgent(agent.sessionId, id);
+          const provider = launchProvider(this.providers);
+          if (provider) {
+            try {
+              await launchNewTerminal(
+                this.runtime,
+                provider,
+                this.store,
+                undefined,
+                undefined,
+                autoShowPanel,
+              );
+            } catch (error) {
+              void vscode.window.showErrorMessage(
+                `Pixel Agents: ${error instanceof Error ? error.message : String(error)}`,
+              );
             }
           }
         } else {
@@ -713,27 +691,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         }
 
         // Ensure project scan runs even with no restored agents (to adopt external terminals)
-        const projectDir = getProjectDirPath();
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         console.log(`[Pixel Agents] Debug: Platform: ${process.platform}, arch: ${process.arch}`);
         console.log('[Extension] workspaceRoot:', workspaceRoot);
-        console.log('[Extension] projectDir:', projectDir);
-        this.runtime.startProjectScan(projectDir);
-
-        // Start external session scanning (detects VS Code extension panel sessions)
-        this.runtime.startExternalScanning(projectDir);
-
-        // In multi-root workspaces, also scan project dirs for all other folders
-        // so agents running in any workspace folder are discovered
-        if (wsFolders && wsFolders.length > 1) {
-          for (const folder of wsFolders) {
-            const folderProjectDir = getProjectDirPath(folder.uri.fsPath);
-            if (folderProjectDir && folderProjectDir !== projectDir) {
-              console.log(`[Pixel Agents] Registering additional project dir: ${folderProjectDir}`);
-              this.runtime.startProjectScan(folderProjectDir);
-            }
-          }
-        }
+        this.runtime.startDiscovery(
+          wsFolders?.map((folder) => folder.uri.fsPath) ?? [os.homedir()],
+        );
 
         this.runtime.startStaleCheck();
 
@@ -837,9 +800,16 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           agents: buildAgentDiagnostics(this.store),
         });
       } else if (message.type === 'openSessionsFolder') {
-        const projectDir = getProjectDirPath();
-        if (projectDir && fs.existsSync(projectDir)) {
-          vscode.env.openExternal(vscode.Uri.file(projectDir));
+        const provider = launchProvider(this.providers) ?? this.providers[0];
+        try {
+          const projectDir = getProjectDirPath(undefined, provider);
+          if (fs.existsSync(projectDir)) {
+            void vscode.env.openExternal(vscode.Uri.file(projectDir));
+          }
+        } catch {
+          void vscode.window.showInformationMessage(
+            'Pixel Agents: no session folder is available yet for this provider.',
+          );
         }
       } else if (message.type === 'exportLayout') {
         const layout = readLayoutFromFile();
@@ -936,7 +906,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           }
           // Dismiss JSONL so external scanner doesn't re-adopt it
           this.runtime.dismissalTracker.dismiss(agent.jsonlFile);
-          this.runtime.unregisterAgent(agent.sessionId);
+          this.runtime.unregisterAgent(agent.sessionId, agent.providerId);
           this.runtime.removeAgent(id);
         }
       }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js';
+import type { ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
 import { Button } from './ui/Button.js';
@@ -8,7 +9,9 @@ import { Dropdown, DropdownItem } from './ui/Dropdown.js';
 
 interface BottomToolbarProps {
   isEditMode: boolean;
-  onOpenClaude: () => void;
+  onLaunchAgent: (providerId?: string) => void;
+  providers: ProviderSettings[];
+  launchProvider?: string;
   onToggleEditMode: () => void;
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
@@ -17,7 +20,9 @@ interface BottomToolbarProps {
 
 export function BottomToolbar({
   isEditMode,
-  onOpenClaude,
+  onLaunchAgent,
+  providers,
+  launchProvider,
   onToggleEditMode,
   isSettingsOpen,
   onToggleSettings,
@@ -25,6 +30,8 @@ export function BottomToolbar({
 }: BottomToolbarProps) {
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isBypassMenuOpen, setIsBypassMenuOpen] = useState(false);
+  const [chosenProvider, setChosenProvider] = useState<string>();
+  const providerId = chosenProvider ?? launchProvider;
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const pendingBypassRef = useRef(false);
   // Close folder picker / bypass menu on outside click
@@ -48,7 +55,7 @@ export function BottomToolbar({
     if (hasMultipleFolders) {
       setIsFolderPickerOpen((v) => !v);
     } else {
-      onOpenClaude();
+      onLaunchAgent(providerId);
     }
   };
 
@@ -68,7 +75,7 @@ export function BottomToolbar({
     setIsFolderPickerOpen(false);
     const bypassPermissions = pendingBypassRef.current;
     pendingBypassRef.current = false;
-    transport.send({ type: 'launchAgent', folderPath: folder.path, bypassPermissions });
+    transport.send({ type: 'launchAgent', providerId, folderPath: folder.path, bypassPermissions });
   };
 
   const handleBypassSelect = (bypassPermissions: boolean) => {
@@ -77,7 +84,7 @@ export function BottomToolbar({
       pendingBypassRef.current = bypassPermissions;
       setIsFolderPickerOpen(true);
     } else {
-      transport.send({ type: 'launchAgent', bypassPermissions });
+      transport.send({ type: 'launchAgent', providerId, bypassPermissions });
     }
   };
 
@@ -91,6 +98,21 @@ export function BottomToolbar({
           onMouseEnter={handleAgentHover}
           onMouseLeave={handleAgentLeave}
         >
+          {providers.length > 1 && (
+            <select
+              aria-label="Launch provider"
+              value={providerId ?? ''}
+              onChange={(event) => setChosenProvider(event.target.value)}
+              className="text-sm py-4 px-8 bg-btn-bg text-text border-2 border-border rounded-none mr-4"
+            >
+              {!providerId && <option value="">Configured provider</option>}
+              {providers.map((provider) => (
+                <option key={provider.providerId} value={provider.providerId}>
+                  {provider.displayName}
+                </option>
+              ))}
+            </select>
+          )}
           <Button
             variant="accent"
             onClick={handleAgentClick}

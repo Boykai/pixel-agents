@@ -17,6 +17,7 @@ import * as vscode from 'vscode';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { PersistedAgent } from '../../core/src/schemas.js';
+import { migrateAgentIdentity } from '../../server/src/agentMigration.js';
 import { readLayoutFromFile, writeLayoutToFile } from '../../server/src/layoutPersistence.js';
 
 /** VS Code globalState keys → setting key passed to adapter.getSetting/setSetting.
@@ -71,8 +72,9 @@ export function migrateVsCodeState(context: vscode.ExtensionContext, adapter: St
   const legacyAgents = context.workspaceState.get<PersistedAgent[]>(WORKSPACE_KEY_AGENTS);
   if (legacyAgents && legacyAgents.length > 0) {
     try {
-      adapter.saveAgents(legacyAgents);
-      if (deepEqual(adapter.loadAgents(), legacyAgents)) {
+      const migratedAgents = legacyAgents.map(migrateAgentIdentity);
+      adapter.saveAgents(migratedAgents);
+      if (deepEqual(adapter.loadAgents(), migratedAgents)) {
         void context.workspaceState.update(WORKSPACE_KEY_AGENTS, undefined);
       } else {
         pending.push(WORKSPACE_KEY_AGENTS);

@@ -1,7 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 
 import { expect, type Page } from '@playwright/test';
@@ -35,13 +34,17 @@ export interface StandaloneSession {
 }
 
 export interface LaunchStandaloneOptions {
+  /** CLI provider selection; omitted preserves the production Claude default. */
+  provider?: 'claude' | 'copilot' | 'claude,copilot' | 'all';
+  /** Seed selected providers' hooks preference in this isolated HOME. */
+  seedHooksEnabled?: boolean;
   /** Reuse an existing isolated HOME (for cross-surface multi-server tests).
    *  A supplied directory is never removed by standalone cleanup. */
   homeDir?: string;
   /** Reuse an existing workspace. A supplied directory is never removed by
    *  standalone cleanup. */
   workspaceDir?: string;
-  /** Pre-seed a granted Claude hooksConsent entry so the first-run dialog never
+  /** Pre-seed granted consent for selected providers (Claude by default) so the first-run dialog never
    *  covers the office (default). The consent specs opt out with `false` —
    *  they are the only ones that want the dialog. Never overwrites a
    *  config.json that already exists (a shared HOME was seeded by its owner). */
@@ -101,6 +104,7 @@ function spawnStandaloneHost(args: {
   homeDir: string;
   hostPort: number;
   workspaceDir: string;
+  provider?: LaunchStandaloneOptions['provider'];
 }): ChildProcessWithoutNullStreams {
   if (!fs.existsSync(STANDALONE_CLI)) {
     throw new Error(
@@ -109,13 +113,21 @@ function spawnStandaloneHost(args: {
   }
   return spawn(
     process.execPath,
-    [STANDALONE_CLI, '--port', args.hostPort.toString(), '--host', '127.0.0.1'],
+    [
+      STANDALONE_CLI,
+      '--port',
+      args.hostPort.toString(),
+      '--host',
+      '127.0.0.1',
+      ...(args.provider ? ['--provider', args.provider] : []),
+    ],
     {
       cwd: args.workspaceDir,
       env: {
         ...process.env,
         HOME: args.homeDir,
         USERPROFILE: args.homeDir,
+        COPILOT_HOME: path.join(args.homeDir, '.copilot'),
       },
       stdio: 'pipe',
     },
@@ -226,11 +238,10 @@ export async function launchStandalone(
 ): Promise<StandaloneSession> {
   const ownsHome = options.homeDir === undefined;
   const ownsWorkspace = options.workspaceDir === undefined;
-  const tmpHome =
-    options.homeDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-standalone-e2e-home-'));
-  const workspaceDir =
-    options.workspaceDir ??
-    fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-standalone-e2e-workspace-'));
+  const fixtureRoot = path.join(REPO_ROOT, 'test-results', 'standalone-fixtures');
+  fs.mkdirSync(fixtureRoot, { recursive: true });
+  const tmpHome = options.homeDir ?? fs.mkdtempSync(path.join(fixtureRoot, 'home-'));
+  const workspaceDir = options.workspaceDir ?? fs.mkdtempSync(path.join(fixtureRoot, 'workspace-'));
   fs.mkdirSync(tmpHome, { recursive: true });
   fs.mkdirSync(workspaceDir, { recursive: true });
   // Consent baseline, mirroring the VS Code launch helper: without it the CLI
@@ -240,7 +251,30 @@ export async function launchStandalone(
   const configPath = path.join(tmpHome, '.pixel-agents', 'config.json');
   if ((options.seedHooksConsent ?? true) && !fs.existsSync(configPath)) {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, JSON.stringify({ hooksConsent: { claude: 'granted' } }, null, 2));
+    const providers =
+      options.provider === 'all'
+        ? ['claude', 'copilot']
+        : (options.provider ?? 'claude').split(',');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          hooksConsent: Object.fromEntries(providers.map((provider) => [provider, 'granted'])),
+          ...(options.seedHooksEnabled === undefined
+            ? {}
+            : {
+                hooksEnabled: Object.fromEntries(
+                  providers.map((provider) => [provider, options.seedHooksEnabled]),
+                ),
+              }),
+          ...(providers.includes('copilot')
+            ? { hooksConsentScopes: { copilot: 'copilot-observation-hooks-v1' } }
+            : {}),
+        },
+        null,
+        2,
+      ),
+    );
   }
   const hostPort = await getFreePort();
   const hostUrl = `http://127.0.0.1:${hostPort}`;
@@ -248,7 +282,12 @@ export async function launchStandalone(
   let hostStdout = '';
   let hostStderr = '';
   function spawnAndAttach(): ChildProcessWithoutNullStreams {
-    const proc = spawnStandaloneHost({ homeDir: tmpHome, hostPort, workspaceDir });
+    const proc = spawnStandaloneHost({
+      homeDir: tmpHome,
+      hostPort,
+      workspaceDir,
+      provider: options.provider,
+    });
     proc.stdout.on('data', (chunk) => {
       hostStdout += chunk.toString();
     });

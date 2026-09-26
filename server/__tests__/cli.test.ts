@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CliArgsError, parseArgs } from '../src/cli.js';
 import { CLAUDE_HOOK_EVENTS } from '../src/providers/hook/claude/constants.js';
+import { resolveProviders } from '../src/providers/index.js';
 
 const CLI_BUNDLE = path.join(__dirname, '../../dist/cli.js');
 const CLI_START_TIMEOUT_MS = 10_000;
@@ -118,6 +119,28 @@ describe('parseArgs', () => {
   // 10. --host is parsed independently of --port
   it('parses --host', () => {
     expect(parseArgs(['--host', '0.0.0.0']).host).toBe('0.0.0.0');
+  });
+
+  it('preserves the Claude default and accepts explicit mixed-provider selections', () => {
+    expect(parseArgs([]).provider).toBe('claude');
+    expect(parseArgs(['--provider', 'copilot']).provider).toBe('copilot');
+    expect(parseArgs(['--providers', 'claude,copilot']).provider).toBe('claude,copilot');
+    expect(resolveProviders('all').map((provider) => provider.id)).toEqual(['claude', 'copilot']);
+    expect(resolveProviders('copilot,claude,copilot').map((provider) => provider.id)).toEqual([
+      'copilot',
+      'claude',
+    ]);
+  });
+
+  it.each(['', 'missing', 'claude,missing', 'claude,'])(
+    'rejects invalid provider selection "%s"',
+    (selection) => {
+      expect(() => parseArgs(['--providers', selection])).toThrow(CliArgsError);
+    },
+  );
+
+  it.each(['--provider', '--providers'])('rejects %s without a selection', (flag) => {
+    expect(() => parseArgs([flag])).toThrow(CliArgsError);
   });
 });
 
@@ -421,7 +444,7 @@ describe('dist/cli.js entry-point guard', () => {
         string,
         unknown
       >;
-      expect(JSON.stringify(settings)).toContain(installedHook);
+      expect(JSON.stringify(settings)).toContain(JSON.stringify(installedHook).slice(1, -1));
     } finally {
       await stopChild(child);
       fs.rmSync(tmpHome, { recursive: true, force: true });

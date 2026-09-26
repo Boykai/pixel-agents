@@ -18,6 +18,28 @@ describe('SessionRouter', () => {
   // ── Session → Agent mapping ────────────────────────────────────────
 
   describe('session mapping', () => {
+    it('qualifies session mappings, pending sessions and buffers by provider', () => {
+      router.bufferEvent('claude', { session_id: 'same', hook_event_name: 'Stop' });
+      router.bufferEvent('copilot', { session_id: 'same', hook_event_name: 'agentStop' });
+      router.storePending(
+        'same',
+        { sessionId: 'same', transcriptPath: undefined, cwd: 'a' },
+        'claude',
+      );
+      router.storePending(
+        'same',
+        { sessionId: 'same', transcriptPath: undefined, cwd: 'b' },
+        'copilot',
+      );
+      expect(router.register('same', 1, 'claude')).toHaveLength(1);
+      expect(router.register('same', 2, 'copilot')[0].providerId).toBe('copilot');
+      expect(router.resolve('same', 'claude')).toBe(1);
+      expect(router.resolve('same', 'copilot')).toBe(2);
+      router.unregister('same', 'copilot');
+      expect(router.resolve('same', 'claude')).toBe(1);
+      expect(router.confirmPending('same', 'copilot')?.cwd).toBe('b');
+      expect(router.hasPending('same', 'claude')).toBe(true);
+    });
     it('register + resolve returns the agentId', () => {
       router.register('sess-1', 42);
       expect(router.resolve('sess-1')).toBe(42);

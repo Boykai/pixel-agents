@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ColorValue } from '../components/ui/types.js';
 import {
   CARPET_DEFAULT_ACCENT_COLOR,
   CARPET_DEFAULT_COLOR,
   LAYOUT_SAVE_DEBOUNCE_MS,
+  ROOM_THEME_LABELS,
   ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -29,7 +30,9 @@ import {
   toggleFurnitureState,
   updateAreaColor,
 } from '../office/editor/editorActions.js';
-import type { EditorState } from '../office/editor/editorState.js';
+import type { EditorSnapshot, EditorState, GridOffset } from '../office/editor/editorState.js';
+import type { RoomBounds, RoomGenerationResult } from '../office/editor/roomGeneration.js';
+import { generateRoom } from '../office/editor/roomGeneration.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import {
   getCatalogEntry,
@@ -47,6 +50,11 @@ import { EditTool } from '../office/types.js';
 import { TileType } from '../office/types.js';
 import { transport } from '../transport/index.js';
 
+export interface RoomFeedback {
+  kind: 'success' | 'error';
+  message: string;
+}
+
 interface EditorActions {
   isEditMode: boolean;
   editorTick: number;
@@ -57,8 +65,12 @@ interface EditorActions {
   setLastSavedLayout: (layout: OfficeLayout) => void;
   /** Clear the dirty flag (used after a browser import applies a new saved baseline). */
   markClean: () => void;
-  handleOpenClaude: () => void;
+  handleLaunchAgent: (providerId?: string) => void;
   handleToggleEditMode: () => void;
+  handleGenerateRoom: () => void;
+  isGeneratingRoom: boolean;
+  roomFeedback: RoomFeedback | null;
+  roomToFrame: RoomBounds | null;
   handleToolChange: (tool: EditToolType) => void;
   handleTileTypeChange: (type: TileTypeVal) => void;
   handleFloorColorChange: (color: ColorValue) => void;
@@ -73,6 +85,7 @@ interface EditorActions {
   handleUndo: () => void;
   handleRedo: () => void;
   handleReset: () => void;
+  handleResetToDefault: (defaultLayout: OfficeLayout | null) => void;
   handleSave: () => void;
   handleZoomChange: (zoom: number) => void;
   handleEditorTileAction: (col: number, row: number) => void;
@@ -114,6 +127,10 @@ export function useEditorActions(
   const [isEditMode, setIsEditMode] = useState(false);
   const [editorTick, setEditorTick] = useState(0);
   const [isDirty, setIsDirty] = useState(false);
+  const [isGeneratingRoom, setIsGeneratingRoom] = useState(false);
+  const [roomFeedback, setRoomFeedback] = useState<RoomFeedback | null>(null);
+  const [roomToFrame, setRoomToFrame] = useState<RoomBounds | null>(null);
+  const generationFrameRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(defaultZoom);
   const [carpetVariant, setCarpetVariantState] = useState<number>(editorState.carpetVariant);
   const [carpetColor, setCarpetColorState] = useState<ColorValue>(editorState.carpetColor);
@@ -125,12 +142,40 @@ export function useEditorActions(
   );
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panRef = useRef({ x: 0, y: 0 });
-  const lastSavedLayoutRef = useRef<OfficeLayout | null>(null);
+  const lastSavedLayoutRef = useRef<EditorSnapshot | null>(null);
+
+  useEffect(
+    () => () => {
+      if (generationFrameRef.current !== null) cancelAnimationFrame(generationFrameRef.current);
+    },
+    [],
+  );
 
   // Called by useExtensionMessages on layoutLoaded to set the initial checkpoint
-  const setLastSavedLayout = useCallback((layout: OfficeLayout) => {
-    lastSavedLayoutRef.current = structuredClone(layout);
-  }, []);
+  const setLastSavedLayout = useCallback(
+    (layout: OfficeLayout) => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (generationFrameRef.current !== null) {
+        cancelAnimationFrame(generationFrameRef.current);
+        generationFrameRef.current = null;
+        setIsGeneratingRoom(false);
+      }
+      editorState.resetHistory();
+      editorState.clearSelection();
+      editorState.clearGhost();
+      editorState.clearDrag();
+      colorEditUidRef.current = null;
+      wallColorEditActiveRef.current = false;
+      lastSavedLayoutRef.current = editorState.snapshot(structuredClone(layout));
+      setRoomFeedback(null);
+      setRoomToFrame(null);
+      setEditorTick((n) => n + 1);
+    },
+    [editorState],
+  );
 
   // Clear the dirty flag after a browser layout import: the imported layout is the
   // new saved baseline (already persisted via saveLayout). setIsDirty also forces a
@@ -150,21 +195,26 @@ export function useEditorActions(
 
   // Apply a layout edit: push undo, clear redo, rebuild state, save, mark dirty
   const applyEdit = useCallback(
-    (newLayout: OfficeLayout) => {
+    (newLayout: OfficeLayout, shift: GridOffset = { col: 0, row: 0 }) => {
       const os = getOfficeState();
       editorState.pushUndo(os.getLayout());
       editorState.clearRedo();
       editorState.isDirty = true;
       setIsDirty(true);
-      os.rebuildFromLayout(newLayout);
+      editorState.gridOffset = {
+        col: editorState.gridOffset.col + shift.col,
+        row: editorState.gridOffset.row + shift.row,
+      };
+      os.rebuildFromLayout(newLayout, shift);
+      transport.send({ type: 'saveAgentSeats', seats: os.getPersistableSeats() });
       saveLayout(newLayout);
       setEditorTick((n) => n + 1);
     },
     [getOfficeState, editorState, saveLayout],
   );
 
-  const handleOpenClaude = useCallback(() => {
-    transport.send({ type: 'launchAgent' });
+  const handleLaunchAgent = useCallback((providerId?: string) => {
+    transport.send({ type: 'launchAgent', providerId });
   }, []);
 
   const handleToggleEditMode = useCallback(() => {
@@ -188,6 +238,8 @@ export function useEditorActions(
         editorState.clearGhost();
         editorState.clearDrag();
         wallColorEditActiveRef.current = false;
+        setRoomFeedback(null);
+        setRoomToFrame(null);
       }
       return next;
     });
@@ -216,6 +268,47 @@ export function useEditorActions(
     },
     [editorState],
   );
+
+  const handleGenerateRoom = useCallback(() => {
+    if (!editorState.isEditMode || generationFrameRef.current !== null) return;
+    setIsGeneratingRoom(true);
+    generationFrameRef.current = requestAnimationFrame(() => {
+      try {
+        if (!editorState.isEditMode) return;
+        const os = getOfficeState();
+        let result: RoomGenerationResult;
+        try {
+          result = generateRoom(os.getLayout(), {
+            floorColor: editorState.floorColor,
+            wallColor: editorState.wallColor,
+          });
+        } catch (error) {
+          console.error('[Webview] Room generation failed:', error);
+          setRoomFeedback({
+            kind: 'error',
+            message: 'Could not generate a room. Reload the office and try again.',
+          });
+          return;
+        }
+        if (!result.ok) {
+          setRoomFeedback({ kind: 'error', message: result.message });
+          return;
+        }
+        applyEdit(result.layout, result.shift);
+        handleToolChange(EditTool.SELECT);
+        os.cameraFollowId = null;
+        os.cancelGreeterCamera();
+        setRoomFeedback({
+          kind: 'success',
+          message: `Added ${ROOM_THEME_LABELS[result.theme]}: ${result.interior.cols} by ${result.interior.rows} interior tiles.${result.notice ? ` ${result.notice}` : ''}`,
+        });
+        setRoomToFrame(result.bounds);
+      } finally {
+        generationFrameRef.current = null;
+        setIsGeneratingRoom(false);
+      }
+    });
+  }, [editorState, getOfficeState, applyEdit, handleToolChange]);
 
   // ── Carpet handlers ──────────────────────────────────────────────
   const handleCarpetVariantChange = useCallback(
@@ -496,11 +589,14 @@ export function useEditorActions(
   const handleUndo = useCallback(() => {
     const prev = editorState.popUndo();
     if (!prev) return;
+    setRoomFeedback(null);
+    setRoomToFrame(null);
     const os = getOfficeState();
     // Push current layout to redo stack before restoring
     editorState.pushRedo(os.getLayout());
-    os.rebuildFromLayout(prev);
-    saveLayout(prev);
+    os.rebuildFromLayout(prev.layout, editorState.restoreOffset(prev));
+    transport.send({ type: 'saveAgentSeats', seats: os.getPersistableSeats() });
+    saveLayout(prev.layout);
     editorState.isDirty = true;
     setIsDirty(true);
     setEditorTick((n) => n + 1);
@@ -509,11 +605,14 @@ export function useEditorActions(
   const handleRedo = useCallback(() => {
     const next = editorState.popRedo();
     if (!next) return;
+    setRoomFeedback(null);
+    setRoomToFrame(null);
     const os = getOfficeState();
     // Push current layout to undo stack before restoring
     editorState.pushUndo(os.getLayout());
-    os.rebuildFromLayout(next);
-    saveLayout(next);
+    os.rebuildFromLayout(next.layout, editorState.restoreOffset(next));
+    transport.send({ type: 'saveAgentSeats', seats: os.getPersistableSeats() });
+    saveLayout(next.layout);
     editorState.isDirty = true;
     setIsDirty(true);
     setEditorTick((n) => n + 1);
@@ -522,10 +621,38 @@ export function useEditorActions(
   const handleReset = useCallback(() => {
     if (!lastSavedLayoutRef.current) return;
     const saved = structuredClone(lastSavedLayoutRef.current);
-    applyEdit(saved);
+    setRoomFeedback(null);
+    setRoomToFrame(null);
+    applyEdit(saved.layout, {
+      col: saved.offset.col - editorState.gridOffset.col,
+      row: saved.offset.row - editorState.gridOffset.row,
+    });
     editorState.reset();
     setIsDirty(false);
   }, [editorState, applyEdit]);
+
+  /**
+   * Replace the whole office with the layout bundled in this build.
+   *
+   * Unlike `handleReset` (revert to the last save) this discards the user's
+   * office entirely, so it goes through `applyEdit` like any other edit: one
+   * undo entry, and Undo puts the old office back. The shift is zero because
+   * the default is its own coordinate basis rather than an expansion of the
+   * current one — `rebuildFromLayout` relocates anyone left out of bounds.
+   */
+  const handleResetToDefault = useCallback(
+    (defaultLayout: OfficeLayout | null) => {
+      if (!editorState.isEditMode || !defaultLayout) return;
+      setRoomToFrame(null);
+      applyEdit(structuredClone(defaultLayout));
+      handleToolChange(EditTool.SELECT);
+      setRoomFeedback({
+        kind: 'success',
+        message: 'Office reset to the default layout. Undo restores your previous office.',
+      });
+    },
+    [editorState, applyEdit, handleToolChange],
+  );
 
   const handleSave = useCallback(() => {
     // Flush any pending debounced save immediately
@@ -535,7 +662,7 @@ export function useEditorActions(
     }
     const os = getOfficeState();
     const layout = os.getLayout();
-    lastSavedLayoutRef.current = structuredClone(layout);
+    lastSavedLayoutRef.current = editorState.snapshot(structuredClone(layout));
     transport.send({ type: 'saveLayout', layout: layout as unknown as Record<string, unknown> });
     editorState.isDirty = false;
     setIsDirty(false);
@@ -641,6 +768,7 @@ export function useEditorActions(
       let layout = os.getLayout();
       let effectiveCol = col;
       let effectiveRow = row;
+      let expansionShift: GridOffset | undefined;
 
       // Handle ghost border expansion for floor/wall tools
       if (
@@ -652,8 +780,7 @@ export function useEditorActions(
           layout = expansion.layout;
           effectiveCol = expansion.col;
           effectiveRow = expansion.row;
-          // Rebuild from expanded layout first, shifting character positions
-          os.rebuildFromLayout(layout, expansion.shift);
+          expansionShift = expansion.shift;
         }
       }
 
@@ -666,7 +793,7 @@ export function useEditorActions(
           editorState.floorColor,
         );
         if (newLayout !== layout) {
-          applyEdit(newLayout);
+          applyEdit(newLayout, expansionShift);
         }
       } else if (editorState.activeTool === EditTool.WALL_PAINT) {
         const idx = effectiveRow * layout.cols + effectiveCol;
@@ -687,7 +814,7 @@ export function useEditorActions(
             editorState.wallColor,
           );
           if (newLayout !== layout) {
-            applyEdit(newLayout);
+            applyEdit(newLayout, expansionShift);
           }
         } else {
           // Remove wall → paint floor with current floor settings
@@ -700,7 +827,7 @@ export function useEditorActions(
               editorState.floorColor,
             );
             if (newLayout !== layout) {
-              applyEdit(newLayout);
+              applyEdit(newLayout, expansionShift);
             }
           }
         }
@@ -927,8 +1054,12 @@ export function useEditorActions(
     saveTimerRef,
     setLastSavedLayout,
     markClean,
-    handleOpenClaude,
+    handleLaunchAgent,
     handleToggleEditMode,
+    handleGenerateRoom,
+    isGeneratingRoom,
+    roomFeedback,
+    roomToFrame,
     handleToolChange,
     handleTileTypeChange,
     handleFloorColorChange,
@@ -943,6 +1074,7 @@ export function useEditorActions(
     handleUndo,
     handleRedo,
     handleReset,
+    handleResetToDefault,
     handleSave,
     handleZoomChange,
     handleEditorTileAction,

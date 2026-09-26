@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { HooksConsentRequest } from '../../../core/src/messages.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
+import { applyAgentStatus, clearPermissionBubbles } from '../office/engine/agentStatus.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
-import { reconcileExistingAgents } from '../office/engine/existingAgents.js';
+import {
+  reconcileAgentMetadata,
+  reconcileExistingAgents,
+} from '../office/engine/existingAgents.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setGhostHeadlessAgents as setRendererGhostHeadlessAgents } from '../office/engine/renderer.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -19,6 +23,7 @@ import {
 } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
+import type { HooksFeedback, ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime, isE2E } from '../runtime.js';
 import { transport } from '../transport/index.js';
 
@@ -77,6 +82,8 @@ interface ExtensionMessageState {
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
   layoutWasReset: boolean;
+  /** Layout bundled with this build, or null when none shipped. Backs "Reset to Default". */
+  defaultLayout: OfficeLayout | null;
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> };
   workspaceFolders: WorkspaceFolder[];
   /** Distinct folderNames seen across agents this session — source for the Areas folder dropdown. */
@@ -95,6 +102,9 @@ interface ExtensionMessageState {
    *  while first-run consent is pending, unlike hooksEnabled which defaults
    *  true. Keyed by providerId; today's Settings checkbox reads 'claude'. */
   hooksInstalled: Record<string, boolean>;
+  hooksFeedback: Record<string, HooksFeedback>;
+  providers: ProviderSettings[];
+  launchProvider?: string;
   /** Bumped per provider on every hooksStatus message. `hooksInstalled` alone cannot say "the server answered": a
    *  failed install re-reports the `false` already held, so no effect runs. The Intro needs the ARRIVAL to tell a
    *  pending install from a failed one, per provider — A's status is never a verdict on B's install. */
@@ -131,6 +141,7 @@ export function useExtensionMessages(
   const [subagentCharacters, setSubagentCharacters] = useState<SubagentCharacter[]>([]);
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutWasReset, setLayoutWasReset] = useState(false);
+  const [defaultLayout, setDefaultLayout] = useState<OfficeLayout | null>(null);
   const [loadedAssets, setLoadedAssets] = useState<
     { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined
   >();
@@ -144,6 +155,9 @@ export function useExtensionMessages(
   const [ghostHeadlessAgents, setGhostHeadlessAgentsState] = useState(false);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInstalled, setHooksInstalled] = useState<Record<string, boolean>>({});
+  const [hooksFeedback, setHooksFeedback] = useState<Record<string, HooksFeedback>>({});
+  const [providers, setProviders] = useState<ProviderSettings[]>([]);
+  const [launchProvider, setLaunchProvider] = useState<string>();
   const [hooksStatusSeq, setHooksStatusSeq] = useState<Record<string, number>>({});
   const [hooksInfoShown, setHooksInfoShown] = useState(true);
   // FIFO of pending consent asks, at most one per provider (a re-ask replaces that provider's entry in place). The
@@ -209,13 +223,31 @@ export function useExtensionMessages(
 
       if (msg.type === 'providerCapabilities') {
         setProviderCapabilities({
+          providerId: msg.providerId,
+          displayName: msg.displayName,
           readingTools: msg.readingTools,
           subagentToolNames: msg.subagentToolNames,
+        });
+        setProviders((previous) => {
+          const providerId = msg.providerId ?? 'claude';
+          const row: ProviderSettings = {
+            providerId,
+            displayName: msg.displayName ?? providerId,
+            capabilities: msg.capabilities,
+            disclosure: msg.consentDisclosure?.disclosure,
+          };
+          return [...previous.filter((provider) => provider.providerId !== providerId), row];
         });
         return;
       }
 
       if (msg.type === 'layoutLoaded') {
+        // Record the bundled default before the dirty guard: it is build-constant,
+        // and an unsaved-edit skip must not leave "Reset to Default" without it.
+        const rawDefault = msg.defaultLayout as OfficeLayout | null | undefined;
+        if (rawDefault && rawDefault.version === 1) {
+          setDefaultLayout(migrateLayoutColors(rawDefault));
+        }
         // Skip external layout updates while editor has unsaved changes
         if (layoutReadyRef.current && isEditDirty?.()) {
           console.log('[Webview] Skipping external layout update — editor has unsaved changes');
@@ -232,7 +264,17 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName);
+          os.addAgent(
+            p.id,
+            p.palette,
+            p.hueShift,
+            p.seatId,
+            true,
+            p.folderName,
+            undefined,
+            p.sessionName,
+          );
+          os.setAgentMetadata(p.id, p);
           if (p.isHeadless) os.setHeadless(p.id, true);
         }
         pendingAgents = [];
@@ -247,6 +289,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number;
         const folderName = msg.folderName as string | undefined;
+        const sessionName = msg.sessionName as string | undefined;
         const isTeammate = msg.isTeammate as boolean | undefined;
         const teammateName = msg.teammateName as string | undefined;
         const teammateParentId = msg.parentAgentId as number | undefined;
@@ -283,12 +326,27 @@ export function useExtensionMessages(
         } else {
           const palette = msg.palette as number | undefined;
           const hueShift = msg.hueShift as number | undefined;
-          os.addAgent(id, palette, hueShift, undefined, undefined, folderName);
+          os.addAgent(
+            id,
+            palette,
+            hueShift,
+            undefined,
+            undefined,
+            folderName,
+            undefined,
+            sessionName,
+          );
           noteFolderName(folderName);
           if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
             os.setHeadless(id, true);
           }
         }
+        os.setAgentMetadata(id, {
+          providerId: msg.providerId,
+          observation: msg.observation,
+          folderName,
+          sessionName,
+        });
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
@@ -321,6 +379,7 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<number, ExistingAgentMeta>;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
+        const sessionNames = (msg.sessionNames || {}) as Record<number, string>;
         const externalAgents = (msg.externalAgents || {}) as Record<number, boolean>;
         const headlessAgents: Record<number, boolean> = {};
         for (const id of incoming) {
@@ -340,6 +399,9 @@ export function useExtensionMessages(
             layoutReadyRef.current,
             pendingAgents,
             headlessAgents,
+            sessionNames,
+            msg.providerIds ?? {},
+            msg.observations ?? {},
           )
         ) {
           saveAgentSeats(os);
@@ -372,7 +434,7 @@ export function useExtensionMessages(
         });
         const toolName = (msg.toolName as string | undefined) ?? extractToolName(status);
         os.setAgentTool(id, toolName);
-        os.setAgentActive(id, true);
+        applyAgentStatus(os, id, 'active');
         // Don't clear the permission bubble if the hook already confirmed permission is needed
         if (!permissionActive) {
           os.clearPermissionBubble(id);
@@ -396,7 +458,7 @@ export function useExtensionMessages(
         const parentChar = os.characters.get(id);
         const parentHasTeam = !!parentChar?.teamName;
         if (
-          isSubagentToolName(toolName) &&
+          isSubagentToolName(toolName, parentChar?.providerId) &&
           !isTeammateSpawn &&
           (!runInBackground || !parentHasTeam)
         ) {
@@ -471,6 +533,14 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentSelected') {
         const id = msg.id as number;
         setSelectedAgent(id);
+      } else if (msg.type === 'agentMetadata') {
+        reconcileAgentMetadata(os, pendingAgents, msg.id, {
+          sessionName: msg.sessionName,
+          folderName: msg.folderName,
+        });
+        noteFolderName(msg.folderName);
+      } else if (msg.type === 'agentObservation') {
+        os.setAgentObservation(msg.id, msg.observation);
       } else if (msg.type === 'agentStatus') {
         const id = msg.id as number;
         const status = msg.status as string;
@@ -483,13 +553,14 @@ export function useExtensionMessages(
           }
           return { ...prev, [id]: status };
         });
-        os.setAgentActive(id, status === 'active');
-        if (status === 'waiting') {
-          os.showWaitingBubble(id, msg.awaitingInput === true);
+        if (applyAgentStatus(os, id, status, msg.awaitingInput === true, msg.replay === true))
           playDoneSound();
-        }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
+        const character = os.characters.get(id);
+        if (msg.replay === true && character?.observation === 'unknown') return;
+        const alreadyPending = character?.bubbleType === 'permission';
+        os.setAgentObservation(id, 'known');
         setAgentTools((prev) => {
           const list = prev[id];
           if (!list) return prev;
@@ -499,7 +570,7 @@ export function useExtensionMessages(
           };
         });
         os.showPermissionBubble(id);
-        playPermissionSound();
+        if (!alreadyPending && msg.replay !== true) playPermissionSound();
       } else if (msg.type === 'subagentToolPermission') {
         const id = msg.id as number;
         const parentToolId = msg.parentToolId as string;
@@ -510,6 +581,22 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'agentToolPermissionClear') {
         const id = msg.id as number;
+        if (typeof msg.parentToolId === 'string') {
+          const parentToolId = msg.parentToolId;
+          clearPermissionBubbles(os, id, parentToolId);
+          setSubagentTools((previous) => {
+            const rows = previous[id]?.[parentToolId];
+            if (!rows) return previous;
+            return {
+              ...previous,
+              [id]: {
+                ...previous[id],
+                [parentToolId]: rows.map((row) => ({ ...row, permissionWait: false })),
+              },
+            };
+          });
+          return;
+        }
         setAgentTools((prev) => {
           const list = prev[id];
           if (!list) return prev;
@@ -520,13 +607,7 @@ export function useExtensionMessages(
             [id]: list.map((t) => (t.permissionWait ? { ...t, permissionWait: false } : t)),
           };
         });
-        os.clearPermissionBubble(id);
-        // Also clear permission bubbles on all sub-agent characters of this parent
-        for (const [subId, meta] of os.subagentMeta) {
-          if (meta.parentAgentId === id) {
-            os.clearPermissionBubble(subId);
-          }
-        }
+        clearPermissionBubbles(os, id);
       } else if (msg.type === 'subagentToolStart') {
         const id = msg.id as number;
         const parentToolId = msg.parentToolId as string;
@@ -559,7 +640,7 @@ export function useExtensionMessages(
           const set = (backgroundParentToolIdsRef.current[id] ??= new Set());
           set.add(parentToolId);
         }
-        const subToolName = extractToolName(status);
+        const subToolName = (msg.toolName as string | undefined) ?? extractToolName(status);
         os.setAgentTool(subId, subToolName);
         os.setAgentActive(subId, true);
       } else if (msg.type === 'subagentToolDone') {
@@ -645,6 +726,7 @@ export function useExtensionMessages(
         const folders = msg.folders as WorkspaceFolder[];
         setWorkspaceFolders(folders);
       } else if (msg.type === 'settingsLoaded') {
+        if (typeof msg.launchProvider === 'string') setLaunchProvider(msg.launchProvider);
         const soundOn = msg.soundEnabled as boolean;
         setSoundEnabled(soundOn);
         if (typeof msg.watchAllSessions === 'boolean') {
@@ -679,6 +761,13 @@ export function useExtensionMessages(
           const providerId = msg.providerId as string;
           const installed = msg.installed as boolean;
           setHooksInstalled((m) => ({ ...m, [providerId]: installed }));
+          setHooksFeedback((previous) => ({
+            ...previous,
+            [providerId]: {
+              canManage: msg.canManage ?? previous[providerId]?.canManage,
+              error: msg.error,
+            },
+          }));
           setHooksStatusSeq((m) => ({ ...m, [providerId]: (m[providerId] ?? 0) + 1 }));
           if (installed) {
             // Moot once THIS provider's hooks are installed — the Settings toggle or another tab granted consent
@@ -767,6 +856,7 @@ export function useExtensionMessages(
     subagentCharacters,
     layoutReady,
     layoutWasReset,
+    defaultLayout,
     loadedAssets,
     workspaceFolders,
     agentFolderNames,
@@ -780,6 +870,9 @@ export function useExtensionMessages(
     setGhostHeadlessAgents: applyGhostHeadlessAgents,
     hooksEnabled,
     hooksInstalled,
+    hooksFeedback,
+    providers,
+    launchProvider,
     hooksStatusSeq,
     setHooksEnabled,
     hooksInfoShown,

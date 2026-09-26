@@ -14,6 +14,7 @@
  * graph that imports it.
  */
 
+import { ROOM_FRAME_CONTEXT_TILES, ROOM_FRAME_MARGIN_PX, ZOOM_MIN } from '../constants.js';
 import { TILE_SIZE } from './types.js';
 
 /** Device-pixel offset of the map's top-left corner inside the canvas.
@@ -33,6 +34,43 @@ export function mapOffset(
   return {
     offsetX: Math.floor((canvasWidth - mapW) / 2) + Math.round(panX),
     offsetY: Math.floor((canvasHeight - mapH) / 2) + Math.round(panY),
+  };
+}
+
+/** Frame a tile rectangle inside the canvas area left unobscured by editor controls. */
+export function frameLayoutBounds(
+  layout: { cols: number; rows: number },
+  bounds: { col: number; row: number; cols: number; rows: number },
+  viewport: { width: number; height: number; top: number; bottom: number },
+  currentZoom: number,
+  dpr: number,
+): { zoom: number; pan: { x: number; y: number } } {
+  const worldWidth = (bounds.cols + ROOM_FRAME_CONTEXT_TILES * 2) * TILE_SIZE;
+  const worldHeight = (bounds.rows + ROOM_FRAME_CONTEXT_TILES * 2) * TILE_SIZE;
+  const width = Math.max(1, viewport.width - ROOM_FRAME_MARGIN_PX * 2) * dpr;
+  const height = Math.max(1, viewport.bottom - viewport.top - ROOM_FRAME_MARGIN_PX * 2) * dpr;
+  const zoom = Math.max(
+    ZOOM_MIN,
+    Math.min(currentZoom, Math.floor(Math.min(width / worldWidth, height / worldHeight))),
+  );
+  const { offsetX, offsetY } = mapOffset(
+    Math.round(viewport.width * dpr),
+    Math.round(viewport.height * dpr),
+    layout.cols,
+    layout.rows,
+    zoom,
+    0,
+    0,
+  );
+  return {
+    zoom,
+    pan: {
+      x: (viewport.width * dpr) / 2 - offsetX - (bounds.col + bounds.cols / 2) * TILE_SIZE * zoom,
+      y:
+        ((viewport.top + viewport.bottom) * dpr) / 2 -
+        offsetY -
+        (bounds.row + bounds.rows / 2) * TILE_SIZE * zoom,
+    },
   };
 }
 

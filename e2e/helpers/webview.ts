@@ -15,6 +15,7 @@ const MIN_PANEL_HEIGHT_PX = 320;
 export interface WebviewSettings {
   watchAllSessions?: boolean;
   hooksEnabled?: boolean;
+  hooksProvider?: 'claude' | 'copilot';
   alwaysShowLabels?: boolean;
   ghostHeadlessAgents?: boolean;
   debugView?: boolean;
@@ -435,6 +436,38 @@ async function setCheckbox(modal: Locator, label: string, checked: boolean): Pro
   }
 }
 
+/** Settings installation requires a provider disclosure and a separate consent click. */
+export async function confirmHookInstallation(
+  settingsModal: Locator,
+  provider: 'claude' | 'copilot' = 'claude',
+): Promise<void> {
+  await expect(settingsModal).toContainText(
+    provider === 'claude' ? '~/.claude/settings.json' : 'pixel-agents.json',
+  );
+  const install = settingsModal.getByRole('button', { name: 'Install hooks', exact: true });
+  await expect(install).toBeEnabled({ timeout: WEBVIEW_TIMEOUT_MS });
+  await install.click();
+  await expect(install).toBeHidden({ timeout: WEBVIEW_TIMEOUT_MS });
+}
+
+async function setHooksInstalled(
+  settingsModal: Locator,
+  installed: boolean,
+  provider: 'claude' | 'copilot',
+): Promise<void> {
+  const displayName = provider === 'claude' ? 'Claude Code' : 'GitHub Copilot CLI';
+  const checkbox = settingsModal.getByRole('button', {
+    name: `${displayName} — Instant Detection (Hooks)`,
+  });
+  await expect(checkbox).toBeEnabled({ timeout: WEBVIEW_TIMEOUT_MS });
+  const isChecked = async (): Promise<boolean> =>
+    ((await checkbox.locator('span').last().textContent()) ?? '').trim().toLowerCase() === 'x';
+  if ((await isChecked()) === installed) return;
+  await checkbox.click();
+  if (installed) await confirmHookInstallation(settingsModal, provider);
+  await expect.poll(isChecked, { timeout: WEBVIEW_TIMEOUT_MS }).toBe(installed);
+}
+
 /**
  * Width the webview surface needs for the Settings modal to fit inside it.
  *
@@ -509,7 +542,11 @@ export async function setSettings(frame: WebviewSurface, settings: WebviewSettin
     await setCheckbox(settingsModal, 'Watch All Sessions', settings.watchAllSessions);
   }
   if (settings.hooksEnabled !== undefined) {
-    await setCheckbox(settingsModal, 'Instant Detection (Hooks)', settings.hooksEnabled);
+    await setHooksInstalled(
+      settingsModal,
+      settings.hooksEnabled,
+      settings.hooksProvider ?? 'claude',
+    );
   }
   if (settings.alwaysShowLabels !== undefined) {
     await setCheckbox(settingsModal, 'Always Show Labels', settings.alwaysShowLabels);

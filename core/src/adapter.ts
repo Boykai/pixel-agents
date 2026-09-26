@@ -13,6 +13,9 @@
 import type { PersistedAgent } from './schemas.js';
 
 export interface StateAdapter {
+  /** Writes must retain records and seats belonging to providers outside this scope. */
+  setActiveProviders?(providerIds: readonly string[]): void;
+
   // ── Per-adapter persisted state (agents + seats) ────────────────────
 
   loadAgents(): PersistedAgent[];

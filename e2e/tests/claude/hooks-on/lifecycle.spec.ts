@@ -1469,14 +1469,16 @@ test.describe('Hooks ON / lifecycle', () => {
     // Reinstall: toggle hooks back on. hooksEnabled:true is the product
     // default, but here it is a mid-test ACTION (re-enable after the
     // uninstall above), not a redundant default — do not trim it.
-    narrator.step('toggling Hooks back ON — the entry should reappear');
+    narrator.step(
+      'opening the hook disclosure and confirming Install hooks — the entry should reappear',
+    );
     await setSettings(frame, { hooksEnabled: true });
     await expect
       .poll(() => pixelAgentsHookPresent(readClaudeSettings(tmpHome), 'PreToolUse'), {
         timeout: 5_000,
       })
       .toBe(true);
-    narrator.check('hook entry back in settings.json after toggling on');
+    narrator.check('hook entry back in settings.json after explicit install confirmation');
 
     // No duplication: exactly one pixel-agents entry across all PreToolUse hooks.
     const settings = readClaudeSettings(tmpHome);
@@ -1639,10 +1641,10 @@ test.describe('Hooks ON / lifecycle', () => {
     }
 
     // Dismiss any first-run tooltips that overlay the top toolbar. The
-    // "Instant Detection Active" tooltip and the "Updated to vN" tooltip
+    // "Hooks Installed" tooltip and the "Updated to vN" tooltip
     // both intercept clicks on the Undo/Redo/Save row. We dismiss them via
     // their close buttons (the X) before entering edit mode.
-    for (const tooltipText of ['Instant Detection Active', 'Updated to v']) {
+    for (const tooltipText of ['Hooks Installed', 'Updated to v']) {
       const tooltip = frame.locator('div', { hasText: tooltipText }).first();
       if (await tooltip.isVisible().catch(() => false)) {
         const closeBtn = tooltip.locator('button', { hasText: 'x' }).first();

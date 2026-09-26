@@ -81,11 +81,13 @@ components:
         - $ref: '#/components/schemas/ProviderCapabilities'
         # Agent lifecycle
         - $ref: '#/components/schemas/AgentCreated'
+        - $ref: '#/components/schemas/AgentMetadata'
         - $ref: '#/components/schemas/AgentClosed'
         - $ref: '#/components/schemas/AgentSelected'
         - $ref: '#/components/schemas/ExistingAgents'
         # Agent status / tool activity
         - $ref: '#/components/schemas/AgentStatus'
+        - $ref: '#/components/schemas/AgentObservation'
         - $ref: '#/components/schemas/AgentToolStart'
         - $ref: '#/components/schemas/AgentToolDone'
         - $ref: '#/components/schemas/AgentToolsClear'
@@ -159,6 +161,17 @@ components:
       properties:
         type:
           const: providerCapabilities
+        providerId:
+          type: string
+          description: Provider owning these tool classifications; absent means legacy default.
+        displayName:
+          type: string
+        consentDisclosure:
+          $ref: '#/components/schemas/ProviderConsentDisclosure'
+        capabilities:
+          type: object
+          additionalProperties:
+            type: boolean
         readingTools:
           type: array
           items:
@@ -170,6 +183,31 @@ components:
             type: string
           description: Tool names that spawn sub-agent characters (e.g. Task, Agent).
 
+    ProviderConsentDisclosure:
+      type: object
+      additionalProperties: false
+      required: [headline, disclosure]
+      properties:
+        headline:
+          type: string
+        disclosure:
+          type: string
+
+    AgentMetadata:
+      description: Updated session labels, without changing agent identity or activity.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: agentMetadata
+        id:
+          type: integer
+        sessionName:
+          type: string
+        folderName:
+          type: string
+
     AgentCreated:
       description: A new agent has appeared in the office.
       type: object
@@ -178,10 +216,20 @@ components:
       properties:
         type:
           const: agentCreated
+        providerId:
+          type: string
+        observation:
+          $ref: '#/components/schemas/ObservationState'
         id:
           type: integer
         folderName:
           type: string
+        sessionName:
+          type: string
+          description: |
+            Human-readable session title/task description (e.g. GitHub Copilot CLI's
+            session name), distinct from the workspace folder. Providers without this
+            concept leave it unset.
         isExternal:
           type: boolean
         palette:
@@ -223,6 +271,14 @@ components:
       properties:
         type:
           const: existingAgents
+        providerIds:
+          type: object
+          additionalProperties:
+            type: string
+        observations:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ObservationState'
         agents:
           type: array
           items:
@@ -237,11 +293,33 @@ components:
           description: Map of agent ID (string) to workspace folder name.
           additionalProperties:
             type: string
+        sessionNames:
+          type: object
+          description: Map of agent ID (string) to human-readable session title.
+          additionalProperties:
+            type: string
         externalAgents:
           type: object
           description: Map of agent ID (string) to external flag.
           additionalProperties:
             type: boolean
+
+    ObservationState:
+      type: string
+      enum: [known, unknown]
+
+    AgentObservation:
+      description: Observation quality is separate from activity; unknown must not imply done.
+      type: object
+      additionalProperties: false
+      required: [type, id, observation]
+      properties:
+        type:
+          const: agentObservation
+        id:
+          type: integer
+        observation:
+          $ref: '#/components/schemas/ObservationState'
 
     AgentStatus:
       description: Active vs waiting state for an agent (drives character animation).
@@ -261,11 +339,14 @@ components:
             Only meaningful when status is "waiting". True when the agent went
             idle waiting on the user (drives the "Waiting for input" label);
             absent/false means the agent finished its turn ("Done").
+        replay:
+          type: boolean
+          description: Snapshot hydration; clients must not play historical completion notifications.
 
     AgentActivityStatus:
       description: Activity state of an agent.
       type: string
-      enum: [active, waiting]
+      enum: [active, waiting, unknown]
 
     AgentToolStart:
       description: Agent began executing a tool.
@@ -329,9 +410,12 @@ components:
           const: agentToolPermission
         id:
           type: integer
+        replay:
+          type: boolean
+          description: Snapshot hydration; clients must not play historical permission notifications.
 
     AgentToolPermissionClear:
-      description: Permission prompt resolved.
+      description: Permission prompt resolved. With parentToolId, clear only that sub-agent's prompt; otherwise clear all prompts for this agent.
       type: object
       additionalProperties: false
       required: [type, id]
@@ -340,6 +424,8 @@ components:
           const: agentToolPermissionClear
         id:
           type: integer
+        parentToolId:
+          type: string
 
     SubagentToolStart:
       description: Sub-agent (e.g. Task) started a tool.
@@ -357,6 +443,9 @@ components:
           type: string
         status:
           type: string
+        toolName:
+          type: string
+          description: Provider-native tool name for the sub-agent animation.
 
     SubagentToolDone:
       description: Sub-agent finished a tool.
@@ -460,6 +549,16 @@ components:
                 Opaque layout object (cols, rows, tiles, furniture, tileColors).
                 Format defined by the OfficeLayout schema in webview-ui; not
                 modeled here because it's owned by the rendering layer.
+            - type: 'null'
+        defaultLayout:
+          description: |
+            The layout bundled with this build, sent alongside `layout` even
+            when a saved user layout is active. It is what the editor's
+            "Reset to Default" restores, so the client needs it in hand rather
+            than having to ask for it. `null` when no default is bundled, which
+            is the one case where that action is unavailable.
+          oneOf:
+            - type: object
             - type: 'null'
         wasReset:
           type: boolean
@@ -647,6 +746,9 @@ components:
       properties:
         type:
           const: settingsLoaded
+        launchProvider:
+          type: string
+          description: Default enabled provider for agent launch; clients may explicitly choose another.
         soundEnabled:
           type: boolean
         lastSeenVersion:
@@ -692,6 +794,12 @@ components:
             verdict in particular reads only the provider it asked about.
         installed:
           type: boolean
+        canManage:
+          type: boolean
+          description: Whether this connection may install or remove hooks; absent for legacy hosts.
+        error:
+          type: string
+          description: Explanation of a failed hook operation or installation-state check.
 
     HooksConsentRequest:
       description: |
@@ -798,7 +906,7 @@ components:
           const: webviewReady
 
     LaunchAgent:
-      description: Launch a new Claude agent in a new terminal.
+      description: Launch a new agent from an enabled provider in a new terminal.
       type: object
       additionalProperties: false
       required: [type]
@@ -810,6 +918,9 @@ components:
           description: Workspace folder path (for multi-root workspaces).
         bypassPermissions:
           type: boolean
+        providerId:
+          type: string
+          description: Enabled provider to launch; omitted uses the configured default.
 
     FocusAgent:
       description: Focus an agent's terminal.

@@ -2,6 +2,7 @@ import type * as vscode from 'vscode';
 
 export interface AgentState {
   id: number;
+  observation?: 'known' | 'unknown';
   sessionId: string;
   /** Terminal reference — undefined for extension panel sessions */
   terminalRef?: vscode.Terminal;
@@ -18,10 +19,15 @@ export interface AgentState {
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
   backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)
   isWaiting: boolean;
+  awaitingInput?: boolean;
   permissionSent: boolean;
   hadToolsInTurn: boolean;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Human-readable session title/task description (e.g. GHCP's own session
+   *  name), distinct from the workspace folder. Providers without this
+   *  concept leave it unset. */
+  sessionName?: string;
   /** Timestamp of last JSONL data received (ms since epoch) */
   lastDataAt: number;
   /** Total JSONL lines processed for this agent */
@@ -87,8 +93,12 @@ export interface AgentState {
   hueShift?: number;
 }
 
+export type ServerAgentState = AgentState;
+
 export interface PersistedAgent {
   id: number;
+  providerId?: string;
+  observation?: 'known' | 'unknown';
   sessionId?: string;
   /** Terminal name — empty string for extension panel sessions */
   terminalName: string;
@@ -98,6 +108,9 @@ export interface PersistedAgent {
   projectDir: string;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /** Human-readable session title/task description, distinct from the
+   *  workspace folder. See AgentState.sessionName. */
+  sessionName?: string;
 
   // -- Agent Teams --
   teamName?: string;

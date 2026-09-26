@@ -37,6 +37,7 @@
     "dist/cli.js",
     "dist/extension.js",
     "dist/hooks/claude-hook.js",
+    "dist/hooks/copilot-hook.js",
     "dist/uninstall.js",
     "dist/assets/",
     "dist/webview/",
@@ -74,6 +75,23 @@
     "configuration": {
       "title": "Pixel Agents",
       "properties": {
+        "pixel-agents.providers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["claude", "copilot"]
+          },
+          "default": ["claude"],
+          "uniqueItems": true,
+          "minItems": 1,
+          "description": "Coding-agent providers to observe. Select both to share one office. Reload the window after changing this setting; hooks require separate consent for each provider."
+        },
+        "pixel-agents.launchProvider": {
+          "type": "string",
+          "enum": ["claude", "copilot"],
+          "default": "claude",
+          "description": "Provider used for new agent terminals. It must also be enabled in pixel-agents.providers."
+        },
         "pixel-agents.autoShowPanel": {
           "type": "boolean",
           "default": false,
@@ -82,7 +100,7 @@
         "pixel-agents.autoSpawnAgent": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically spawn a Claude Code agent when VS Code starts, if no agents are currently running."
+          "description": "Automatically launch an agent using pixel-agents.launchProvider when VS Code starts, if no agents are currently running."
         }
       }
     }

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, Ref } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
@@ -14,6 +14,7 @@ import {
   PET_THUMB_SCALE_MARGIN,
   PET_THUMB_ZOOM,
 } from '../../constants.js';
+import type { RoomFeedback } from '../../hooks/useEditorActions.js';
 import { getColorizedSprite } from '../colorize.js';
 import { getColorizedFloorSprite, getFloorPatternCount, hasFloorSprites } from '../floorTiles.js';
 import type { FurnitureCategory, LoadedAssetData } from '../layout/furnitureCatalog.js';
@@ -39,6 +40,14 @@ type CarpetCategoryId = typeof CARPET_CATEGORY_ID;
 type FurniturePanelCategory = FurnitureCategory | CarpetCategoryId;
 
 interface EditorToolbarProps {
+  toolbarRef?: Ref<HTMLDivElement>;
+  onGenerateRoom: () => void;
+  isGeneratingRoom: boolean;
+  roomFeedback: RoomFeedback | null;
+  /** Replace the office with the layout bundled in this build. */
+  onResetToDefault: () => void;
+  /** False when no default layout shipped with this build — the action is then impossible. */
+  canResetToDefault: boolean;
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
   selectedFurnitureType: string;
@@ -88,6 +97,12 @@ const THUMB_ZOOM = 2;
 const DEFAULT_FURNITURE_COLOR: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
 
 export function EditorToolbar({
+  toolbarRef,
+  onGenerateRoom,
+  isGeneratingRoom,
+  roomFeedback,
+  onResetToDefault,
+  canResetToDefault,
   activeTool,
   selectedTileType,
   selectedFurnitureType,
@@ -132,6 +147,25 @@ export function EditorToolbar({
   const [showWallColor, setShowWallColor] = useState(false);
   const [showFurnitureColor, setShowFurnitureColor] = useState(false);
   const [showCarpetColor, setShowCarpetColor] = useState(false);
+  /** Reset-to-default confirmation: 0 = closed, 1 = impact warning, 2 = final confirm. */
+  const [resetStep, setResetStep] = useState<0 | 1 | 2>(0);
+
+  // Escape backs out of the reset confirmation without touching the layout.
+  useEffect(() => {
+    if (resetStep === 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      setResetStep(0);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [resetStep]);
+
+  // A build with no bundled default can't offer the action; close any open prompt.
+  useEffect(() => {
+    if (!canResetToDefault) setResetStep(0);
+  }, [canResetToDefault]);
 
   // Build dynamic catalog from loaded assets
   useEffect(() => {
@@ -232,9 +266,26 @@ export function EditorToolbar({
   };
 
   return (
-    <div className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]">
+    <div
+      ref={toolbarRef}
+      className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]"
+    >
       {/* Tool row — at the bottom */}
       <div className="flex gap-4 flex-wrap">
+        <Button
+          variant={isGeneratingRoom || !loadedAssets ? 'disabled' : 'accent'}
+          size="md"
+          disabled={isGeneratingRoom || !loadedAssets}
+          onClick={onGenerateRoom}
+          title={
+            loadedAssets
+              ? 'Add a furnished room connected to the office'
+              : 'Waiting for furniture assets'
+          }
+          aria-describedby="room-generation-feedback"
+        >
+          {isGeneratingRoom ? 'Generating...' : 'Generate Room'}
+        </Button>
         <Button
           variant={isFurnitureActive ? 'active' : 'default'}
           size="md"
@@ -285,6 +336,95 @@ export function EditorToolbar({
         >
           Erase
         </Button>
+        <Button
+          variant={canResetToDefault ? 'default' : 'disabled'}
+          size="md"
+          disabled={!canResetToDefault}
+          onClick={() => setResetStep(canResetToDefault ? 1 : 0)}
+          title={
+            canResetToDefault
+              ? 'Discard this office and restore the layout Pixel Agents ships with'
+              : 'No default layout shipped with this build'
+          }
+          aria-expanded={resetStep > 0}
+          aria-controls="reset-to-default-confirm"
+        >
+          Reset to Default
+        </Button>
+      </div>
+
+      {/* Reset-to-default: two deliberate confirmations, because this discards the whole office. */}
+      {resetStep > 0 && (
+        <div
+          id="reset-to-default-confirm"
+          role="alertdialog"
+          aria-label="Reset office to the default layout"
+          className="max-w-[min(520px,calc(100vw-40px))] flex flex-col gap-4 p-4 border-2 border-danger"
+        >
+          {resetStep === 1 ? (
+            <>
+              <p className="m-0 text-sm text-reset-text">Reset this office to the default?</p>
+              <p className="m-0 text-xs leading-snug wrap-anywhere">
+                Every room, furniture item, carpet, pet and Area in your office is discarded and
+                replaced by the layout Pixel Agents ships with. Agents keep running and are reseated
+                in the new office.
+              </p>
+              <div className="flex gap-4 items-center">
+                <Button
+                  variant="default"
+                  size="md"
+                  className="bg-danger text-white"
+                  onClick={() => setResetStep(2)}
+                >
+                  Continue
+                </Button>
+                <Button variant="default" size="md" onClick={() => setResetStep(0)}>
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="m-0 text-sm text-reset-text">Last check — this replaces your office.</p>
+              <p className="m-0 text-xs leading-snug wrap-anywhere">
+                The reset saves straight away. Undo (Ctrl+Z) brings your office back while the panel
+                stays open; after a reload it is gone. Export your layout first if you want to keep
+                it.
+              </p>
+              <div className="flex gap-4 items-center">
+                <Button
+                  variant="default"
+                  size="md"
+                  className="bg-danger text-white"
+                  onClick={() => {
+                    setResetStep(0);
+                    onResetToDefault();
+                  }}
+                >
+                  Reset office
+                </Button>
+                <Button variant="default" size="md" onClick={() => setResetStep(0)}>
+                  Keep my office
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      <div
+        id="room-generation-feedback"
+        className="max-w-[min(520px,calc(100vw-40px))] px-4 text-xs leading-snug wrap-anywhere"
+      >
+        {roomFeedback ? (
+          <p role={roomFeedback.kind === 'error' ? 'alert' : 'status'} className="m-0 py-4">
+            {roomFeedback.message}
+          </p>
+        ) : !loadedAssets ? (
+          <p role="status" className="m-0 py-4">
+            Waiting for furniture assets before generating rooms.
+          </p>
+        ) : null}
       </div>
 
       {/* Sub-panel: Floor tiles — stacked bottom-to-top via column-reverse */}
@@ -431,8 +571,8 @@ export function EditorToolbar({
         <div className="flex flex-col-reverse gap-4 pb-2">
           <AreaAddRow areas={areas} onAddArea={onAddArea} />
           <div className="text-xs text-text-muted px-4 leading-none">
-            Paint areas on the map, then assign workspace folders. Agents will sit in their folder's
-            area.
+            Areas are painted zones for assigning workspace folders; they do not add floor space.
+            Use Generate Room to expand the office.
           </div>
           {/* Fixed 4-per-row grid; no overflow clip, or the upward Add-folder dropdown is cut off. */}
           <div className="grid grid-cols-[repeat(4,130px)] gap-4">
@@ -744,8 +884,13 @@ function AreaAddRow({
         placeholder="Area name…"
         className="flex-1 text-sm py-2 px-6 bg-bg-dark border-2 border-border rounded-none text-text"
       />
-      <Button variant="default" size="sm" onClick={handleSubmit} title="Add a new Area">
-        Add Area
+      <Button
+        variant="default"
+        size="sm"
+        onClick={handleSubmit}
+        title="Define a paintable Area (does not add floor space)"
+      >
+        Define Area
       </Button>
     </div>
   );

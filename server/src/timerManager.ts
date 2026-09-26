@@ -79,9 +79,8 @@ export function startWaitingTimer(
   const timer = setTimeout(() => {
     waitingTimers.delete(agentId);
     const agent = agents.get(agentId);
-    if (agent) {
-      agent.isWaiting = true;
-    }
+    if (!agent || agent.hookDelivered) return;
+    agent.isWaiting = true;
     agents.broadcast({
       type: 'agentStatus',
       id: agentId,
@@ -115,7 +114,7 @@ export function startPermissionTimer(
   const timer = setTimeout(() => {
     permissionTimers.delete(agentId);
     const agent = agents.get(agentId);
-    if (!agent) return;
+    if (!agent || agent.hookDelivered) return;
 
     // Only flag if there are still active non-exempt tools (parent or sub-agent)
     let hasNonExempt = false;

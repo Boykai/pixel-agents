@@ -20,11 +20,14 @@ import {
 describe('configPersistence: areas', () => {
   let tempHome: string;
   let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-config-test-'));
     originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     process.env.HOME = tempHome;
+    process.env.USERPROFILE = tempHome;
   });
 
   afterEach(() => {
@@ -33,6 +36,8 @@ describe('configPersistence: areas', () => {
     } else {
       process.env.HOME = originalHome;
     }
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
 
@@ -97,6 +102,29 @@ describe('configPersistence: areas', () => {
   // ── per-provider hooks consent + preference ──────────────────
 
   describe('hooksConsent / hooksEnabled maps', () => {
+    it('requires fresh scoped approval for a legacy no-op Copilot grant', () => {
+      const cfg = readConfig();
+      cfg.hooksConsent = { claude: 'granted', copilot: 'granted' };
+      writeConfig(cfg);
+      expect(getHooksConsent('claude')).toBe('granted');
+      expect(getHooksConsent('copilot')).toBe('unanswered');
+
+      grantHooksConsent('copilot');
+      expect(getHooksConsent('copilot')).toBe('granted');
+      expect(readConfig().hooksConsentScopes?.copilot).toBeTruthy();
+
+      clearHooksAnswer('copilot');
+      expect(getHooksConsent('copilot')).toBe('unanswered');
+      expect(readConfig().hooksConsentScopes?.copilot).toBeUndefined();
+    });
+
+    it('preserves a prior Copilot decline without granting new write scope', () => {
+      recordHooksDecline('copilot');
+      expect(getHooksConsent('copilot')).toBe('declined');
+      expect(getHooksEnabled('copilot')).toBe(false);
+      expect(readConfig().hooksConsentScopes?.copilot).toBeUndefined();
+    });
+
     it('defaults to unanswered/enabled when the config file is missing or predates the maps', () => {
       expect(getHooksConsent('claude')).toBe('unanswered');
       expect(getHooksEnabled('claude')).toBe(true);

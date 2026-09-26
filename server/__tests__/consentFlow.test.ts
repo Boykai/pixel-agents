@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { type ClientMessageContext, handleClientMessage } from '../src/clientMessageHandler.js';
@@ -17,6 +17,7 @@ import {
   CONSENT_INSTALL_HEADLINE,
 } from '../src/providers/hook/claude/consentCopy.js';
 import { CLAUDE_HOOK_EVENTS } from '../src/providers/hook/claude/constants.js';
+import { claudeProvider, copilotProvider } from '../src/providers/index.js';
 
 /** Let a dispatch's async chain (side effect → areHooksInstalled → persist →
  *  send) run to completion. */
@@ -32,7 +33,6 @@ function settle(): Promise<void> {
  */
 describe('clientMessageHandler: hooks consent flow', () => {
   let tempHome: string;
-  let originalHome: string | undefined;
   let store: AgentStateStore;
   let sent: Array<Record<string, unknown>>;
   let ctx: ClientMessageContext;
@@ -75,8 +75,9 @@ describe('clientMessageHandler: hooks consent flow', () => {
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-consent-flow-'));
-    originalHome = process.env.HOME;
-    process.env.HOME = tempHome;
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('USERPROFILE', tempHome);
+    vi.stubEnv('COPILOT_HOME', path.join(tempHome, '.copilot'));
 
     store = new AgentStateStore();
     store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
@@ -85,11 +86,7 @@ describe('clientMessageHandler: hooks consent flow', () => {
   });
 
   afterEach(() => {
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
+    vi.unstubAllEnvs();
     store.dispose();
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -97,6 +94,39 @@ describe('clientMessageHandler: hooks consent flow', () => {
   // ── hooksConsentRequest: who is asked, and on what terms ─────
 
   describe('hooksConsentRequest on webviewReady', () => {
+    it('asks independently for both providers in a mixed office without installing either', async () => {
+      ctx.activeProviders = [claudeProvider, copilotProvider];
+      await connect();
+      expect(
+        sent
+          .filter((message) => message.type === 'hooksConsentRequest')
+          .map((message) => message.providerId),
+      ).toEqual(['claude', 'copilot']);
+      expect(settingsJsonExists()).toBe(false);
+      expect(fs.existsSync(path.join(tempHome, '.copilot', 'hooks', 'pixel-agents.json'))).toBe(
+        false,
+      );
+    });
+
+    it('asks again for a legacy transcript-only Copilot grant without changing files', async () => {
+      ctx.activeProviders = [copilotProvider];
+      const configDir = path.join(tempHome, '.pixel-agents');
+      const configFile = path.join(configDir, 'config.json');
+      const original = JSON.stringify({ hooksConsent: { copilot: 'granted' } });
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(configFile, original);
+      await connect();
+      expect(
+        sent
+          .filter((message) => message.type === 'hooksConsentRequest')
+          .map((message) => message.providerId),
+      ).toEqual(['copilot']);
+      expect(fs.readFileSync(configFile, 'utf8')).toBe(original);
+      expect(fs.existsSync(path.join(tempHome, '.copilot', 'hooks', 'pixel-agents.json'))).toBe(
+        false,
+      );
+    });
+
     // The request carries the provider's exact disclosure so the dialog cannot
     // render weaker terms than the ones consentCopy.test.ts pins.
     it('asks a privileged connection, carrying the provider disclosure verbatim', async () => {
@@ -203,6 +233,7 @@ describe('clientMessageHandler: hooks consent flow', () => {
         type: 'hooksStatus',
         providerId: 'claude',
         installed: false,
+        error: 'Hooks could not be installed. Check the server log and retry.',
       });
     });
 
