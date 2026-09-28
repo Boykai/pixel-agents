@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { normalizeNickname } from '../../../core/src/normalizeNickname.js';
 import type { ColorValue } from '../components/ui/types.js';
 import {
   CARPET_DEFAULT_ACCENT_COLOR,
@@ -66,7 +67,7 @@ interface EditorActions {
   setLastSavedLayout: (layout: OfficeLayout) => void;
   /** Clear the dirty flag (used after a browser import applies a new saved baseline). */
   markClean: () => void;
-  handleLaunchAgent: (providerId?: string) => void;
+  handleLaunchAgent: (providerId?: string, nickname?: string) => void;
   handleToggleEditMode: () => void;
   handleGenerateRoom: () => void;
   isGeneratingRoom: boolean;
@@ -220,8 +221,9 @@ export function useEditorActions(
     [getOfficeState, editorState, saveLayout],
   );
 
-  const handleLaunchAgent = useCallback((providerId?: string) => {
-    transport.send({ type: 'launchAgent', providerId });
+  const handleLaunchAgent = useCallback((providerId?: string, nickname?: string) => {
+    const name = normalizeNickname(nickname);
+    transport.send({ type: 'launchAgent', providerId, ...(name ? { nickname: name } : {}) });
   }, []);
 
   const handleToggleEditMode = useCallback(() => {

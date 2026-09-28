@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import { toMajorMinor } from './changelogData.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { ConnectionIndicator } from './components/ConnectionIndicator.js';
+import { CostumePanel } from './components/CostumePanel.js';
 import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
 import { IntroBubble } from './components/IntroBubble.js';
@@ -13,7 +15,7 @@ import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
 import { ZoomControls } from './components/ZoomControls.js';
-import { ROOM_FRAME_TOP_INSET_PX } from './constants.js';
+import { COSTUME_SAVE_DEBOUNCE_MS, ROOM_FRAME_TOP_INSET_PX } from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
 import { useExtensionMessages } from './hooks/useExtensionMessages.js';
@@ -275,6 +277,37 @@ function App() {
     transport.send({ type: 'closeAgent', id });
   }, []);
 
+  // Nicknames and costumes apply locally at once; the server persists them and
+  // relays them to every other connected client.
+  const handleRenameAgent = useCallback((id: number, nickname: string) => {
+    const normalized = normalizeNickname(nickname);
+    getOfficeState().setAgentMetadata(id, { nickname: normalized });
+    transport.send({ type: 'setAgentNickname', id, nickname: normalized });
+  }, []);
+
+  const [costumeAgentId, setCostumeAgentId] = useState<number | null>(null);
+  const costumeSaveTimerRef = useRef<number | undefined>(undefined);
+  const handleCloseCostume = useCallback(() => setCostumeAgentId(null), []);
+  const handleCostumeSelect = useCallback(
+    (palette: number, hueShift: number) => {
+      if (costumeAgentId === null) return;
+      if (!getOfficeState().setAgentAppearance(costumeAgentId, palette, hueShift)) return;
+      // A hue drag fires per step; save once it settles so the relayed
+      // agentAppearance echoes don't replay the drag.
+      window.clearTimeout(costumeSaveTimerRef.current);
+      costumeSaveTimerRef.current = window.setTimeout(() => {
+        transport.send({ type: 'saveAgentSeats', seats: getOfficeState().getPersistableSeats() });
+      }, COSTUME_SAVE_DEBOUNCE_MS);
+    },
+    [costumeAgentId],
+  );
+  const handleCostumeRename = useCallback(
+    (nickname: string) => {
+      if (costumeAgentId !== null) handleRenameAgent(costumeAgentId, nickname);
+    },
+    [costumeAgentId, handleRenameAgent],
+  );
+
   const handleClick = useCallback((agentId: number) => {
     // If clicked agent is a sub-agent, focus the parent's terminal instead
     const os = getOfficeState();
@@ -284,6 +317,12 @@ function App() {
   }, []);
 
   const officeState = getOfficeState();
+
+  // The Costume panel follows its agent: it closes when the agent is closed.
+  const costumeCharacter =
+    costumeAgentId !== null && agents.includes(costumeAgentId)
+      ? officeState.characters.get(costumeAgentId)
+      : undefined;
 
   // Merged set of folders the Areas dropdown can map: real workspace folders plus
   // every distinct folder an agent has run in this session (deduped by name; name
@@ -485,7 +524,20 @@ function App() {
             panRef={editor.panRef}
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
+            onRenameAgent={handleRenameAgent}
+            onOpenCostume={setCostumeAgentId}
           />
+          {costumeCharacter && (
+            <CostumePanel
+              key={costumeAgentId}
+              currentPalette={costumeCharacter.palette}
+              currentHueShift={costumeCharacter.hueShift}
+              nickname={costumeCharacter.nickname ?? ''}
+              onSelect={handleCostumeSelect}
+              onRename={handleCostumeRename}
+              onClose={handleCloseCostume}
+            />
+          )}
         </>
       ) : (
         <DebugView

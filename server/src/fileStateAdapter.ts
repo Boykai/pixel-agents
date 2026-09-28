@@ -6,6 +6,7 @@
  *
  * Agents + seats (per adapter) persist to
  *   ~/.pixel-agents/<namespace>-state.json
+ * alongside the nickname memory (a `nicknames` section; see nicknames.ts).
  *
  * Runtime visibility (which agents show in the office) is scope-controlled by the
  * runtime scanner + Watch All Sessions toggle, not by persistence. Both adapters
@@ -18,11 +19,12 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
-import type { PersistedAgent } from '../../core/src/schemas.js';
+import type { NicknameBook, PersistedAgent } from '../../core/src/schemas.js';
 import { migrateAgentIdentity } from './agentMigration.js';
 import type { AdapterSettingKey, AdapterSettings, ConfigNamespace } from './configPersistence.js';
 import { ADAPTER_SETTING_KEYS, readConfig, writeConfig } from './configPersistence.js';
 import { LAYOUT_FILE_DIR } from './constants.js';
+import { parseNicknameBook } from './nicknames.js';
 
 const ADAPTER_SETTING_KEY_SET: ReadonlySet<string> = new Set(ADAPTER_SETTING_KEYS);
 
@@ -35,6 +37,8 @@ function settingNameOf(key: string): AdapterSettingKey | null {
 interface AdapterState {
   agents: PersistedAgent[];
   seats: Record<string, { palette?: number; hueShift?: number; seatId?: string }>;
+  /** Written only once a nickname exists, so the file is unchanged for everyone else. */
+  nicknames?: NicknameBook;
 }
 
 const EMPTY_STATE: AdapterState = { agents: [], seats: {} };
@@ -123,6 +127,18 @@ export class FileStateAdapter implements StateAdapter {
     this.writeState(state);
   }
 
+  // ── Nickname memory (same file; outlives the agents it names) ──
+
+  loadNicknameBook(): NicknameBook {
+    return parseNicknameBook(this.readState().nicknames);
+  }
+
+  saveNicknameBook(book: NicknameBook): void {
+    const state = this.readState();
+    state.nicknames = book;
+    this.writeState(state);
+  }
+
   // ── Internal state-file I/O ─────────────────────────────────
 
   private readState(): AdapterState {
@@ -132,13 +148,16 @@ export class FileStateAdapter implements StateAdapter {
       }
       const raw = fs.readFileSync(this.stateFilePath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<AdapterState>;
-      return {
+      const state: AdapterState = {
         agents: Array.isArray(parsed.agents) ? (parsed.agents as PersistedAgent[]) : [],
         seats:
           parsed.seats && typeof parsed.seats === 'object'
             ? (parsed.seats as AdapterState['seats'])
             : {},
       };
+      // Carried through every read-modify-write so agent and seat saves keep it.
+      if (parsed.nicknames !== undefined) state.nicknames = parseNicknameBook(parsed.nicknames);
+      return state;
     } catch (err) {
       console.error('[Pixel Agents] Failed to read adapter state:', err);
       return { ...EMPTY_STATE };
@@ -151,7 +170,11 @@ export class FileStateAdapter implements StateAdapter {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const json = JSON.stringify(state, null, 2);
+      const { nicknames, ...rest } = state;
+      const hasNicknames =
+        nicknames !== undefined &&
+        (nicknames.profiles.length > 0 || Object.keys(nicknames.sessions).length > 0);
+      const json = JSON.stringify(hasNicknames ? { ...rest, nicknames } : rest, null, 2);
       const tmpPath = this.stateFilePath + '.tmp';
       fs.writeFileSync(tmpPath, json, 'utf-8');
       fs.renameSync(tmpPath, this.stateFilePath);

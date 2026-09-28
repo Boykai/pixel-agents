@@ -6,6 +6,7 @@ import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notifica
 import { applyAgentStatus, clearPermissionBubbles } from '../office/engine/agentStatus.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
 import {
+  reconcileAgentAppearance,
   reconcileAgentMetadata,
   reconcileExistingAgents,
 } from '../office/engine/existingAgents.js';
@@ -305,9 +306,11 @@ export function useExtensionMessages(
           // Teammate: inherit parent's palette and workspace folderName (teammate runs
           // in the same workspace as the lead). Name shown via agentName (teamRoleLabel).
           // Seat them at the free seat closest to the lead so the team clusters.
+          // A nicknamed teammate keeps the costume last worn under its nickname.
           const parentCh = os.characters.get(teammateParentId);
-          const palette = parentCh ? parentCh.palette : undefined;
-          const hueShift = parentCh ? parentCh.hueShift : undefined;
+          const ownLook = msg.nickname && msg.palette !== undefined;
+          const palette = ownLook ? (msg.palette as number) : parentCh?.palette;
+          const hueShift = ownLook ? (msg.hueShift as number | undefined) : parentCh?.hueShift;
           os.addAgent(
             id,
             palette,
@@ -328,11 +331,12 @@ export function useExtensionMessages(
         } else {
           const palette = msg.palette as number | undefined;
           const hueShift = msg.hueShift as number | undefined;
+          // seatId: the seat last used under this agent's nickname, taken if free.
           os.addAgent(
             id,
             palette,
             hueShift,
-            undefined,
+            msg.seatId as string | undefined,
             undefined,
             folderName,
             undefined,
@@ -348,6 +352,7 @@ export function useExtensionMessages(
           observation: msg.observation,
           folderName,
           sessionName,
+          nickname: msg.nickname as string | undefined,
         });
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
@@ -404,6 +409,7 @@ export function useExtensionMessages(
             sessionNames,
             msg.providerIds ?? {},
             msg.observations ?? {},
+            msg.nicknames,
           )
         ) {
           saveAgentSeats(os);
@@ -539,8 +545,13 @@ export function useExtensionMessages(
         reconcileAgentMetadata(os, pendingAgents, msg.id, {
           sessionName: msg.sessionName,
           folderName: msg.folderName,
+          nickname: msg.nickname,
         });
         noteFolderName(msg.folderName);
+      } else if (msg.type === 'agentAppearance') {
+        // Another client changed a costume. Never re-save here: saving would echo
+        // the change back as another agentAppearance.
+        reconcileAgentAppearance(os, pendingAgents, msg.id, msg.palette, msg.hueShift);
       } else if (msg.type === 'agentObservation') {
         os.setAgentObservation(msg.id, msg.observation);
       } else if (msg.type === 'agentStatus') {

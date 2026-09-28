@@ -208,6 +208,8 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
         hooksOnly: agent.hooksOnly || undefined,
         palette: agent.palette,
         hueShift: agent.hueShift,
+        nickname: agent.nickname,
+        seatId: agent.preferredSeatId,
       });
     };
 

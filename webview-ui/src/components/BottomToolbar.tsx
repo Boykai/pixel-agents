@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { AGENT_NICKNAME_MAX_LENGTH } from '../../../core/src/constants.js';
+import { normalizeNickname } from '../../../core/src/normalizeNickname.js';
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js';
 import type { ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime } from '../runtime.js';
@@ -9,7 +11,7 @@ import { Dropdown, DropdownItem } from './ui/Dropdown.js';
 
 interface BottomToolbarProps {
   isEditMode: boolean;
-  onLaunchAgent: (providerId?: string) => void;
+  onLaunchAgent: (providerId?: string, nickname?: string) => void;
   providers: ProviderSettings[];
   launchProvider?: string;
   onToggleEditMode: () => void;
@@ -31,6 +33,9 @@ export function BottomToolbar({
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [isBypassMenuOpen, setIsBypassMenuOpen] = useState(false);
   const [chosenProvider, setChosenProvider] = useState<string>();
+  // Optional nickname for the next agent, typed in the + Agent menu.
+  const [nickname, setNickname] = useState('');
+  const [isNicknameFocused, setIsNicknameFocused] = useState(false);
   const providerId = chosenProvider ?? launchProvider;
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const pendingBypassRef = useRef(false);
@@ -49,13 +54,20 @@ export function BottomToolbar({
 
   const hasMultipleFolders = workspaceFolders.length > 1;
 
+  /** The typed nickname, consumed by the launch it names. */
+  const takeNickname = (): { nickname?: string } => {
+    const name = normalizeNickname(nickname);
+    setNickname('');
+    return name ? { nickname: name } : {};
+  };
+
   const handleAgentClick = () => {
     setIsBypassMenuOpen(false);
     pendingBypassRef.current = false;
     if (hasMultipleFolders) {
       setIsFolderPickerOpen((v) => !v);
     } else {
-      onLaunchAgent(providerId);
+      onLaunchAgent(providerId, takeNickname().nickname);
     }
   };
 
@@ -66,7 +78,8 @@ export function BottomToolbar({
   };
 
   const handleAgentLeave = () => {
-    if (!isFolderPickerOpen) {
+    // Keep the menu while a nickname is being typed.
+    if (!isFolderPickerOpen && !isNicknameFocused && !nickname) {
       setIsBypassMenuOpen(false);
     }
   };
@@ -75,7 +88,13 @@ export function BottomToolbar({
     setIsFolderPickerOpen(false);
     const bypassPermissions = pendingBypassRef.current;
     pendingBypassRef.current = false;
-    transport.send({ type: 'launchAgent', providerId, folderPath: folder.path, bypassPermissions });
+    transport.send({
+      type: 'launchAgent',
+      providerId,
+      folderPath: folder.path,
+      bypassPermissions,
+      ...takeNickname(),
+    });
   };
 
   const handleBypassSelect = (bypassPermissions: boolean) => {
@@ -84,7 +103,7 @@ export function BottomToolbar({
       pendingBypassRef.current = bypassPermissions;
       setIsFolderPickerOpen(true);
     } else {
-      transport.send({ type: 'launchAgent', providerId, bypassPermissions });
+      transport.send({ type: 'launchAgent', providerId, bypassPermissions, ...takeNickname() });
     }
   };
 
@@ -125,6 +144,28 @@ export function BottomToolbar({
             + Agent
           </Button>
           <Dropdown isOpen={isBypassMenuOpen}>
+            <input
+              type="text"
+              aria-label="Agent nickname"
+              placeholder="Nickname (optional)"
+              value={nickname}
+              maxLength={AGENT_NICKNAME_MAX_LENGTH}
+              onChange={(e) => setNickname(e.target.value)}
+              onFocus={() => setIsNicknameFocused(true)}
+              onBlur={() => setIsNicknameFocused(false)}
+              onKeyDown={(e) => {
+                // Typing must not reach the layout editor's shortcuts.
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAgentClick();
+                } else if (e.key === 'Escape') {
+                  setNickname('');
+                  setIsBypassMenuOpen(false);
+                }
+              }}
+              className="block w-full mb-4 text-sm py-2 px-6 bg-bg-dark border-2 border-border rounded-none text-text"
+            />
             <DropdownItem onClick={() => handleBypassSelect(true)}>
               Skip permissions mode <span className="text-2xs text-warning">⚠</span>
             </DropdownItem>

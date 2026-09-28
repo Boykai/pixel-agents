@@ -934,6 +934,7 @@ export function createFileWatcherContext(
         if (ownSessionId && existingTeammate.sessionId !== ownSessionId) {
           existingTeammate.sessionId = ownSessionId;
           teammateRegisterCallback?.(ownSessionId, existingTeammate.id);
+          agents.rememberNickname(existingTeammate);
         }
         startFileWatching(
           existingTeammate.id,
@@ -1352,8 +1353,10 @@ export function createFileWatcherContext(
         );
       }
       if (adoptedAgent) {
+        const rekeyed = adoptedAgent.sessionId !== sessionId;
         adoptedAgent.sessionId = sessionId;
         adoptedAgent.hookDelivered = true;
+        if (rekeyed) agents.rememberNickname(adoptedAgent);
         onAgentCreated?.(adoptedAgent);
       }
     } else {

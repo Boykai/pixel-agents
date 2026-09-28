@@ -24,10 +24,16 @@ export function setPaletteCount(count: number): void {
   currentPaletteCount = Math.max(1, Math.floor(count));
 }
 
+/** The palette count assets loaded with (PALETTE_COUNT until they load). */
+export function getPaletteCount(): number {
+  return currentPaletteCount;
+}
+
 /**
  * Assign palette and hueShift to an agent if not already set.
- * Uses the diversity algorithm to pick a palette that's least used among
- * existing agents.
+ * An agent under a nickname used before gets that nickname's look back (and
+ * its seat is offered as preferredSeatId); otherwise the diversity algorithm
+ * picks a palette that's least used among existing agents.
  *
  * @param agent - The agent to assign a palette to (mutated in place)
  * @param store - The agent state store (used to count existing palettes)
@@ -36,6 +42,14 @@ export function assignPaletteIfNeeded(agent: AgentState, store: AgentStateStore)
   if (agent.palette !== undefined) return;
 
   const count = currentPaletteCount;
+  const profile = store.recallNicknameProfile(agent);
+  if (profile?.palette !== undefined && profile.palette < count) {
+    agent.palette = profile.palette;
+    agent.hueShift = profile.hueShift ?? 0;
+    agent.preferredSeatId = profile.seatId;
+    return;
+  }
+
   const paletteCounts = new Array(count).fill(0);
   for (const existing of store.values()) {
     if (existing.palette !== undefined && existing.palette < count) {

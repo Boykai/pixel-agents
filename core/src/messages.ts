@@ -11,6 +11,7 @@ export type ServerMessage =
   | ProviderCapabilities
   | AgentCreated
   | AgentMetadata
+  | AgentAppearance
   | AgentClosed
   | AgentSelected
   | ExistingAgents
@@ -48,6 +49,7 @@ export type ClientMessage =
   | FocusAgent
   | CloseAgent
   | SaveAgentSeats
+  | SetAgentNickname
   | SaveLayout
   | SetSoundEnabled
   | SetLastSeenVersion
@@ -92,6 +94,8 @@ export interface AgentCreated {
   isExternal?: boolean;
   palette?: number;
   hueShift?: number;
+  nickname?: string;
+  seatId?: string;
 }
 
 export type ObservationState = 'known' | 'unknown';
@@ -101,6 +105,14 @@ export interface AgentMetadata {
   id: number;
   sessionName?: string;
   folderName?: string;
+  nickname?: string;
+}
+
+export interface AgentAppearance {
+  type: 'agentAppearance';
+  id: number;
+  palette: number;
+  hueShift: number;
 }
 
 export interface AgentClosed {
@@ -121,6 +133,7 @@ export interface ExistingAgents {
   agentMeta: Record<string, AgentSeatMeta>;
   folderNames: Record<string, string>;
   sessionNames?: Record<string, string>;
+  nicknames?: Record<string, string>;
   externalAgents: Record<string, boolean>;
 }
 
@@ -366,6 +379,7 @@ export interface LaunchAgent {
   folderPath?: string;
   bypassPermissions?: boolean;
   providerId?: string;
+  nickname?: string;
 }
 
 export interface FocusAgent {
@@ -387,6 +401,12 @@ export interface SeatAssignment {
   palette: number;
   hueShift: number;
   seatId: string | null;
+}
+
+export interface SetAgentNickname {
+  type: 'setAgentNickname';
+  id: number;
+  nickname: string;
 }
 
 export interface SaveLayout {

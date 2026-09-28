@@ -91,6 +91,11 @@ export interface AgentState {
   palette?: number;
   /** Hue shift in degrees (0-360). Rotates the base palette colors. */
   hueShift?: number;
+  /** User-chosen display name (normalized; never empty when set). */
+  nickname?: string;
+  /** Seat last used under this agent's nickname, offered to clients on
+   *  agentCreated. Transient — the seat itself persists through saveAgentSeats. */
+  preferredSeatId?: string;
 }
 
 export type ServerAgentState = AgentState;
@@ -127,4 +132,6 @@ export interface PersistedAgent {
   palette?: number;
   /** Hue shift in degrees (0-360). Persisted alongside palette. */
   hueShift?: number;
+  /** User-chosen display name. */
+  nickname?: string;
 }
