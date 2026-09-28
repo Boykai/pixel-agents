@@ -96,6 +96,56 @@ export const PAN_MARGIN_FRACTION = 0.25;
 export const UNDO_STACK_MAX_SIZE = 50;
 export const LAYOUT_SAVE_DEBOUNCE_MS = 500;
 
+// ── Signs & Draw layers ──────────────────────────────────────
+/** Furniture type id of the Sign (pixel text) — a built-in catalog entry, not an asset. */
+export const SIGN_TYPE = 'PIXEL_TEXT';
+export const SIGN_LABEL = 'Sign';
+export const SIGN_TEXT_MAX_LENGTH = 32;
+/** Pixel font glyph sizes a Sign can use (keys of PIXEL_FONTS). */
+export const SIGN_FONT_SIZES = ['3x5', '5x7'] as const;
+export const SIGN_DEFAULT_FONT_SIZE = '3x5';
+/** Sprite pixels per font pixel. */
+export const SIGN_SCALE_MIN = 1;
+export const SIGN_SCALE_MAX = 5;
+export const SIGN_DEFAULT_COLOR = '#FFFFFF';
+export const SIGN_COLOR_PRESETS: ReadonlyArray<{ label: string; hex: string }> = [
+  { label: 'White', hex: '#FFFFFF' },
+  { label: 'Red', hex: '#FF0000' },
+  { label: 'Blue', hex: '#4488FF' },
+  { label: 'Green', hex: '#00CC00' },
+  { label: 'Yellow', hex: '#FFCC00' },
+  { label: 'Orange', hex: '#FF8800' },
+  { label: 'Pink', hex: '#FF66CC' },
+  { label: 'Cyan', hex: '#00CCCC' },
+  { label: 'Purple', hex: '#9966FF' },
+  { label: 'Lime', hex: '#66FF00' },
+  { label: 'Coral', hex: '#FF6666' },
+  { label: 'Gray', hex: '#888888' },
+  { label: 'Teal', hex: '#008888' },
+  { label: 'Black', hex: '#222222' },
+];
+/** Text sprites kept in memory; the oldest is evicted past this. */
+export const SIGN_SPRITE_CACHE_MAX = 256;
+/** Sign editor preview: largest on-screen zoom, width it aims to fill, minimum box. */
+export const SIGN_PREVIEW_MAX_ZOOM = 3;
+export const SIGN_PREVIEW_TARGET_WIDTH_PX = 200;
+export const SIGN_PREVIEW_MIN_WIDTH_PX = 120;
+export const SIGN_PREVIEW_MIN_HEIGHT_PX = 30;
+export const SIGN_PREVIEW_PADDING_PX = 8;
+export const EDIT_BUTTON_BG = 'rgba(50, 170, 80, 0.85)';
+/** Draw layer: whole-tile-row depth offsets a Furniture item can be moved by. */
+export const DRAW_LAYER_MIN = -4;
+export const DRAW_LAYER_MAX = 4;
+/** Extra depth nudge so a layered item wins/loses the tie with whatever sits on its new row. */
+export const DRAW_LAYER_TIE_BREAK = 0.25;
+export const LAYER_BUTTON_BG = 'rgba(180, 140, 50, 0.85)';
+/** Device-pixel gap between the stacked bring-forward / send-backward canvas buttons. */
+export const LAYER_BUTTON_GAP_PX = 2;
+/** Alpha of a canvas editor button that can't act (e.g. already at the top Draw layer). */
+export const EDITOR_BUTTON_DISABLED_ALPHA = 0.35;
+/** Device-pixel slop around a round canvas editor button's hit circle. */
+export const EDITOR_BUTTON_HIT_PADDING_PX = 2;
+
 // ── Room generation ──────────────────────────────────────────
 export const ROOM_INTERIOR_SIZES = [5, 6, 7, 8] as const;
 export const ROOM_WALL_THICKNESS = 1;

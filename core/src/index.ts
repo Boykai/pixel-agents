@@ -22,6 +22,7 @@ export type {
   OfficeLayout,
   PersistedAgent,
   PlacedFurniture,
+  SignText,
   SpriteData,
 } from './schemas.js';
 export type { TeamProvider } from './teamProvider.js';

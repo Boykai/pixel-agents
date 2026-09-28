@@ -8,7 +8,13 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
+import { drawLayerDepth } from './drawLayer.js';
+import {
+  getCatalogEntry,
+  getFurnitureEntry,
+  getOrientationInGroup,
+  isSignType,
+} from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -25,12 +31,13 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
 
 /** Convert placed furniture into renderable FurnitureInstance[] */
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
-  // Pre-compute desk zY per tile so surface items can sort in front of desks
+  // Pre-compute desk zY per tile so surface items can sort in front of desks.
+  // It includes the desk's own draw layer, so what sits on a desk moves with it.
   const deskZByTile = new Map<string, number>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry || !entry.isDesk) continue;
-    const deskZY = item.row * TILE_SIZE + entry.sprite.length;
+    const deskZY = (item.row + entry.footprintH) * TILE_SIZE + drawLayerDepth(item.zLayer);
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const key = `${item.col + dc},${item.row + dr}`;
@@ -42,12 +49,15 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
   const instances: FurnitureInstance[] = [];
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
     const y = item.row * TILE_SIZE;
-    const spriteH = entry.sprite.length;
-    let zY = y + spriteH;
+    // Sort by the bottom of the footprint, not of the sprite (ported from
+    // hootbu/pixel-agents (MIT) 4db21f3). Every bundled sprite is exactly its
+    // footprint tall, so they sort as before; a Sign's text sprite is shorter,
+    // and on a wall row it would otherwise sort behind the wall it hangs on.
+    let zY = (item.row + entry.footprintH) * TILE_SIZE;
 
     // Chair z-sorting: ensure characters sitting on chairs render correctly
     if (entry.category === 'chairs') {
@@ -74,9 +84,13 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Colorize sprite if this furniture has a color override
+    // Draw layer: the user's explicit override, applied on top of the rules above.
+    zY += drawLayerDepth(item.zLayer);
+
+    // Colorize sprite if this furniture has a color override. A Sign's color is
+    // baked into its text sprite (and this cache key doesn't include the text).
     let sprite = entry.sprite;
-    if (item.color) {
+    if (item.color && !isSignType(item.type)) {
       const { h, s, b: bv, c: cv } = item.color;
       sprite = getColorizedSprite(
         `furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`,
@@ -107,7 +121,7 @@ export function getBlockedTiles(
 ): Set<string> {
   const tiles = new Set<string>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -130,7 +144,7 @@ export function getPlacementBlockedTiles(
   const tiles = new Set<string>();
   for (const item of furniture) {
     if (item.uid === excludeUid) continue;
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {

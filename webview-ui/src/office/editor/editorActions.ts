@@ -1,12 +1,20 @@
 import type { ColorValue } from '../../components/ui/types.js';
 import { DEFAULT_NEUTRAL_COLOR } from '../../constants.js';
-import { getCatalogEntry, getRotatedType, getToggledType } from '../layout/furnitureCatalog.js';
+import { normalizeZLayer } from '../layout/drawLayer.js';
+import {
+  getEffectiveCatalogEntry,
+  getRotatedType,
+  getToggledType,
+  isSignType,
+} from '../layout/furnitureCatalog.js';
 import { getPlacementBlockedTiles } from '../layout/layoutSerializer.js';
+import { normalizeSignText } from '../sprites/textSpriteCache.js';
 import type {
   AreaDefinition,
   CarpetTile,
   OfficeLayout,
   PlacedFurniture,
+  SignText,
   TileType as TileTypeVal,
 } from '../types.js';
 import { MAX_COLS, MAX_ROWS, TileType } from '../types.js';
@@ -54,7 +62,9 @@ export function paintTile(
 
 /** Place furniture. Returns new layout (immutable). */
 export function placeFurniture(layout: OfficeLayout, item: PlacedFurniture): OfficeLayout {
-  if (!canPlaceFurniture(layout, item.type, item.col, item.row)) return layout;
+  if (!canPlaceFurniture(layout, item.type, item.col, item.row, undefined, item.text)) {
+    return layout;
+  }
   return { ...layout, furniture: [...layout.furniture, item] };
 }
 
@@ -74,7 +84,7 @@ export function moveFurniture(
 ): OfficeLayout {
   const item = layout.furniture.find((f) => f.uid === uid);
   if (!item) return layout;
-  if (!canPlaceFurniture(layout, item.type, newCol, newRow, uid)) return layout;
+  if (!canPlaceFurniture(layout, item.type, newCol, newRow, uid, item.text)) return layout;
   return {
     ...layout,
     furniture: layout.furniture.map((f) =>
@@ -111,22 +121,73 @@ export function toggleFurnitureState(layout: OfficeLayout, uid: string): OfficeL
   };
 }
 
+/**
+ * Replace a Sign's text (ported from hootbu/pixel-agents (MIT) 69c433f). No-op
+ * unless the item is a Sign and the re-sized Sign still fits where it stands.
+ * Returns new layout (immutable).
+ */
+export function updateFurnitureText(
+  layout: OfficeLayout,
+  uid: string,
+  text: SignText,
+): OfficeLayout {
+  const item = layout.furniture.find((f) => f.uid === uid);
+  if (!item || !isSignType(item.type)) return layout;
+  const normalized = normalizeSignText(text);
+  if (!normalized) return layout;
+  if (!canPlaceFurniture(layout, item.type, item.col, item.row, uid, normalized)) return layout;
+  return {
+    ...layout,
+    furniture: layout.furniture.map((f) => (f.uid === uid ? { ...f, text: normalized } : f)),
+  };
+}
+
+/**
+ * Set an item's draw layer (clamped to DRAW_LAYER_MIN..MAX). Layer 0 removes
+ * the field so the item sorts by the default rules again. Returns new layout
+ * (immutable), or the same layout when nothing changes.
+ */
+export function setFurnitureZLayer(
+  layout: OfficeLayout,
+  uid: string,
+  zLayer: number,
+): OfficeLayout {
+  const item = layout.furniture.find((f) => f.uid === uid);
+  if (!item) return layout;
+  const next = normalizeZLayer(zLayer);
+  const unchanged = next === 0 ? item.zLayer === undefined : item.zLayer === next;
+  if (unchanged) return layout;
+  return {
+    ...layout,
+    furniture: layout.furniture.map((f) => {
+      if (f.uid !== uid) return f;
+      const updated: PlacedFurniture = { ...f, zLayer: next };
+      if (next === 0) delete updated.zLayer;
+      return updated;
+    }),
+  };
+}
+
 /** For wall items, offset the row so the bottom row aligns with the hovered tile. */
-export function getWallPlacementRow(type: string, row: number): number {
-  const entry = getCatalogEntry(type);
+export function getWallPlacementRow(type: string, row: number, text?: unknown): number {
+  const entry = getEffectiveCatalogEntry(type, text);
   if (!entry?.canPlaceOnWalls) return row;
   return row - (entry.footprintH - 1);
 }
 
-/** Check if furniture can be placed at (col, row) without overlapping. */
+/**
+ * Check if furniture can be placed at (col, row) without overlapping. `text`
+ * sizes a Sign (its footprint grows with the text); other types ignore it.
+ */
 export function canPlaceFurniture(
   layout: OfficeLayout,
   type: string, // FurnitureType enum or asset ID
   col: number,
   row: number,
   excludeUid?: string,
+  text?: unknown,
 ): boolean {
-  const entry = getCatalogEntry(type);
+  const entry = getEffectiveCatalogEntry(type, text);
   if (!entry) return false;
 
   // Check bounds — wall items may extend above the map (top rows hang above the wall)
@@ -165,7 +226,8 @@ export function canPlaceFurniture(
         if (tileVal !== TileType.WALL) return false;
       } else {
         if (tileVal === TileType.VOID) return false; // Cannot place on VOID
-        if (tileVal === TileType.WALL) return false; // Normal items cannot overlap walls
+        // Normal items cannot overlap walls; a Sign can hang on one (hootbu 69c433f).
+        if (tileVal === TileType.WALL && !isSignType(type)) return false;
       }
     }
   }
@@ -179,7 +241,7 @@ export function canPlaceFurniture(
     deskTiles = new Set<string>();
     for (const item of layout.furniture) {
       if (item.uid === excludeUid) continue;
-      const itemEntry = getCatalogEntry(item.type);
+      const itemEntry = getEffectiveCatalogEntry(item.type, item.text);
       if (!itemEntry || !itemEntry.isDesk) continue;
       for (let dr = 0; dr < itemEntry.footprintH; dr++) {
         for (let dc = 0; dc < itemEntry.footprintW; dc++) {
