@@ -6,7 +6,7 @@ import {
   saveLayout,
 } from '../../../helpers/editor';
 import { buildSeedLayout } from '../../../helpers/layout-seed';
-import { closeBottomPanel, getPixelAgentsFrame, reopenBottomPanel } from '../../../helpers/webview';
+import { reloadPixelAgentsWebview } from '../../../helpers/webview';
 
 test.describe('Generate Room / VS Code', () => {
   test.use({ seedLayout: buildSeedLayout({ cols: 10, rows: 10 }) });
@@ -29,10 +29,8 @@ test.describe('Generate Room / VS Code', () => {
     await expect.poll(() => readFurnitureCount(frame)).toBe(count);
     await saveLayout(frame);
 
-    narrator.step('reopening the panel to verify the saved room');
-    await closeBottomPanel(window);
-    await reopenBottomPanel(window);
-    const restored = await getPixelAgentsFrame(window);
+    narrator.step('reloading the webview to verify the saved room');
+    const restored = await reloadPixelAgentsWebview(window);
     await expect.poll(() => readFurnitureCount(restored)).toBe(count);
     narrator.check('the room survives the VS Code panel lifecycle');
   });

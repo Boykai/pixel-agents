@@ -15,7 +15,7 @@ import {
   type TestHooksWindow,
 } from '../../../helpers/editor';
 import { buildSeedLayout } from '../../../helpers/layout-seed';
-import { closeBottomPanel, getPixelAgentsFrame, reopenBottomPanel } from '../../../helpers/webview';
+import { reloadPixelAgentsWebview } from '../../../helpers/webview';
 
 /**
  * e2e coverage for the carpet system (a tile layer between floor and furniture).
@@ -239,14 +239,10 @@ test.describe('Carpet', () => {
       .toBe(2);
     narrator.check('~/.pixel-agents/layout.json contains 2 carpet tiles');
 
-    // Reload the panel and confirm the carpet rehydrates from disk. The
-    // reopen uses the same ⌘J chord closeBottomPanel used, so the reload is
-    // visible in the video with no palette overlays (see the pets test).
-    narrator.step('closing the bottom panel — the webview is disposed');
-    await closeBottomPanel(window);
-    narrator.step('reopening the panel — carpet must rehydrate from disk');
-    await reopenBottomPanel(window);
-    const freshFrame = await getPixelAgentsFrame(window);
+    // Reload the webview and confirm the carpet rehydrates from disk (see the
+    // pets test: a hidden panel keeps the same webview).
+    narrator.step('reloading the webview — carpet must rehydrate from disk');
+    const freshFrame = await reloadPixelAgentsWebview(window);
     await freshFrame.waitForFunction(
       () =>
         ((window as TestHooksWindow).__pixelAgentsTestHooks?.getCarpetTiles?.() ?? []).length === 2,

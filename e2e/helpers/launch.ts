@@ -236,9 +236,9 @@ export async function launchVSCode(
   //   on activation (onStartupFinished), so openPixelAgentsPanel({ autoShown })
   //   skips the "Pixel Agents: Show Panel" palette interaction at setup.
   // - terminal.integrated.defaultLocation "editor": mock-claude terminals open
-  //   as editor tabs beside the office instead of stealing the panel (the
-  //   webview has no retainContextWhenHidden, so a panel-hosted terminal.show()
-  //   used to dispose it).
+  //   as editor tabs beside the office instead of stealing the panel (a
+  //   panel-hosted terminal.show() hid the office; before the view retained
+  //   its context when hidden, that also disposed the webview).
   // - The rest strips chrome that eats video space (activity bar, welcome tab,
   //   empty-editor hint, the Chat "Build with Agent" secondary side bar).
   //

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { expect, test } from '../../../fixtures/pixel-agents';
-import { closeBottomPanel, getPixelAgentsFrame, reopenBottomPanel } from '../../../helpers/webview';
+import { reloadPixelAgentsWebview } from '../../../helpers/webview';
 
 /**
  * e2e coverage for the animated pet system.
@@ -181,16 +181,10 @@ test.describe('Pets', () => {
       .toBe(2);
     narrator.check('~/.pixel-agents/layout.json contains 2 pets');
 
-    // Reload the panel (webview is disposed + re-resolved since there is no
-    // retainContextWhenHidden) and confirm the pets rehydrate from disk.
-    // Reopen with the same ⌘J toggle rather than openPixelAgentsPanel: the
-    // chord restores the panel as it was, without the palette "Show Panel" /
-    // "Toggle Maximized Panel" overlays cluttering the end of the video.
-    narrator.step('closing the bottom panel — the webview is disposed');
-    await closeBottomPanel(window);
-    narrator.step('reopening the panel — pets must rehydrate from disk');
-    await reopenBottomPanel(window);
-    const freshFrame = await getPixelAgentsFrame(window);
+    // Reload the webview and confirm the pets rehydrate from disk. (Hiding the
+    // panel would keep the same webview: it retains its context when hidden.)
+    narrator.step('reloading the webview — pets must rehydrate from disk');
+    const freshFrame = await reloadPixelAgentsWebview(window);
     await freshFrame.waitForFunction(
       () => ((window as PetWindow).__pixelAgentsTestHooks?.getPets?.() ?? []).length === 2,
       undefined,

@@ -60,10 +60,10 @@ import {
   seedTeamConfig,
 } from '../../../helpers/team';
 import {
-  closeBottomPanel,
   getPixelAgentsFrame,
   getSettingChecked,
   openPixelAgentsPanel,
+  reloadPixelAgentsWebview,
   setSettings,
 } from '../../../helpers/webview';
 
@@ -1107,12 +1107,11 @@ test.describe('Hooks ON / lifecycle', () => {
   // that arg, restored agents would briefly show matrixEffect='spawn' for
   // ~300ms (the matrix rain animation), regressing the "instant restore" UX.
   //
-  // Trigger: close the bottom panel, then reopen it. closeBottomPanel hides
-  // the WebviewView; PixelAgentsViewProvider does not set
-  // retainContextWhenHidden so VS Code disposes the webview. Reopening via
-  // openPixelAgentsPanel re-runs resolveWebviewView, bootstraps a fresh
-  // React app, sends webviewReady, and the extension's view provider
-  // unconditionally calls sendExistingAgents on every webviewReady
+  // Trigger: reload the webview (reloadPixelAgentsWebview). Hiding the panel
+  // no longer works: the view is registered with retainContextWhenHidden, so
+  // a hidden webview keeps its React app. The reload bootstraps a fresh React
+  // app in the same view, which sends webviewReady, and the extension's view
+  // provider unconditionally calls sendExistingAgents on every webviewReady
   // (PixelAgentsViewProvider.ts:479).
   //
   // window.location.reload() does NOT work here: vscode-webview:// iframes
@@ -1131,7 +1130,7 @@ test.describe('Hooks ON / lifecycle', () => {
     let frame = pixelAgents.frame;
 
     await waitForClaudeHookSetup(tmpHome);
-    narrator.step('spawning an agent, then closing + reopening the panel to force a fresh restore');
+    narrator.step('spawning an agent, then reloading the webview to force a fresh restore');
     await arrangeNextClaudeInvocation(
       tmpHome,
       claudeScenario('restored agents skip spawn effect').holdOpenFor(20_000).build(),
@@ -1147,12 +1146,8 @@ test.describe('Hooks ON / lifecycle', () => {
     // the post-restore observation (matrix effect lives ~300ms; 800ms cushion).
     await frame.waitForTimeout(800);
 
-    narrator.step(
-      'closing the panel (disposes the webview) then reopening to restore existingAgents',
-    );
-    await closeBottomPanel(window);
-    await openPixelAgentsPanel(window);
-    frame = await getPixelAgentsFrame(window);
+    narrator.step('reloading the webview so a fresh document restores existingAgents');
+    frame = await reloadPixelAgentsWebview(window);
 
     // The fresh webview has an empty addAgentLog. Wait until restoreAgents has
     // run (existingAgents → layoutLoaded → addAgent), then read the log. The
@@ -1574,7 +1569,7 @@ test.describe('Hooks ON / lifecycle', () => {
   // PixelAgentsViewProvider's webviewReady handler} would surface as "I
   // turned X off, restarted, X is back on."
   //
-  // Trigger: toggle Always Show Labels off, close+reopen the panel (forces a
+  // Trigger: toggle Always Show Labels off, reload the webview (forces a
   // fresh webviewReady), open the Settings modal, read the indicator state.
   // It must still be unchecked.
   test('settings toggles persist across a webview reload @area:cross-cutting', async ({
@@ -1597,12 +1592,10 @@ test.describe('Hooks ON / lifecycle', () => {
     expect(await getSettingChecked(frame, 'Display Headless as Ghosts')).toBe(!initialGhost);
     narrator.check('both toggles are now flipped');
 
-    // Force a fresh webview by closing and reopening the panel (same
-    // mechanism the restored-agents test uses for the existingAgents restore path).
-    narrator.step('closing + reopening the panel to force a fresh webview');
-    await closeBottomPanel(window);
-    await openPixelAgentsPanel(window);
-    frame = await getPixelAgentsFrame(window);
+    // Force a fresh webview by reloading it (same mechanism the
+    // restored-agents test uses for the existingAgents restore path).
+    narrator.step('reloading the webview to force a fresh settingsLoaded');
+    frame = await reloadPixelAgentsWebview(window);
 
     // After settingsLoaded re-hydrates, the toggle must still be in the
     // flipped state — not back to the fixture default.
