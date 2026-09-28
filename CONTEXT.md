@@ -171,6 +171,14 @@ _Avoid_: object, prop, item
 **Desk**:
 Furniture that seats face and that hosts surface items. An agent's character sitting at its desk is the visual expression of being active.
 
+**Sign**:
+Furniture that shows a line of pixel text. The text, its color, glyph size, and pixel scale live on the placed item, and its sprite and footprint derive from them, so a longer text takes more tiles. Unlike other floor furniture, a sign may also hang on a wall. It is placed and edited through the Sign editor in the Layout editor.
+_Avoid_: label (that's the Activity label or a character's name label), text furniture, banner
+
+**Draw layer**:
+A per-furniture depth adjustment from −4 to +4. Each step moves the item one tile row forward or backward in draw order, on top of the default depth rules (footprint, chairs, surface items, background tiles, walls). Layer 0 is the default and leaves the order unchanged.
+_Avoid_: z-index, z-order, layer (unqualified; carpets are a layer too)
+
 **Seat**:
 A sittable spot the office derives from chair furniture, assignable to exactly one agent.
 _Avoid_: chair (that's the furniture), workstation

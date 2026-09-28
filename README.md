@@ -39,6 +39,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **One agent, one character** — tracked Claude Code and GitHub Copilot sessions get their own animated characters
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
+- **Signs and draw layers** — put pixel-text signs on the floor or walls, and move any furniture forward or backward in draw order
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
 - **Sound notifications** — optional chimes when an agent finishes its turn or requests permission
 - **Sub-agents and Agent Teams** — see ephemeral sub-agents and persistent Claude teammates as separate characters, including team roles and lifecycle changes
@@ -158,6 +159,7 @@ Click **Layout** to edit the office:
 
 - Paint floor patterns and walls, with color and contrast controls.
 - Place, rotate, recolor, select, and remove furniture.
+- Add pixel-text **Signs** from the Decor tab (they can hang on walls), and use **Forward** / **Backward** to change a selected item's draw layer.
 - Paint auto-tiling carpets and customize their main and accent colors.
 - Add animated pets; click a pet in the office to interact with it.
 - Create named **Areas**, paint their tiles, and assign workspace folders to them.
