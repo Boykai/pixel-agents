@@ -159,7 +159,7 @@ Click **Layout** to edit the office:
 - Paint floor patterns and walls, with color and contrast controls.
 - Place, rotate, recolor, select, and remove furniture.
 - Paint auto-tiling carpets and customize their main and accent colors.
-- Add animated pets; click a pet in the office to interact with it.
+- Add animated pets. Pets wander, trail nearby characters, sit beside inactive agents, nap (look for the "z"), and scurry away from active ones. Click a pet in the office to give it a heart and have the camera follow it; click it again, pan, or click empty space to stop following.
 - Create named **Areas**, paint their tiles, and assign workspace folders to them.
 - Undo/redo changes, then import or export the complete layout as JSON.
 

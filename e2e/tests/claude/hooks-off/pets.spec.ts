@@ -28,15 +28,21 @@ interface PetSnapshot {
   id: string;
   name: string;
   petType: number;
-  state: 'idle' | 'walk' | 'follow';
+  state: 'idle' | 'walk' | 'follow' | 'approach' | 'sit' | 'sleep' | 'flee';
   x: number;
   y: number;
   bubbleType: 'heart' | null;
 }
 
+interface CameraFollow {
+  agentId: number | null;
+  petId: string | null;
+}
+
 interface PetTestHooks {
   getPets?: () => PetSnapshot[];
   petClick?: (petId: string) => void;
+  getCameraFollow?: () => CameraFollow;
   messageLog?: Array<{ type: string }>;
 }
 
@@ -79,11 +85,18 @@ async function readPets(frame: Frame): Promise<PetSnapshot[]> {
   });
 }
 
-/** Toggle a pet's heart bubble exactly as a canvas click would. */
+/** Click a pet exactly as a canvas click would: toggles its heart bubble and the camera follow. */
 async function petClick(frame: Frame, petId: string): Promise<void> {
   await frame.evaluate((id) => {
     (window as PetWindow).__pixelAgentsTestHooks?.petClick?.(id);
   }, petId);
+}
+
+/** What the camera is following right now (agent id or pet id), read from the test hook. */
+async function readCameraFollow(frame: Frame): Promise<CameraFollow | null> {
+  return frame.evaluate(
+    () => (window as PetWindow).__pixelAgentsTestHooks?.getCameraFollow?.() ?? null,
+  );
 }
 
 test.describe('Pets', () => {
@@ -263,5 +276,54 @@ test.describe('Pets', () => {
       { timeout: 1_000 },
     );
     narrator.check('bubble cleared within 1s of the click — fast-dismiss path confirmed');
+  });
+
+  test('clicking a pet makes the camera follow it; a wheel pan or the editor ends the follow @area:pets', async ({
+    pixelAgents,
+  }) => {
+    // `window` stays un-destructured (the VS Code page is `page`) so the
+    // waitForFunction callbacks' `window` keeps resolving to the DOM global.
+    const { frame, window: page, narrator } = pixelAgents;
+
+    narrator.step('placing one pet (Claudio) via the editor');
+    const carousel = await openPetsTab(frame);
+    await carousel.locator('button[title="Claudio"]').click();
+    await frame.waitForFunction(
+      () => ((window as PetWindow).__pixelAgentsTestHooks?.getPets?.() ?? []).length === 1,
+    );
+    const petId = (await readPets(frame))[0]!.id;
+    narrator.check('pet placed (getPets → 1)');
+
+    // Following is a view-mode interaction: the editor ends any follow on entry.
+    narrator.step('closing the layout editor');
+    await frame.locator('button[title="Edit office layout"]').click();
+    await expect(carousel).toBeHidden();
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId: null });
+    narrator.check('editor closed, camera following nothing');
+
+    narrator.step('clicking the pet — the camera should follow it');
+    await petClick(frame, petId);
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId });
+    narrator.check('camera following the pet (cameraFollowPetId = its id)');
+
+    narrator.step('clicking the same pet again — the follow toggles off');
+    await petClick(frame, petId);
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId: null });
+    narrator.check('follow toggled off');
+
+    narrator.step('following the pet again, then panning with the mouse wheel over the office');
+    await petClick(frame, petId);
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId });
+    await frame.locator('canvas').first().hover();
+    await page.mouse.wheel(0, 120);
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId: null });
+    narrator.check('the wheel pan ended the follow');
+
+    narrator.step('following the pet again, then opening the layout editor');
+    await petClick(frame, petId);
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId });
+    await frame.locator('button[title="Edit office layout"]').click();
+    await expect.poll(() => readCameraFollow(frame)).toEqual({ agentId: null, petId: null });
+    narrator.check('entering the editor ended the follow');
   });
 });

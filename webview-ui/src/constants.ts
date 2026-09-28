@@ -332,6 +332,29 @@ export const PET_FOLLOW_RADIUS_TILES = 3;
 export const PET_FOLLOW_DURATION_MIN_SEC = 5.0;
 /** Maximum seconds a FOLLOW episode lasts before timing out. */
 export const PET_FOLLOW_DURATION_MAX_SEC = 15.0;
+// Pet behaviors below are ported from hootbu/pixel-agents (MIT). When a pet's IDLE pause ends
+// and it doesn't FOLLOW a nearby character, one roll in [0, 1) picks its next behavior from
+// cumulative bands: wander 40%, APPROACH an inactive character 30%, SLEEP 20%, FLEE 10%.
+/** Upper bound of the wander band of the behavior roll. */
+export const PET_WANDER_ROLL_MAX = 0.4;
+/** Upper bound of the APPROACH band of the behavior roll (starts at PET_WANDER_ROLL_MAX). */
+export const PET_APPROACH_ROLL_MAX = 0.7;
+/** Upper bound of the SLEEP band of the behavior roll; rolls at or above it FLEE. */
+export const PET_SLEEP_ROLL_MAX = 0.9;
+/** Minimum seconds a pet sleeps. */
+export const PET_SLEEP_DURATION_MIN_SEC = 15.0;
+/** Maximum seconds a pet sleeps. */
+export const PET_SLEEP_DURATION_MAX_SEC = 40.0;
+/** Minimum seconds a pet sits beside the character it approached. */
+export const PET_SIT_DURATION_MIN_SEC = 8.0;
+/** Maximum seconds a pet sits beside the character it approached. */
+export const PET_SIT_DURATION_MAX_SEC = 20.0;
+/** Maximum Manhattan distance (tiles) at which an active character makes a pet FLEE. */
+export const PET_FLEE_RADIUS_TILES = 3;
+/** FLEE speed in world pixels per second (twice the walk speed). */
+export const PET_FLEE_SPEED_PX_PER_SEC = 64;
+/** Time per FLEE walk-cycle step (twice as fast as PET_WALK_FRAME_DURATION_SEC). */
+export const PET_FLEE_FRAME_DURATION_SEC = 0.075;
 /** Hit-box half-width (world px) for pet click detection. */
 export const PET_HIT_HALF_WIDTH = 8;
 /** Hit-box height (world px) measured upward from the bottom-center anchor. */
