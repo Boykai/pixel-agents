@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
+import { ActivityPanel } from './components/ActivityPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { ConnectionIndicator } from './components/ConnectionIndicator.js';
@@ -115,6 +116,7 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -486,6 +488,17 @@ function App() {
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
           />
+
+          {isActivityOpen && !editor.isEditMode && (
+            <ActivityPanel
+              officeState={officeState}
+              agents={agents}
+              agentTools={agentTools}
+              subagentTools={subagentTools}
+              subagentCharacters={subagentCharacters}
+              onClose={() => setIsActivityOpen(false)}
+            />
+          )}
         </>
       ) : (
         <DebugView
@@ -572,6 +585,8 @@ function App() {
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+        isActivityOpen={isActivityOpen}
+        onToggleActivity={() => setIsActivityOpen((v) => !v)}
         workspaceFolders={workspaceFolders}
       />
 

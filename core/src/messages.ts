@@ -111,6 +111,7 @@ export interface AgentClosed {
 export interface AgentSelected {
   type: 'agentSelected';
   id: number;
+  reveal?: boolean;
 }
 
 export interface ExistingAgents {

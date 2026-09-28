@@ -222,6 +222,15 @@ export const FURNITURE_ANIM_INTERVAL_SEC = 0.2;
 export const WHATS_NEW_AUTO_CLOSE_MS = 20000;
 export const WHATS_NEW_FADE_MS = 1000;
 
+// ── Activity Panel ──────────────────────────────────────────
+/** How often the open Activity panel re-reads OfficeState, whose imperative
+ *  changes (turn state, speech bubbles) never re-render React on their own. */
+export const ACTIVITY_PANEL_REFRESH_MS = 250;
+/** Left padding of a top-level row, plus the indent per nesting level
+ *  (Sub-agents and Teammates sit one level under their Agent or Lead). */
+export const ACTIVITY_PANEL_ROW_PADDING_PX = 10;
+export const ACTIVITY_PANEL_INDENT_PX = 16;
+
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
 export const WAITING_BUBBLE_DURATION_SEC = 2.0;
