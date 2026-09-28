@@ -452,7 +452,7 @@ export function processCopilotRecord(
   const publish = (activity: CopilotActivity): void =>
     publishActivity(state, agent, activity, emit, onObservation);
   const reconcile = (): void => reconcileActivity(state, agent, emit, onObservation);
-  const clearTool = (key: string): void => {
+  const clearTool = (key: string, isError = false): void => {
     const tool = state.tools.get(key);
     if (!tool) return;
     const toolId = tool.id;
@@ -471,10 +471,19 @@ export function processCopilotRecord(
         }
       }
     }
+    // Only an observed failed completion carries the tool-failure signal; clears
+    // on child end, idle or generation change say nothing about the outcome.
+    const failure = isError ? { isError: true } : {};
     if (tool.parentToolId) {
       agent.activeSubagentToolIds.get(tool.parentToolId)?.delete(toolId);
       agent.activeSubagentToolNames.get(tool.parentToolId)?.delete(toolId);
-      emit({ type: 'subagentToolDone', id: agentId, parentToolId: tool.parentToolId, toolId });
+      emit({
+        type: 'subagentToolDone',
+        id: agentId,
+        parentToolId: tool.parentToolId,
+        toolId,
+        ...failure,
+      });
     } else {
       if (!state.children.has(toolId)) {
         agent.activeToolIds.delete(toolId);
@@ -482,7 +491,7 @@ export function processCopilotRecord(
         agent.activeToolNames.delete(toolId);
       }
       // Synchronous publication cannot clear a later turn via a delayed timer.
-      emit({ type: 'agentToolDone', id: agentId, toolId });
+      emit({ type: 'agentToolDone', id: agentId, toolId, ...failure });
     }
   };
   const endChild = (parentToolId: string): void => {
@@ -706,7 +715,7 @@ export function processCopilotRecord(
       const turnId = text(data.turnId);
       if (tool?.turnId && turnId && turnId !== tool.turnId) return;
       remember(state.completedTools, key);
-      clearTool(key);
+      clearTool(key, type === 'tool.execution_failed' || data.success === false);
       for (const requests of [state.inputs, state.permissions]) {
         for (const [requestId, request] of requests) {
           if (

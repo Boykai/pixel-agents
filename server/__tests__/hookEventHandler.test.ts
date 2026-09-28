@@ -587,24 +587,65 @@ describe('HookEventHandler', () => {
     const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
     expect(doneMsg).toBeTruthy();
     expect(doneMsg?.toolId).toBe('hook-123');
+    // A successful tool never carries the tool-failure signal.
+    expect(doneMsg).not.toHaveProperty('isError');
     expect(agent.currentHookToolId).toBeUndefined();
   });
 
-  it('PostToolUseFailure sends agentToolDone', () => {
+  it('PostToolUseFailure sends agentToolDone with the tool-failure signal', () => {
     const agent = createTestAgent({ id: 1 });
     agent.currentHookToolId = 'hook-456';
+    agent.currentHookToolName = 'Bash';
     agents.set(1, agent);
     handler.registerAgent('sess-1', 1);
 
     handler.handleEvent('claude', {
       hook_event_name: 'PostToolUseFailure',
       session_id: 'sess-1',
+      tool_name: 'Bash',
+      error: 'Exit code 1',
+    });
+
+    const doneMsgs = mockWebview.messages.filter((m) => m.type === 'agentToolDone');
+    expect(doneMsgs).toEqual([{ type: 'agentToolDone', id: 1, toolId: 'hook-456', isError: true }]);
+    expect(agent.currentHookToolId).toBeUndefined();
+  });
+
+  it('PostToolUseFailure for a sub-agent spawn tool leaves the failure to JSONL', () => {
+    // JSONL owns spawn tools (their real tool id and their tool_result), so the
+    // hook path must not report the same failure a second time.
+    const agent = createTestAgent({ id: 1 });
+    agent.currentHookToolId = 'hook-789';
+    agent.currentHookToolName = 'Agent';
+    agents.set(1, agent);
+    handler.registerAgent('sess-1', 1);
+
+    handler.handleEvent('claude', {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'sess-1',
+      tool_name: 'Agent',
     });
 
     const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
-    expect(doneMsg).toBeTruthy();
-    expect(doneMsg?.toolId).toBe('hook-456');
-    expect(agent.currentHookToolId).toBeUndefined();
+    expect(doneMsg).toEqual({ type: 'agentToolDone', id: 1, toolId: 'hook-789' });
+  });
+
+  it('PostToolUseFailure fired inside a sub-agent does not flag the parent', () => {
+    const agent = createTestAgent({ id: 1 });
+    agent.currentHookToolId = 'hook-sub';
+    agent.currentHookToolName = 'Bash';
+    agents.set(1, agent);
+    handler.registerAgent('sess-1', 1);
+
+    handler.handleEvent('claude', {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'sess-1',
+      agent_id: 'agent-abc123',
+      tool_name: 'Bash',
+    });
+
+    const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
+    expect(doneMsg).toEqual({ type: 'agentToolDone', id: 1, toolId: 'hook-sub' });
   });
 
   // ── Pending external session confirmation ────────────────────

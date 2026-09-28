@@ -318,6 +318,7 @@ export function createTranscriptParser() {
             type: string;
             tool_use_id?: string;
             content?: unknown;
+            is_error?: unknown;
           }>;
           const hasToolResult = blocks.some((b) => b.type === 'tool_result');
           if (hasToolResult) {
@@ -432,18 +433,22 @@ export function createTranscriptParser() {
                 agent.activeToolNames.delete(completedToolId);
                 // Send agentToolDone when hooks are off, or for Task/Agent tools
                 // (which always use JSONL path for consistent sub-agent lifecycle).
+                // tool_result.is_error is the transcript's tool-failure signal (also
+                // set for validation errors, permission denials and interrupts).
                 const isCompletedAgentTool =
                   completedToolName === 'Task' || completedToolName === 'Agent';
                 const useJsonlToolEvents =
                   agent.hookDelivered && hasInlineTeammates(agentId, agents);
                 if (!agent.hookDelivered || useJsonlToolEvents || isCompletedAgentTool) {
                   const toolId = completedToolId;
+                  const isError = block.is_error === true;
                   defer(() => {
                     if (agents.get(agentId) !== agent) return;
                     agents.broadcast({
                       type: 'agentToolDone',
                       id: agentId,
                       toolId,
+                      ...(isError ? { isError: true } : {}),
                     });
                   }, TOOL_DONE_DELAY_MS);
                 }
@@ -695,6 +700,7 @@ export function createTranscriptParser() {
           }
 
           const toolId = block.tool_use_id;
+          const isError = block.is_error === true;
           defer(() => {
             if (agents.get(agentId) !== agent) return;
             agents.broadcast({
@@ -702,6 +708,7 @@ export function createTranscriptParser() {
               id: agentId,
               parentToolId,
               toolId,
+              ...(isError ? { isError: true } : {}),
             });
           }, 300);
         }

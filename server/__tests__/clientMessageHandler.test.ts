@@ -191,6 +191,28 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
     });
   });
 
+  // ── setMoodBubbles ───────────────────────────────────────────
+
+  describe('setMoodBubbles', () => {
+    it('defaults to on in the settingsLoaded handshake', () => {
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+
+      const settings = sent.find((m) => m.type === 'settingsLoaded');
+      expect(settings?.moodBubbles).toBe(true);
+    });
+
+    it('persists the toggle per namespace and reports it on the next handshake', () => {
+      handleClientMessage({ type: 'setMoodBubbles', enabled: false }, (m) => sent.push(m), ctx);
+
+      expect(readConfig().standalone.moodBubbles).toBe(false);
+      expect(readConfig().vscode.moodBubbles).toBe(true);
+
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      const settings = sent.find((m) => m.type === 'settingsLoaded');
+      expect(settings?.moodBubbles).toBe(false);
+    });
+  });
+
   // ── hooksStatus (actual install state, not the hooksEnabled setting) ──
 
   describe('hooksStatus', () => {

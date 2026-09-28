@@ -74,6 +74,7 @@ const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
 const KEY_ZOOM = 'pixel-agents.zoom';
+const KEY_MOOD_BUBBLES = 'pixel-agents.moodBubbles';
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -292,6 +293,9 @@ export function handleClientMessage(
       if (zoom !== undefined) adapter?.setSetting(KEY_ZOOM, zoom);
       break;
     }
+    case 'setMoodBubbles':
+      adapter?.setSetting(KEY_MOOD_BUBBLES, msg.enabled);
+      break;
 
     default:
       // focusAgent, exportLayout, importLayout
@@ -472,6 +476,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     externalAssetDirectories: cfg.externalAssetDirectories,
     showAreas,
     ...(zoom !== undefined ? { zoom } : {}),
+    moodBubbles: adapter?.getSetting(KEY_MOOD_BUBBLES, true) ?? true,
   });
 
   // 4a. Actual install state, distinct from the hooksEnabled preference —
