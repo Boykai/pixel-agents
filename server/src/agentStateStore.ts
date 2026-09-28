@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync } from 'node:fs';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import { TokenUsageTracker } from './tokenUsage.js';
 import type { AgentState, PersistedAgent } from './types.js';
 
 /**
@@ -47,6 +48,9 @@ export class AgentStateStore {
   private readonly emitter = new EventEmitter();
   readonly nextAgentId = { current: 1 };
   readonly nextTerminalIndex = { current: 1 };
+  /** Per-agent Token usage totals, broadcast as throttled `agentUsage` messages.
+   *  `onLiveUsage` reports only newly observed usage, never seeded history. */
+  readonly tokenUsage = new TokenUsageTracker((message) => this.broadcast(message));
   private adapter: StateAdapter | undefined;
   private activeProviders: readonly string[] | undefined;
 
@@ -137,6 +141,7 @@ export class AgentStateStore {
 
   delete(id: number): boolean {
     const existed = this.agents.delete(id);
+    this.tokenUsage.remove(id);
     if (existed) {
       this.emitter.emit('agentRemoved', id);
     }
@@ -145,6 +150,7 @@ export class AgentStateStore {
 
   clear(): void {
     this.agents.clear();
+    this.tokenUsage.clear();
   }
 
   updateMetadata(id: number, metadata: Pick<AgentState, 'sessionName' | 'folderName'>): void {
@@ -190,6 +196,7 @@ export class AgentStateStore {
   // ── Lifecycle ───────────────────────────────────────────────
 
   dispose(): void {
+    this.tokenUsage.dispose();
     this.emitter.removeAllListeners();
   }
 

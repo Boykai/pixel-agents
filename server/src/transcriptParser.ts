@@ -164,6 +164,11 @@ export function createTranscriptParser() {
         });
       }
 
+      // -- Token usage: the provider reads its CLI's fields; the store's tracker
+      // dedupes, accumulates and broadcasts. Separate from the context gauge below.
+      const usage = hookProvider?.extractTokenUsage?.(record);
+      if (usage) agents.tokenUsage.observe(agentId, usage);
+
       // Copilot's dotted record.type namespace never overlaps with Claude's bare
       // one, so it's handled as a clean parallel branch rather than folded into
       // the Claude-specific chain below.

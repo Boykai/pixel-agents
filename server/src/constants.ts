@@ -46,6 +46,24 @@ export const CONTEXT_WINDOW_TIERS = [200_000, 1_000_000] as const;
  *  adoption or restore. Comfortably more than one turn's worth of records. */
 export const CONTEXT_SEED_TAIL_BYTES = 256 * 1024;
 
+// ── Token Usage ─────────────────────────────────────────────
+/** Minimum spacing between two agentUsage broadcasts for one agent. The first
+ *  change after a quiet period goes out at once; changes inside the window
+ *  coalesce into one trailing broadcast carrying the latest totals. */
+export const TOKEN_USAGE_BROADCAST_INTERVAL_MS = 1_000;
+/** Seeding tail: where the latest cumulative (`total`) sample is looked for
+ *  first, so a CLI that writes running totals never needs a full scan. */
+export const TOKEN_USAGE_SEED_TAIL_BYTES = 256 * 1024;
+/** Largest transcript prefix replayed once, synchronously, to seed a
+ *  whole-session total from per-message (`delta`) samples. Beyond it the
+ *  totals start at zero and are labelled "since tracked". */
+export const TOKEN_USAGE_SEED_MAX_BYTES = 16 * 1024 * 1024;
+/** Chunk size of that one-time replay. */
+export const TOKEN_USAGE_SEED_CHUNK_BYTES = 1024 * 1024;
+/** Most recent message ids remembered per agent for dedupe. A message's
+ *  records are written back to back, so a short window is exact. */
+export const TOKEN_USAGE_DEDUPE_WINDOW = 512;
+
 // ── Global Session Scanning ─────────────────────────────────
 /** Only adopt global JSONL files larger than this (filters out empty/init-only sessions) */
 export const GLOBAL_SCAN_ACTIVE_MIN_SIZE = 3_072; // 3KB

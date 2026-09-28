@@ -100,6 +100,30 @@ export type AgentEvent =
     }
   | { kind: 'sessionEnd'; reason?: string };
 
+/** One Token usage observation read from a single transcript record. An
+ *  omitted numeric field means "this record says nothing about it", never zero.
+ *
+ *  - `delta` adds to the agent's running totals. `messageId` makes a repeated
+ *    record idempotent (Claude writes one record per content block, each
+ *    repeating its message's usage). A delta carrying only `model` just names
+ *    the model in use.
+ *  - `total` is a cumulative whole-session snapshot and REPLACES every usage
+ *    field; fields it omits become unknown.
+ *
+ *  A provider reports each numeric field one way, either as deltas or as totals. */
+export interface TokenUsageSample {
+  kind: 'delta' | 'total';
+  messageId?: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  /** Billing units the CLI itself reports (GitHub Copilot); may be fractional. */
+  premiumRequests?: number;
+  nanoAiu?: number;
+}
+
 // ── Hook-based Provider (CLIs with hooks APIs) ────────────────
 
 export interface HookProvider {
@@ -150,6 +174,12 @@ export interface HookProvider {
    *  Return undefined for an unrecognized model; the runtime then keeps its
    *  previous estimate and widens it if a context ever exceeds it. */
   contextWindowForModel?(model: string | undefined): number | undefined;
+
+  /** Token usage stated by one already-parsed transcript record, or undefined
+   *  when the record states none. Report only what the CLI wrote — never an
+   *  estimate. The runtime owns accumulation, dedupe, seeding and broadcast;
+   *  the provider owns only the record shape. Unset = no Token usage. */
+  extractTokenUsage?(record: unknown): TokenUsageSample | undefined;
 
   // ── Optional file fallback (heuristic mode) ──
 
