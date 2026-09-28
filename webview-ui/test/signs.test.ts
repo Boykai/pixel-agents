@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 
 import {
+  SIGN_COLOR_PRESETS,
   SIGN_DEFAULT_COLOR,
   SIGN_LABEL,
   SIGN_SCALE_MAX,
@@ -64,6 +65,13 @@ function sign(value: string, overrides: Partial<SignText> = {}): SignText {
   return { value, color: SIGN_DEFAULT_COLOR, size: '3x5', scale: 1, ...overrides };
 }
 
+/** A Sign editor preset color by label (color literals live in constants.ts). */
+function preset(label: string): string {
+  const hit = SIGN_COLOR_PRESETS.find((p) => p.label === label);
+  assert.ok(hit, `preset ${label} exists`);
+  return hit.hex;
+}
+
 function floorLayout(cols = 12, rows = 12): OfficeLayout {
   const layout = emptyLayout(cols, rows);
   layout.tiles.fill(TileType.FLOOR_1);
@@ -97,10 +105,12 @@ test('normalizeSignText rejects payloads with nothing to draw', () => {
 });
 
 test('normalizeSignText fills defaults and clamps every field of an untrusted payload', () => {
+  const green = preset('Green');
+  const lowerGreen = green.toLowerCase();
   assert.deepEqual(normalizeSignText({ value: 'Hi' }), sign('Hi'));
   assert.deepEqual(
-    normalizeSignText({ value: 'Hi', size: '5x7', scale: 3, color: '#00cc00' }),
-    sign('Hi', { size: '5x7', scale: 3, color: '#00cc00' }),
+    normalizeSignText({ value: 'Hi', size: '5x7', scale: 3, color: lowerGreen }),
+    sign('Hi', { size: '5x7', scale: 3, color: lowerGreen }),
   );
   assert.deepEqual(
     normalizeSignText({ value: 'Hi', size: 'huge', scale: 99, color: 'red' }),
@@ -109,7 +119,10 @@ test('normalizeSignText fills defaults and clamps every field of an untrusted pa
   assert.equal(normalizeSignText({ value: 'Hi', scale: 0 })?.scale, 1);
   assert.equal(normalizeSignText({ value: 'Hi', scale: 2.6 })?.scale, 3);
   assert.equal(normalizeSignText({ value: 'Hi', scale: Number.NaN })?.scale, 1);
-  assert.equal(normalizeSignText({ value: 'Hi', color: '#12345' })?.color, SIGN_DEFAULT_COLOR);
+  const fiveDigits = green.slice(0, -1);
+  assert.equal(normalizeSignText({ value: 'Hi', color: fiveDigits })?.color, SIGN_DEFAULT_COLOR);
+  const alpha = `${green}FF`; // #RRGGBBAA: sprites take it, but the Sign editor never makes it
+  assert.equal(normalizeSignText({ value: 'Hi', color: alpha })?.color, SIGN_DEFAULT_COLOR);
 
   const long = 'x'.repeat(SIGN_TEXT_MAX_LENGTH + 10);
   assert.equal(normalizeSignText({ value: long })?.value.length, SIGN_TEXT_MAX_LENGTH);
@@ -123,7 +136,7 @@ test('the text sprite is exactly as large as its glyphs, and the footprint just 
     sign('Standup 10am', { size: '5x7', scale: 2 }),
     sign('Hi', { size: '5x7', scale: 5 }),
     sign('A', { scale: 3 }),
-    sign('Ship it!', { color: '#FF6666' }),
+    sign('Ship it!', { color: preset('Coral') }),
   ];
   for (const text of samples) {
     const font = PIXEL_FONTS[text.size];
@@ -164,7 +177,11 @@ test('characters the font lacks render as a filled glyph block, lowercase as upp
 test('text sprites are cached per text and the cache stays bounded (LRU)', () => {
   const first = getTextSprite(sign('A0'));
   assert.equal(getTextSprite({ ...sign('A0') }), first, 'same text → same sprite object');
-  assert.notEqual(getTextSprite(sign('A0', { color: '#FF0000' })), first, 'color is in the key');
+  assert.notEqual(
+    getTextSprite(sign('A0', { color: preset('Red') })),
+    first,
+    'color is in the key',
+  );
   clearTextSpriteCache();
 
   const kept = getTextSprite(sign('A0'));
@@ -261,9 +278,10 @@ test('updateFurnitureText replaces the text and keeps everything else', () => {
   layout.furniture = [
     { uid: 's', type: SIGN_TYPE, col: 1, row: 2, text: sign('Hello'), zLayer: 2 },
   ];
+  const cyan = preset('Cyan');
   const next = updateFurnitureText(layout, 's', {
     ...sign('Standup 10am', { size: '5x7', scale: 2 }),
-    color: '#00CCCC',
+    color: cyan,
   });
   assert.notEqual(next, layout);
   assert.deepEqual(next.furniture, [
@@ -273,7 +291,7 @@ test('updateFurnitureText replaces the text and keeps everything else', () => {
       col: 1,
       row: 2,
       zLayer: 2,
-      text: { value: 'Standup 10am', color: '#00CCCC', size: '5x7', scale: 2 },
+      text: { value: 'Standup 10am', color: cyan, size: '5x7', scale: 2 },
     },
   ]);
   assert.deepEqual(layout.furniture[0].text, sign('Hello'), 'the old layout is untouched');
@@ -308,7 +326,7 @@ test('layout.json round-trips Sign text and Draw layers exactly', () => {
       type: SIGN_TYPE,
       col: 1,
       row: 1,
-      text: sign('Ship it', { color: '#FFCC00', size: '5x7', scale: 2 }),
+      text: sign('Ship it', { color: preset('Yellow'), size: '5x7', scale: 2 }),
       zLayer: 1,
     },
     { uid: 'p', type: plain, col: 6, row: 6, zLayer: -2 },

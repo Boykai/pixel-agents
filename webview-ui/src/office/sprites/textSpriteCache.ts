@@ -84,12 +84,12 @@ export function getTextFootprint(text: SignText): { w: number; h: number } {
   };
 }
 
-/** @internal Drop every cached text sprite (tests). */
+/** Drop every cached text sprite (tests). */
 export function clearTextSpriteCache(): void {
   spriteCache.clear();
 }
 
-/** @internal Number of cached text sprites (tests). */
+/** Number of cached text sprites (tests). */
 export function textSpriteCacheSize(): number {
   return spriteCache.size;
 }
