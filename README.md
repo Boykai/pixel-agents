@@ -165,6 +165,8 @@ Click **Layout** to edit the office:
 
 Layouts can grow to 64×64 tiles by clicking the ghost border outside the current grid.
 
+Zoom with the **+** / **−** buttons or **Ctrl+scroll**. Zoom moves in whole steps so the pixel art stays crisp, and the label shows the current tile size in pixels (for example `32px`). Your zoom level is remembered, separately for VS Code and the standalone browser.
+
 ### Office assets
 
 Bundled furniture, floors, walls, carpets, characters, and pets live under `webview-ui/public/assets/`. Furniture manifests describe sprites, rotation groups, state groups, and animation frames.
@@ -283,6 +285,19 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request and read ou
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pixel-agents-hq/pixel-agents&type=date&legend=bottom-right&sealed_token=Vn3YGMuZ_HFZAf56zIUQGCBJDYtDq38sOReKlcxWklxR_ilwVLynb7CPraf5uPhnAU7fwHXXoO88tzLkq9tpEYIExl4N8tcXOmu0ehAXPu5DdXNwjixYsxb00LSfeJ25f_jLkcZcTpRKLKYOb9p4_dR1jjAyrWDs7aicdbqejaDtLcVyj-oSoKkBfrS5" />
  </picture>
 </a>
+
+## Credits
+
+Several features were ported from the community fork [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents) (MIT, © 2026 Hootbu):
+
+- Activity panel and VS Code shortcuts
+- Token usage dashboard
+- Agent nicknames and costumes
+- Pixel text signs and draw layers
+- Mood reactions
+- Pet behaviors and pet camera follow
+- Zoom persistence and panel retention
+- Achievements
 
 ## License
 

@@ -331,7 +331,7 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
 ```
 
-`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown` (the hooks preference is per-provider and machine-global, at the config top level). Running both surfaces in parallel never clobbers either.
+`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
 
 `migrateVsCodeState` (VS Code adapter only) walks each known legacy key once with **verify-before-clear** semantics: write to file, read back, only then clear the legacy key. While anything remains unmigrated, activation shows a non-blocking warning.
 
@@ -375,7 +375,7 @@ Every agent's context gauge. Fed from `message.usage` on assistant records by `p
 
 ## Office UI
 
-**Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.round(2 * devicePixelRatio)`. Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan.
+**Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.round(2 * devicePixelRatio)`, replaced by the persisted per-namespace `zoom` when `settingsLoaded` carries one; only a user zoom sends `setZoom` (debounced), never the mount-time default. The zoom label shows the tile size (`zoom × TILE_SIZE`, e.g. `32px`). Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan.
 
 **UI styling**: Pixel art aesthetic — sharp corners (`borderRadius: 0`), solid backgrounds (`#1e1e2e`), `2px solid` borders, hard offset shadows (`2px 2px 0px #0a0a14`, no blur). CSS variables in `index.css` `:root` (`--pixel-bg`, `--pixel-border`, `--pixel-accent`, ...). Pixel font: FS Pixel Sans (`webview-ui/src/fonts/`), loaded via `@font-face`, applied globally.
 
@@ -631,7 +631,7 @@ Supporting: `wall-tile-editor.html` (wall sprite editing), `jsonl-viewer.html` (
 - **TeamProvider** as optional extension. Claude Agent Teams is the only implementation.
 - **Per-adapter namespaced persistence** under `~/.pixel-agents/`. VS Code and standalone never clobber each other.
 - **Verify-before-clear migration** for legacy VS Code state.
-- **Single `WebviewViewProvider`** (panel area, not editor area).
+- **Single `WebviewViewProvider`** (panel area, not editor area), registered with `retainContextWhenHidden`: hiding the panel keeps the webview's React state. e2e specs that need a fresh webview use `reloadPixelAgentsWebview` ("Developer: Reload Webviews"), not a panel hide/show.
 - **Inline esbuild problem matcher** (no extra extension needed).
 - **`erasableSyntaxOnly`** in webview forbids `enum` — use `as const` objects.
 - **Server always starts** regardless of hooks toggle. Only hook installation is gated by the setting.
