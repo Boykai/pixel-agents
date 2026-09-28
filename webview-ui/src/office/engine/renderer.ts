@@ -33,6 +33,7 @@ import {
   GRID_LINE_COLOR,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
+  MOOD_BUBBLE_FADE_DURATION_SEC,
   OUTLINE_Z_SORT_OFFSET,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
@@ -51,6 +52,11 @@ import {
   getCarpetPaletteKey,
   hasCarpetSprites,
 } from '../sprites/carpetTiles.js';
+import {
+  MOOD_ERROR_SPRITE,
+  MOOD_HAPPY_SPRITE,
+  MOOD_STRESSED_SPRITE,
+} from '../sprites/moodSprites.js';
 import { getPetSprites } from '../sprites/petSpriteData.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
@@ -70,10 +76,11 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, PetState, TILE_SIZE, TileType } from '../types.js';
+import { CharacterState, Mood, PetState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
+import { isMoodBubbleCovered } from './moodTracker.js';
 import { getPetSpriteData } from './petEntity.js';
 
 // ── Settings ────────────────────────────────────────────────────
@@ -806,6 +813,49 @@ function renderBubbles(
   }
 }
 
+// ── Mood bubbles ────────────────────────────────────────────────
+
+const MOOD_SPRITES: Record<Mood, SpriteData> = {
+  [Mood.HAPPY]: MOOD_HAPPY_SPRITE,
+  [Mood.ERROR]: MOOD_ERROR_SPRITE,
+  [Mood.STRESSED]: MOOD_STRESSED_SPRITE,
+};
+
+/** Mood bubbles share the speech-bubble slot above the head, below it in
+ *  priority: a permission prompt or a Done checkmark covers them. */
+function renderMoodBubbles(
+  ctx: CanvasRenderingContext2D,
+  characters: Character[],
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+): void {
+  for (const ch of characters) {
+    if (!ch.moodType || ch.matrixEffect || isMoodBubbleCovered(ch)) continue;
+
+    const sprite = MOOD_SPRITES[ch.moodType];
+
+    // Fade out over the last MOOD_BUBBLE_FADE_DURATION_SEC
+    const timer = ch.moodTimer ?? 0;
+    let alpha = 1.0;
+    if (timer < MOOD_BUBBLE_FADE_DURATION_SEC) {
+      alpha = Math.max(0, timer / MOOD_BUBBLE_FADE_DURATION_SEC);
+    }
+
+    const cached = getCachedSprite(sprite, zoom);
+    const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+    const bubbleX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
+    const bubbleY = Math.round(
+      offsetY + (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX) * zoom - cached.height - 1 * zoom,
+    );
+
+    ctx.save();
+    if (alpha < 1.0) ctx.globalAlpha = alpha;
+    ctx.drawImage(cached, bubbleX, bubbleY);
+    ctx.restore();
+  }
+}
+
 function renderPetBubbles(
   ctx: CanvasRenderingContext2D,
   pets: Pet[],
@@ -966,6 +1016,8 @@ export function renderFrame(
 
   // Speech bubbles (always on top of characters)
   renderBubbles(ctx, characters, offsetX, offsetY, zoom);
+  // Mood bubbles (same slot, lower priority than speech bubbles)
+  renderMoodBubbles(ctx, characters, offsetX, offsetY, zoom);
   // Pet heart bubbles (same overlay pass)
   if (pets && pets.length > 0) {
     renderPetBubbles(ctx, pets, offsetX, offsetY, zoom);

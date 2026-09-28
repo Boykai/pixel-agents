@@ -29,6 +29,7 @@ const providerCaps = new Map<
   {
     readingTools: Set<string>;
     subagentToolNames: Set<string>;
+    permissionExemptTools: Set<string>;
     displayName?: string;
   }
 >();
@@ -38,10 +39,12 @@ export function setProviderCapabilities(caps: {
   displayName?: string;
   readingTools: string[];
   subagentToolNames: string[];
+  permissionExemptTools?: string[];
 }): void {
   providerCaps.set(caps.providerId ?? 'claude', {
     readingTools: new Set(caps.readingTools),
     subagentToolNames: new Set(caps.subagentToolNames),
+    permissionExemptTools: new Set(caps.permissionExemptTools ?? []),
     displayName: caps.displayName,
   });
 }
@@ -60,5 +63,15 @@ export function isSubagentToolName(
 ): boolean {
   return (
     typeof name === 'string' && providerCaps.get(providerId)?.subagentToolNames.has(name) === true
+  );
+}
+
+/** A tool that legitimately waits — on a Sub-agent (spawn tools) or on the user
+ *  (e.g. AskUserQuestion) — so a long run is expected, not a sign of trouble. */
+export function isWaitingToolName(name: string | null | undefined, providerId = 'claude'): boolean {
+  if (typeof name !== 'string') return false;
+  const caps = providerCaps.get(providerId);
+  return (
+    caps?.subagentToolNames.has(name) === true || caps?.permissionExemptTools.has(name) === true
   );
 }

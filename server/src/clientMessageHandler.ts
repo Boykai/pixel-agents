@@ -414,6 +414,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
       capabilities: provider.capabilities,
       readingTools: [...provider.readingTools],
       subagentToolNames: [...provider.subagentToolNames],
+      permissionExemptTools: [...provider.permissionExemptTools],
     });
   }
 

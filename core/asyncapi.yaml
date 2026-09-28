@@ -186,6 +186,15 @@ components:
           items:
             type: string
           description: Tool names that spawn sub-agent characters (e.g. Task, Agent).
+        permissionExemptTools:
+          type: array
+          items:
+            type: string
+          description: >-
+            Tool names that legitimately wait (on a Sub-agent or on the user, e.g.
+            Task, AskUserQuestion), so a long run is expected rather than a sign of
+            trouble. Mirrors HookProvider.permissionExemptTools; Mood reactions never
+            count these as long-running.
 
     ProviderConsentDisclosure:
       type: object

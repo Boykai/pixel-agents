@@ -77,6 +77,7 @@ export interface ProviderCapabilities {
   capabilities?: Record<string, boolean>;
   readingTools: string[];
   subagentToolNames: string[];
+  permissionExemptTools?: string[];
 }
 
 export interface ProviderConsentDisclosure {

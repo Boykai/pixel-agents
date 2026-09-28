@@ -562,6 +562,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             displayName: provider.displayName,
             readingTools: [...provider.readingTools],
             subagentToolNames: [...provider.subagentToolNames],
+            permissionExemptTools: [...provider.permissionExemptTools],
             capabilities: provider.capabilities,
             consentDisclosure: provider.consentDisclosure(),
           });
