@@ -311,8 +311,8 @@ function startApproach(
 
 /**
  * FLEE from the nearest active character within PET_FLEE_RADIUS_TILES, toward the walkable tile
- * nearest the point mirrored away from it. Returns false when no active character is that close
- * or the pet has nowhere to run.
+ * nearest the point mirrored away from it, among the tiles farther from it than the pet is now.
+ * Returns false when no active character is that close or the pet has nowhere to run.
  */
 function startFlee(
   pet: Pet,
@@ -323,10 +323,17 @@ function startFlee(
 ): boolean {
   const threat = findNearestCharacter(pet, characters, true, PET_FLEE_RADIUS_TILES);
   if (!threat) return false;
+  // Only tiles strictly farther from the threat count, which rules out the pet's own tile. That
+  // one can otherwise be the nearest (backed against a wall with the mirrored point off the map,
+  // or with the threat on its tile), leaving the pet nowhere to go; in a corner, the threat's
+  // own tile could tie for nearest and win.
+  const threatDist = manhattanDistance(pet.tileCol, pet.tileRow, threat.tileCol, threat.tileRow);
   const away = findNearestWalkable(
     2 * pet.tileCol - threat.tileCol,
     2 * pet.tileRow - threat.tileRow,
-    walkableTiles,
+    walkableTiles.filter(
+      (t) => manhattanDistance(t.col, t.row, threat.tileCol, threat.tileRow) > threatDist,
+    ),
   );
   if (!away) return false;
   const path = findPath(pet.tileCol, pet.tileRow, away.col, away.row, tileMap, blockedTiles);

@@ -12,7 +12,8 @@
  *   - IDLE → APPROACH → SIT beside (never on the tile of) an inactive character that's
  *     still inactive on arrival, and APPROACH's other exits
  *   - IDLE → SLEEP → IDLE and SIT → IDLE
- *   - IDLE → FLEE from a nearby active character → IDLE, faster than a walk
+ *   - IDLE → FLEE from a nearby active character → IDLE, faster than a walk, always to a
+ *     tile farther from it (never the pet's own tile)
  *   - Sprite frames for the new states
  *   - Animation timer increments
  *   - Defensive: empty walkableTiles, etc.
@@ -684,6 +685,76 @@ test('FLEE runs to the walkable tile nearest the mirrored point when that is off
   assert.equal(pet.state, PetState.FLEE);
   // The mirrored point (11,4) is off the 10-wide map; (9,4) is the nearest walkable tile.
   assert.deepEqual(destination(pet), { col: 9, row: 4 });
+});
+
+test('FLEE backed against a wall runs along it, not staying put or running to the threat', () => {
+  const tileMap = buildOpenTileMap(10, 10);
+  const walkable = buildWalkableTiles(10, 10);
+  const cases = [
+    // The mirrored point (-1,4) is off the map, and the pet's own tile is the one nearest it.
+    { pet: { col: 0, row: 4 }, threat: { col: 1, row: 4 }, away: { col: 0, row: 3 } },
+    // Cornered: the threat's own tile (1,0) would tie (0,1) for nearest, and come first.
+    { pet: { col: 0, row: 0 }, threat: { col: 1, row: 0 }, away: { col: 0, row: 1 } },
+  ];
+  for (const { pet: at, threat, away } of cases) {
+    const pet = makePet(at.col, at.row);
+    pet.wanderTimer = 0;
+    const characters = new Map<number, Character>([
+      [1, makeChar(1, threat.col, threat.row, { isActive: true })],
+    ]);
+    updatePet(
+      pet,
+      0.1,
+      walkable,
+      characters,
+      tileMap,
+      new Set(),
+      scriptedRng([0.99, PET_SLEEP_ROLL_MAX]),
+    );
+    assert.equal(pet.state, PetState.FLEE, JSON.stringify(at));
+    assert.deepEqual(pet.path, [away]);
+  }
+});
+
+test('FLEE steps off its tile when an active character is standing on it', () => {
+  const tileMap = buildOpenTileMap(10, 10);
+  const walkable = buildWalkableTiles(10, 10);
+  const pet = makePet(4, 4);
+  pet.wanderTimer = 0;
+  const characters = new Map<number, Character>([[1, makeChar(1, 4, 4, { isActive: true })]]);
+  updatePet(
+    pet,
+    0.1,
+    walkable,
+    characters,
+    tileMap,
+    new Set(),
+    scriptedRng([0.99, PET_SLEEP_ROLL_MAX]),
+  );
+  assert.equal(pet.state, PetState.FLEE);
+  // Every neighbour is one step away; the first in the walkable list (above) wins the tie.
+  assert.deepEqual(pet.path, [{ col: 4, row: 3 }]);
+});
+
+test('FLEE falls back to wandering when no tile is farther from the threat', () => {
+  // A 3×1 corridor with the threat in the middle: both ends are one tile from it.
+  const tileMap = buildOpenTileMap(3, 1);
+  const walkable = buildWalkableTiles(3, 1);
+  const pet = makePet(0, 0);
+  pet.wanderTimer = 0;
+  const characters = new Map<number, Character>([[1, makeChar(1, 1, 0, { isActive: true })]]);
+  // FOLLOW roll fails, the FLEE band finds nowhere to run, wander tile pick 0.99 → (2,0)
+  updatePet(
+    pet,
+    0.1,
+    walkable,
+    characters,
+    tileMap,
+    new Set(),
+    scriptedRng([0.99, PET_SLEEP_ROLL_MAX, 0.99]),
+  );
+  assert.equal(pet.state, PetState.WALK);
+  assert.deepEqual(destination(pet), { col: 2, row: 0 });
 });
 
 test('FLEE falls back to wandering when no visible active character is close', () => {
