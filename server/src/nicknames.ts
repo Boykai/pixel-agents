@@ -10,8 +10,9 @@
  *   launched under a known nickname gets that nickname's appearance back.
  */
 
+import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import type { NicknameBook, NicknameProfile } from '../../core/src/schemas.js';
-import { NICKNAME_BOOK_MAX_ENTRIES } from './constants.js';
+import { HUE_SHIFT_MAX_DEG, NICKNAME_BOOK_MAX_ENTRIES } from './constants.js';
 
 export function emptyNicknameBook(): NicknameBook {
   return { sessions: {}, profiles: [] };
@@ -111,22 +112,29 @@ export function parseNicknameBook(raw: unknown): NicknameBook {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return book;
   const { sessions, profiles } = raw as { sessions?: unknown; profiles?: unknown };
   if (sessions && typeof sessions === 'object' && !Array.isArray(sessions)) {
-    for (const [key, nickname] of Object.entries(sessions as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(sessions as Record<string, unknown>)) {
       // Every real key has a provider prefix, which also rules out "__proto__".
-      if (key.includes(':') && typeof nickname === 'string' && nickname) {
-        book.sessions[key] = nickname;
-      }
+      const nickname = normalizeNickname(value);
+      if (key.includes(':') && nickname) rememberSessionNickname(book, key, nickname);
     }
   }
   if (Array.isArray(profiles)) {
     for (const entry of profiles as unknown[]) {
       if (!entry || typeof entry !== 'object') continue;
-      const { nickname, palette, hueShift, seatId } = entry as Record<string, unknown>;
-      if (typeof nickname !== 'string' || !nickname) continue;
+      const { palette, hueShift, seatId } = entry as Record<string, unknown>;
+      const nickname = normalizeNickname((entry as Record<string, unknown>).nickname);
+      if (!nickname) continue;
       const profile: NicknameProfile = { nickname };
-      if (Number.isInteger(palette) && (palette as number) >= 0)
+      if (Number.isInteger(palette) && (palette as number) >= 0) {
         profile.palette = palette as number;
-      if (Number.isInteger(hueShift)) profile.hueShift = hueShift as number;
+      }
+      if (
+        Number.isInteger(hueShift) &&
+        (hueShift as number) >= 0 &&
+        (hueShift as number) <= HUE_SHIFT_MAX_DEG
+      ) {
+        profile.hueShift = hueShift as number;
+      }
       if (typeof seatId === 'string' && seatId) profile.seatId = seatId;
       rememberNicknameProfile(book, profile);
     }
