@@ -183,19 +183,33 @@ function rest(
   pet.frameTimer = 0;
 }
 
-/** SIT beside `target`, facing it when it's on a neighbouring tile. */
+/** Whether `ch` stands on one of the four tiles next to the pet. The pet's own tile doesn't count. */
+function isBeside(pet: Pet, ch: Character): boolean {
+  return manhattanDistance(pet.tileCol, pet.tileRow, ch.tileCol, ch.tileRow) === 1;
+}
+
+/** SIT beside `target`, which must be on a neighbouring tile (see isBeside), facing it. */
 function sitBeside(pet: Pet, target: Character, rng: PetRng): void {
-  if (manhattanDistance(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow) === 1) {
-    pet.dir = directionBetween(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow);
-  }
+  pet.dir = directionBetween(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow);
   rest(pet, PetState.SIT, randomRange(PET_SIT_DURATION_MIN_SEC, PET_SIT_DURATION_MAX_SEC, rng));
 }
 
 /**
- * The nearest character within `maxDistance` tiles (Manhattan) whose `isActive` equals `active`.
- * Skips sub-agents, despawning characters, and characters whose activity is unknown
- * (`observation: 'unknown'`), since their `isActive` can't be trusted.
+ * Whether a pet reacts to `ch` as a character whose `isActive` equals `active`: an inactive one
+ * to APPROACH and SIT beside, or an active one to FLEE from. Sub-agents, despawning characters,
+ * and characters whose activity is unknown (`observation: 'unknown'`, so `isActive` can't be
+ * trusted) never count.
  */
+function isReactionTarget(ch: Character, active: boolean): boolean {
+  return (
+    ch.isActive === active &&
+    !ch.isSubagent &&
+    ch.matrixEffect !== 'despawn' &&
+    ch.observation !== 'unknown'
+  );
+}
+
+/** The nearest character within `maxDistance` tiles (Manhattan) that isReactionTarget accepts. */
 function findNearestCharacter(
   pet: Pet,
   characters: Map<number, Character>,
@@ -205,8 +219,7 @@ function findNearestCharacter(
   let closest: Character | null = null;
   let closestDist = Number.POSITIVE_INFINITY;
   for (const ch of characters.values()) {
-    if (ch.isActive !== active || ch.isSubagent) continue;
-    if (ch.matrixEffect === 'despawn' || ch.observation === 'unknown') continue;
+    if (!isReactionTarget(ch, active)) continue;
     const d = manhattanDistance(pet.tileCol, pet.tileRow, ch.tileCol, ch.tileRow);
     if (d <= maxDistance && d < closestDist) {
       closest = ch;
@@ -257,8 +270,9 @@ function startWander(
 
 /**
  * APPROACH the nearest inactive character (any distance): walk to the free tile beside it with
- * the shortest path, to SIT there. Already beside it: SIT straight away. Returns false when
- * there's no one to approach or no free tile beside them can be reached.
+ * the shortest path, to SIT there. Already beside it: SIT straight away. On its very tile (pets
+ * and unseated characters don't block each other), the pet steps off to a free neighbour first.
+ * Returns false when there's no one to approach or no free tile beside them can be reached.
  */
 function startApproach(
   pet: Pet,
@@ -269,7 +283,7 @@ function startApproach(
 ): boolean {
   const target = findNearestCharacter(pet, characters, false, Number.POSITIVE_INFINITY);
   if (!target) return false;
-  if (manhattanDistance(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow) <= 1) {
+  if (isBeside(pet, target)) {
     sitBeside(pet, target, rng);
     return true;
   }
@@ -449,9 +463,10 @@ export function updatePet(
       movePetAlongPath(pet, dt);
 
       if (pet.path.length === 0 && pet.moveProgress === 0) {
-        // Arrived: sit if the character is still beside us, otherwise settle.
+        // Arrived: sit only if the character is still beside us and still one to approach
+        // (it may have turned active or become unknown on the way); otherwise settle.
         pet.approachTargetId = null;
-        if (manhattanDistance(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow) <= 1) {
+        if (isBeside(pet, target) && isReactionTarget(target, false)) {
           sitBeside(pet, target, rng);
         } else {
           enterIdle(pet, rng);

@@ -9,7 +9,8 @@
  *   - FOLLOW → IDLE when target despawns
  *   - FOLLOW → IDLE when duration limit reached
  *   - FOLLOW → IDLE when target reached (Manhattan distance ≤ 1)
- *   - IDLE → APPROACH → SIT beside an inactive character, and APPROACH's other exits
+ *   - IDLE → APPROACH → SIT beside (never on the tile of) an inactive character that's
+ *     still inactive on arrival, and APPROACH's other exits
  *   - IDLE → SLEEP → IDLE and SIT → IDLE
  *   - IDLE → FLEE from a nearby active character → IDLE, faster than a walk
  *   - Sprite frames for the new states
@@ -494,6 +495,95 @@ test('APPROACH → IDLE on arrival when the character has moved away', () => {
   assert.equal(pet.state, PetState.IDLE);
   assert.equal(pet.approachTargetId, null);
   assert.equal(pet.wanderTimer, PET_WANDER_PAUSE_MIN_SEC);
+});
+
+test('IDLE on the same tile as an inactive character → APPROACH a free neighbour, then SIT facing it', () => {
+  // Pets and unseated characters don't block each other, so they can share a tile.
+  // The pet must step off it first, never sit on top of the character.
+  const tileMap = buildOpenTileMap(5, 5);
+  const walkable = buildWalkableTiles(5, 5);
+  const pet = makePet(2, 2);
+  pet.wanderTimer = 0;
+  const characters = new Map<number, Character>([[1, makeChar(1, 2, 2)]]);
+  // FOLLOW roll fails, behavior roll at the bottom of the APPROACH band
+  updatePet(
+    pet,
+    0.1,
+    walkable,
+    characters,
+    tileMap,
+    new Set(),
+    scriptedRng([0.99, PET_WANDER_ROLL_MAX]),
+  );
+  assert.equal(pet.state, PetState.APPROACH);
+  assert.equal(pet.approachTargetId, 1);
+  // Every neighbour is one step away; the first one tried (above the character) wins the tie.
+  assert.deepEqual(pet.path, [{ col: 2, row: 1 }]);
+
+  // One step later it's beside the character and sits (duration 0 → the minimum).
+  updatePet(
+    pet,
+    tileTime(PET_WALK_SPEED_PX_PER_SEC),
+    walkable,
+    characters,
+    tileMap,
+    new Set(),
+    scriptedRng([0]),
+  );
+  assert.equal(pet.state, PetState.SIT);
+  assert.deepEqual([pet.tileCol, pet.tileRow], [2, 1]);
+  assert.equal(pet.dir, Direction.DOWN, 'faces the character below it');
+  assert.equal(pet.restTimer, PET_SIT_DURATION_MIN_SEC);
+});
+
+test('APPROACH → IDLE on arrival, without sitting, when the character stepped onto its destination', () => {
+  const tileMap = buildOpenTileMap(10, 10);
+  const walkable = buildWalkableTiles(10, 10);
+  const pet = makePet(0, 0);
+  pet.state = PetState.APPROACH;
+  pet.approachTargetId = 1;
+  pet.path = [{ col: 1, row: 0 }];
+  const characters = new Map<number, Character>([[1, makeChar(1, 1, 0)]]);
+  updatePet(
+    pet,
+    tileTime(PET_WALK_SPEED_PX_PER_SEC),
+    walkable,
+    characters,
+    tileMap,
+    new Set(),
+    scriptedRng([0]),
+  );
+  assert.equal(pet.state, PetState.IDLE, 'never sits on the tile the character stands on');
+  assert.deepEqual([pet.tileCol, pet.tileRow], [1, 0]);
+  assert.equal(pet.approachTargetId, null);
+  assert.equal(pet.wanderTimer, PET_WANDER_PAUSE_MIN_SEC);
+});
+
+test('APPROACH → IDLE on arrival, without sitting, when the character turned active or unknown on the way', () => {
+  const tileMap = buildOpenTileMap(10, 10);
+  const walkable = buildWalkableTiles(10, 10);
+  const changes: Array<Partial<Character>> = [{ isActive: true }, { observation: 'unknown' }];
+  for (const change of changes) {
+    const pet = makePet(0, 0);
+    pet.state = PetState.APPROACH;
+    pet.approachTargetId = 1;
+    pet.path = [{ col: 1, row: 0 }];
+    // Right beside the pet's destination, but no longer a character to approach.
+    const characters = new Map<number, Character>([[1, makeChar(1, 2, 0, change)]]);
+    updatePet(
+      pet,
+      tileTime(PET_WALK_SPEED_PX_PER_SEC),
+      walkable,
+      characters,
+      tileMap,
+      new Set(),
+      scriptedRng([0]),
+    );
+    assert.equal(pet.state, PetState.IDLE, JSON.stringify(change));
+    assert.deepEqual([pet.tileCol, pet.tileRow], [1, 0]);
+    assert.equal(pet.approachTargetId, null);
+    assert.equal(pet.wanderTimer, PET_WANDER_PAUSE_MIN_SEC);
+  }
 });
 
 test('SIT keeps the idle animation going, then → IDLE when its rest runs out', () => {
