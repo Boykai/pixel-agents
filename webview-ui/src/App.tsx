@@ -102,7 +102,12 @@ function App() {
     setAreaMappings,
     showAreas,
     setShowAreas,
-  } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
+  } = useExtensionMessages(
+    getOfficeState,
+    editor.setLastSavedLayout,
+    isEditDirty,
+    editor.restoreZoom,
+  );
 
   // Show migration notice once layout reset is detected
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = useState(false);
@@ -217,6 +222,14 @@ function App() {
     hooks.editorEraseAction = (col, row) => handleEditorEraseAction(col, row);
     hooks.getShowAreas = () => effectiveShowAreas;
   }, [handleEditorTileAction, handleEditorEraseAction, effectiveShowAreas]);
+
+  // e2e: the live zoom level, so persistence specs can assert a restore exactly.
+  const currentZoom = editor.zoom;
+  useEffect(() => {
+    if (!isE2E || typeof window === 'undefined') return;
+    const hooks = (window.__pixelAgentsTestHooks ??= {});
+    hooks.getZoom = () => currentZoom;
+  }, [currentZoom]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const editorToolbarRef = useRef<HTMLDivElement>(null);

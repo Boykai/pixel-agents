@@ -64,7 +64,8 @@ export type ClientMessage =
   | RemoveExternalAssetDirectory
   | SaveAreaMappings
   | SetShowAreas
-  | RequestDiagnostics;
+  | RequestDiagnostics
+  | SetZoom;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -313,6 +314,7 @@ export interface SettingsLoaded {
   hooksInfoShown: boolean;
   externalAssetDirectories: string[];
   showAreas: boolean;
+  zoom?: number;
 }
 
 export interface HooksStatus {
@@ -469,4 +471,9 @@ export interface SetShowAreas {
 
 export interface RequestDiagnostics {
   type: 'requestDiagnostics';
+}
+
+export interface SetZoom {
+  type: 'setZoom';
+  zoom: number;
 }

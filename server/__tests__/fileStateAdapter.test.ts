@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
 import type { PersistedAgent } from '../../core/src/schemas.js';
 
 // Mock os.homedir() so the adapter resolves to an isolated temp dir on every
@@ -104,6 +105,76 @@ describe('FileStateAdapter', () => {
     const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
     expect(parsed.standalone.soundEnabled).toBe(false);
     expect(parsed.standalone['pixel-agents.soundEnabled']).toBeUndefined();
+  });
+
+  // ── zoom: the one numeric, optional setting ─────────────────
+
+  const configPath = () => path.join(tempHome, '.pixel-agents', 'config.json');
+  const writeRawConfig = (config: unknown) => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify(config), 'utf-8');
+  };
+
+  it('zoom is unset (returns the caller default) until written, and is not persisted as a default', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    expect(adapter.getSetting<number | undefined>('pixel-agents.zoom', undefined)).toBeUndefined();
+    expect(adapter.getSetting('pixel-agents.zoom', 7)).toBe(7);
+
+    // An unrelated write must not materialize a zoom key.
+    adapter.setSetting('pixel-agents.soundEnabled', false);
+    const parsed = JSON.parse(fs.readFileSync(configPath(), 'utf-8')) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect('zoom' in parsed.standalone).toBe(false);
+  });
+
+  it('round-trips an integer zoom per namespace, isolated between vscode and standalone', () => {
+    const vscode = new FileStateAdapter({ namespace: 'vscode' });
+    const standalone = new FileStateAdapter({ namespace: 'standalone' });
+
+    vscode.setSetting('pixel-agents.zoom', 5);
+    standalone.setSetting('pixel-agents.zoom', 3);
+
+    expect(vscode.getSetting('pixel-agents.zoom', 1)).toBe(5);
+    expect(standalone.getSetting('pixel-agents.zoom', 1)).toBe(3);
+    const parsed = JSON.parse(fs.readFileSync(configPath(), 'utf-8')) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(parsed.vscode.zoom).toBe(5);
+    expect(parsed.standalone.zoom).toBe(3);
+  });
+
+  it('clamps an out-of-range stored zoom into ZOOM_MIN..ZOOM_MAX', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    writeRawConfig({ standalone: { zoom: 0 }, vscode: { zoom: 99 } });
+    expect(adapter.getSetting('pixel-agents.zoom', 4)).toBe(ZOOM_MIN);
+    expect(new FileStateAdapter({ namespace: 'vscode' }).getSetting('pixel-agents.zoom', 4)).toBe(
+      ZOOM_MAX,
+    );
+  });
+
+  it.each([
+    ['a fraction', 2.5],
+    ['a numeric string', '3'],
+    ['null', null],
+    ['a boolean', true],
+    ['an object', { level: 3 }],
+  ])('treats %s stored as zoom as unset', (_label, stored) => {
+    writeRawConfig({ standalone: { zoom: stored, soundEnabled: false } });
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    expect(adapter.getSetting('pixel-agents.zoom', 4)).toBe(4);
+    // The rest of the namespace still parses.
+    expect(adapter.getSetting('pixel-agents.soundEnabled', true)).toBe(false);
+  });
+
+  it('drops a written non-finite zoom (JSON cannot hold NaN/Infinity) and reads it back as unset', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    adapter.setSetting('pixel-agents.zoom', Number.NaN);
+    expect(adapter.getSetting('pixel-agents.zoom', 4)).toBe(4);
+    adapter.setSetting('pixel-agents.zoom', Number.POSITIVE_INFINITY);
+    expect(adapter.getSetting('pixel-agents.zoom', 4)).toBe(4);
   });
 
   // ── Per-namespace state file (agents + seats) ───────────────

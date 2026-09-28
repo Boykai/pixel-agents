@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { parseZoom } from '../../core/src/zoom.js';
 import { CONFIG_FILE_NAME, HOOKS_CONSENT_SCOPES, LAYOUT_FILE_DIR } from './constants.js';
 
 export interface AdapterSettings {
@@ -13,6 +14,9 @@ export interface AdapterSettings {
   hooksInfoShown: boolean;
   showAreas: boolean;
   areaMappings: Record<string, string[]>;
+  /** Integer office zoom (ZOOM_MIN..ZOOM_MAX). Absent until the user zooms, so
+   *  the webview keeps its devicePixelRatio-derived default. */
+  zoom?: number;
 }
 
 /** All keys in AdapterSettings. Used by adapters to map `pixel-agents.foo` → `foo`.
@@ -28,6 +32,7 @@ export const ADAPTER_SETTING_KEYS = [
   'hooksInfoShown',
   'showAreas',
   'areaMappings',
+  'zoom',
 ] as const;
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
@@ -126,6 +131,8 @@ export function parseAreaMappings(raw: unknown): Record<string, string[]> {
 /** Coerce a loose object into a valid AdapterSettings with defaults for missing/wrong-typed fields. */
 function parseAdapterSettings(raw: unknown): AdapterSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Partial<AdapterSettings>;
+  // Optional, with no default: an invalid stored zoom reads as never-set rather than as a guessed level.
+  const zoom = parseZoom(obj.zoom);
   return {
     soundEnabled:
       typeof obj.soundEnabled === 'boolean'
@@ -154,6 +161,7 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
     showAreas:
       typeof obj.showAreas === 'boolean' ? obj.showAreas : DEFAULT_ADAPTER_SETTINGS.showAreas,
     areaMappings: parseAreaMappings(obj.areaMappings),
+    ...(zoom !== undefined ? { zoom } : {}),
   };
 }
 

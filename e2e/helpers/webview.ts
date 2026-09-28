@@ -9,6 +9,7 @@ import { expect } from '@playwright/test';
 type WebviewSurface = Frame | Page;
 
 const WEBVIEW_TIMEOUT_MS = 30_000;
+const WEBVIEW_RELOAD_TIMEOUT_MS = 15_000;
 const PANEL_OPEN_TIMEOUT_MS = 15_000;
 const MIN_PANEL_HEIGHT_PX = 320;
 
@@ -116,24 +117,19 @@ async function ensurePanelIsLarge(window: Page): Promise<void> {
  * "Pixel Agents: Show Panel" command to execute.
  */
 /**
- * Close the bottom panel. Triggers onDidChangeVisibility(false) on every
- * WebviewView hosted there; since PixelAgentsViewProvider does NOT set
- * retainContextWhenHidden, the webview is disposed and resolveWebviewView
- * is called fresh when the panel reopens. Used by the restored-agents test to exercise
- * the existingAgents restore path without a destructive iframe reload.
+ * Hide or show the panel that hosts Pixel Agents. The view is registered with
+ * retainContextWhenHidden, so hiding keeps the SAME webview (its React state
+ * and test hooks) alive, and showing brings it back as it was. A test that
+ * needs a fresh webview must use reloadPixelAgentsWebview instead.
  *
- * Toggle (rather than Close) is used because the literal command name varies
- * by VS Code locale/version; "View: Toggle Panel" is stable. Caller must
- * ensure the panel is currently open before calling (it will be after a
- * preceding openPixelAgentsPanel + spawn flow).
+ * Uses the default Toggle Panel chord (⌘J / Ctrl+J), not the command palette:
+ * the palette's fuzzy match can pick the wrong command ("View: Toggle Panel"
+ * is a subsequence of "View: Toggle MAXIMIZED Panel"), and the chord keeps
+ * palette overlays out of the run video. Chords need workbench (not webview)
+ * focus, so click the empty status-bar middle first (same trick as
+ * arrangeReviewLayout).
  */
-export async function closeBottomPanel(window: Page): Promise<void> {
-  // Use the default Toggle Panel chord (⌘J / Ctrl+J) instead of the command
-  // palette: the palette's fuzzy match can select the wrong command — typing
-  // "View: Toggle Panel" is a subsequence of "View: Toggle MAXIMIZED Panel",
-  // which maximizes instead of closing and leaves the webview alive. Chords
-  // need workbench (not webview) focus, so click the empty status-bar middle
-  // first (same trick as arrangeReviewLayout).
+export async function togglePanel(window: Page): Promise<void> {
   const statusBox = await window
     .locator('.part.statusbar')
     .boundingBox()
@@ -142,60 +138,40 @@ export async function closeBottomPanel(window: Page): Promise<void> {
     await window.mouse.click(statusBox.x + statusBox.width / 2, statusBox.y + statusBox.height / 2);
   }
   await window.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
-  // Wait until the Pixel Agents webview is actually DESTROYED, not merely
-  // hidden. VS Code disposes a hidden WebviewView lazily; returning on a
-  // fixed sleep lets a quick reopen re-show the SAME webview context, which
-  // breaks tests whose premise is a fresh webview (e.g. restored-agents reads
-  // the fresh context's addAgentLog). The old fixed 800ms only worked because
-  // the reopen path used to be slow enough to mask this.
-  await expect
-    .poll(
-      async () => {
-        for (const frame of window.frames()) {
-          if (!frame.url().startsWith('vscode-webview://')) continue;
-          try {
-            if ((await frame.locator('button', { hasText: '+ Agent' }).count()) > 0) return true;
-          } catch {
-            // Frame detached mid-check — treat as gone.
-          }
-        }
-        return false;
-      },
-      {
-        message: 'Expected the Pixel Agents webview to be disposed after closing the panel',
-        timeout: 15_000,
-      },
-    )
-    .toBe(false);
 }
 
 /**
- * Reopen the bottom panel with the same ⌘J/Ctrl+J toggle closeBottomPanel
- * used. Compared to openPixelAgentsPanel (palette "Show Panel" plus a
- * possible "Toggle Maximized Panel" resize), the chord restores the panel
- * exactly as it was — no command-palette overlays in the run video. Caller
- * must have closed the panel with closeBottomPanel first, and should follow
- * with getPixelAgentsFrame(window) to wait for the fresh webview.
+ * Reload the Pixel Agents webview in place ("Developer: Reload Webviews") and
+ * return the fresh frame. The new document boots a fresh React app that sends
+ * webviewReady to the same PixelAgentsViewProvider, which answers with the
+ * full restore (settingsLoaded, existingAgents, layoutLoaded, ...). This is
+ * how tests exercise a restore now that hiding the panel no longer disposes
+ * the webview. (`location.reload()` inside the frame is no substitute: a
+ * vscode-webview:// document can't survive a content-level reload.)
  */
-export async function reopenBottomPanel(window: Page): Promise<void> {
-  const statusBox = await window
-    .locator('.part.statusbar')
-    .boundingBox()
-    .catch(() => null);
-  if (statusBox) {
-    await window.mouse.click(statusBox.x + statusBox.width / 2, statusBox.y + statusBox.height / 2);
-  }
-  await window.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
+export async function reloadPixelAgentsWebview(window: Page): Promise<Frame> {
+  const before = await getPixelAgentsFrame(window);
+  await runCommand(window, 'Developer: Reload Webviews');
+  // The webview host swaps in a new inner frame once it has loaded and only
+  // then removes the old one. Wait for that, so getPixelAgentsFrame can't
+  // hand back the stale frame (and its stale test hooks).
+  await expect
+    .poll(() => before.isDetached(), {
+      message: 'Expected "Developer: Reload Webviews" to replace the Pixel Agents webview',
+      timeout: WEBVIEW_RELOAD_TIMEOUT_MS,
+    })
+    .toBe(true);
+  return getPixelAgentsFrame(window);
 }
 
 /**
  * Single-shot (non-waiting) check for the Pixel Agents webview frame.
  *
- * The iframe must be VISIBLE, not merely attached: after the panel is hidden
- * (View: Toggle Panel), VS Code keeps the dying webview's iframe in the DOM
- * briefly. Matching it would hand callers a stale frame whose state (e.g.
- * addAgentLog) belongs to the previous webview lifetime — the restored-agents
- * test reads a fresh webview's log and MUST NOT see the old one.
+ * The iframe must have a real box, not merely be attached: a webview VS Code
+ * is tearing down can linger in the DOM briefly, and matching it would hand
+ * callers a stale frame whose state (e.g. addAgentLog) belongs to the previous
+ * webview lifetime. (A reload keeps the old frame laid out until the new one
+ * has loaded, so reloadPixelAgentsWebview waits for it to detach first.)
  */
 async function findPixelAgentsFrameOnce(window: Page): Promise<Frame | null> {
   for (const frame of window.frames()) {

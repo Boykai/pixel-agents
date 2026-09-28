@@ -146,6 +146,7 @@ components:
         - $ref: '#/components/schemas/SaveAreaMappings'
         - $ref: '#/components/schemas/SetShowAreas'
         - $ref: '#/components/schemas/RequestDiagnostics'
+        - $ref: '#/components/schemas/SetZoom'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -771,6 +772,12 @@ components:
             type: string
         showAreas:
           type: boolean
+        zoom:
+          type: integer
+          description: |
+            Persisted office zoom for this surface (integer, clamped to the shared
+            ZOOM_MIN..ZOOM_MAX). Absent until the user has zoomed, in which case the
+            client keeps its own default.
 
     HooksStatus:
       description: |
@@ -1174,6 +1181,20 @@ components:
       properties:
         type:
           const: requestDiagnostics
+
+    SetZoom:
+      description: |
+        Persist the office zoom for this surface, restored through
+        `settingsLoaded.zoom` on the next connect. The server ignores a
+        non-integer and clamps an out-of-range integer to ZOOM_MIN..ZOOM_MAX.
+      type: object
+      additionalProperties: false
+      required: [type, zoom]
+      properties:
+        type:
+          const: setZoom
+        zoom:
+          type: integer
 
     # ── Supporting schemas ─────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import type { HookProvider } from '../../core/src/provider.js';
+import { parseZoom } from '../../core/src/zoom.js';
 import { resendAgentActivity } from './agentActivityResend.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
@@ -72,6 +73,7 @@ const KEY_GHOST_HEADLESS_AGENTS = 'pixel-agents.ghostHeadlessAgents';
 const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
+const KEY_ZOOM = 'pixel-agents.zoom';
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -284,6 +286,13 @@ export function handleClientMessage(
       break;
     }
 
+    case 'setZoom': {
+      // Integer-only, clamped: a fractional or garbage zoom would break pixel-perfect rendering on restore.
+      const zoom = parseZoom(msg.zoom);
+      if (zoom !== undefined) adapter?.setSetting(KEY_ZOOM, zoom);
+      break;
+    }
+
     default:
       // focusAgent, exportLayout, importLayout
       // require IDE-specific handling (not yet implemented for standalone)
@@ -447,6 +456,8 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const primaryProvider = ctx.activeProviders?.[0] ?? runtime?.getProviders()[0] ?? claudeProvider;
   const hooksEnabled = getHooksEnabled(primaryProvider.id);
   const showAreas = adapter?.getSetting(KEY_SHOW_AREAS, false) ?? false;
+  // Optional: omitted until the user zooms, so the client keeps its devicePixelRatio default.
+  const zoom = parseZoom(adapter?.getSetting<unknown>(KEY_ZOOM, undefined));
   send({
     type: 'settingsLoaded',
     launchProvider: primaryProvider.id,
@@ -460,6 +471,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,
     externalAssetDirectories: cfg.externalAssetDirectories,
     showAreas,
+    ...(zoom !== undefined ? { zoom } : {}),
   });
 
   // 4a. Actual install state, distinct from the hooksEnabled preference —

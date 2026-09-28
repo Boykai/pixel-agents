@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import {
+  TILE_SIZE,
   ZOOM_LEVEL_FADE_DELAY_MS,
   ZOOM_LEVEL_FADE_DURATION_SEC,
   ZOOM_LEVEL_HIDE_DELAY_MS,
@@ -55,7 +56,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
 
   return (
     <>
-      {/* Zoom level indicator at top-center */}
+      {/* Zoom level indicator at top-center: rendered tile size in device pixels */}
       {showLevel && (
         <div
           className="absolute top-10 left-1/2 -translate-x-1/2 z-10 pixel-panel pb-4 px-16 text-lg select-none pointer-events-none"
@@ -64,7 +65,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
             transition: `opacity ${ZOOM_LEVEL_FADE_DURATION_SEC}s ease-out`,
           }}
         >
-          {zoom}x
+          {zoom * TILE_SIZE}px
         </div>
       )}
 
