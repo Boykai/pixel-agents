@@ -25,3 +25,10 @@ export const TRANSPORT_STATE_CONNECTING = 'connecting';
 export const TRANSPORT_STATE_CONNECTED = 'connected';
 export const TRANSPORT_STATE_RECONNECTING = 'reconnecting';
 export const TRANSPORT_STATE_DISCONNECTED = 'disconnected';
+
+// ── Zoom ─────────────────────────────────────────────────────
+// Integer device-pixels-per-sprite-pixel bounds. Shared so the webview's
+// controls and the server's persisted `zoom` setting clamp identically.
+
+export const ZOOM_MIN = 1;
+export const ZOOM_MAX = 10;

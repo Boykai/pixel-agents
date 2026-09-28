@@ -3,6 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
+import { parseZoom } from '../../core/src/zoom.js';
 import {
   clearHooksAnswer,
   clearHooksEnabled,
@@ -300,6 +302,63 @@ describe('configPersistence: areas', () => {
       const reloaded = readConfig();
       expect(reloaded.vscode.areaMappings).toEqual({ frontend: ['Engineering'] });
       expect(reloaded.standalone.areaMappings).toEqual({});
+    });
+  });
+
+  // ── zoom (optional integer, per namespace) ───────────────────
+
+  describe('parseZoom', () => {
+    it('keeps in-range integers and clamps out-of-range ones', () => {
+      expect(parseZoom(3)).toBe(3);
+      expect(parseZoom(ZOOM_MIN)).toBe(ZOOM_MIN);
+      expect(parseZoom(ZOOM_MAX)).toBe(ZOOM_MAX);
+      expect(parseZoom(0)).toBe(ZOOM_MIN);
+      expect(parseZoom(-4)).toBe(ZOOM_MIN);
+      expect(parseZoom(99)).toBe(ZOOM_MAX);
+    });
+
+    it('treats anything that is not an integer as unset', () => {
+      for (const raw of [2.5, Number.NaN, Number.POSITIVE_INFINITY, '3', null, undefined, {}, []]) {
+        expect(parseZoom(raw)).toBeUndefined();
+      }
+    });
+  });
+
+  describe('readConfig + writeConfig round-trip for zoom', () => {
+    it('omits zoom when never set, and round-trips it per namespace once written', () => {
+      const cfg = readConfig();
+      expect(cfg.vscode.zoom).toBeUndefined();
+      expect(cfg.standalone.zoom).toBeUndefined();
+      cfg.vscode.zoom = 6;
+      writeConfig(cfg);
+
+      const reloaded = readConfig();
+      expect(reloaded.vscode.zoom).toBe(6);
+      expect(reloaded.standalone.zoom).toBeUndefined();
+      expect('zoom' in reloaded.standalone).toBe(false);
+    });
+
+    it('drops a hand-edited invalid zoom on read, so the next write heals the file', () => {
+      const configDir = path.join(tempHome, '.pixel-agents');
+      fs.mkdirSync(configDir, { recursive: true });
+      const configFile = path.join(configDir, 'config.json');
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ vscode: { zoom: 'big' }, standalone: { zoom: 42 } }),
+        'utf-8',
+      );
+
+      const cfg = readConfig();
+      expect(cfg.vscode.zoom).toBeUndefined();
+      expect(cfg.standalone.zoom).toBe(ZOOM_MAX);
+      writeConfig(cfg);
+
+      const onDisk = JSON.parse(fs.readFileSync(configFile, 'utf-8')) as Record<
+        string,
+        Record<string, unknown>
+      >;
+      expect('zoom' in onDisk.vscode).toBe(false);
+      expect(onDisk.standalone.zoom).toBe(ZOOM_MAX);
     });
   });
 });

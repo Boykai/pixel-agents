@@ -63,14 +63,17 @@ export class FileStateAdapter implements StateAdapter {
     const field = settingNameOf(key);
     if (!field) return defaultValue;
     const config = readConfig();
-    return config[this.namespace][field] as unknown as T;
+    // Optional settings (zoom) read as absent until first written.
+    const value = config[this.namespace][field];
+    return value === undefined ? defaultValue : (value as unknown as T);
   }
 
   setSetting<T>(key: string, value: T): void {
     const field = settingNameOf(key);
     if (!field) return;
     const config = readConfig();
-    // Narrow by field to keep the union-safe write. Each entry is a boolean or string.
+    // Narrow by field to keep the union-safe write. Each entry is a boolean, string, number, or
+    // (areaMappings) a record; readConfig re-validates every field on the next read.
     (config[this.namespace] as unknown as Record<string, unknown>)[field] = value;
     writeConfig(config);
   }

@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { parseZoom } from '../../core/src/zoom.js';
 import { buildAgentDiagnostics } from '../../server/src/agentDiagnostics.js';
 import { AgentRuntime } from '../../server/src/agentRuntime.js';
 import { AgentStateStore } from '../../server/src/agentStateStore.js';
@@ -64,6 +65,7 @@ import {
   GLOBAL_KEY_SHOW_AREAS,
   GLOBAL_KEY_SOUND_ENABLED,
   GLOBAL_KEY_WATCH_ALL_SESSIONS,
+  GLOBAL_KEY_ZOOM,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
 import { enabledProviders, launchProvider } from './providerSelection.js';
@@ -491,6 +493,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       } else if (message.type === 'setShowAreas') {
         const enabled = message.enabled as boolean;
         this.adapter.setSetting(GLOBAL_KEY_SHOW_AREAS, enabled);
+      } else if (message.type === 'setZoom') {
+        // Same rule as the standalone handler: integers only, clamped to the shared bounds.
+        const zoom = parseZoom(message.zoom);
+        if (zoom !== undefined) this.adapter.setSetting(GLOBAL_KEY_ZOOM, zoom);
       } else if (message.type === 'saveAreaMappings') {
         const mappings = message.mappings as Record<string, string[]>;
         const cfg = readConfig();
@@ -585,6 +591,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         const hooksEnabled = this.providers.some((provider) => getHooksEnabled(provider.id));
         const hooksInfoShown = this.adapter.getSetting<boolean>(GLOBAL_KEY_HOOKS_INFO_SHOWN, false);
         const showAreas = this.adapter.getSetting<boolean>(GLOBAL_KEY_SHOW_AREAS, false);
+        // Omitted until the user zooms, so the webview keeps its devicePixelRatio default.
+        const zoom = parseZoom(this.adapter.getSetting<unknown>(GLOBAL_KEY_ZOOM, undefined));
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -599,6 +607,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           launchProvider: launchProvider(this.providers)?.id,
           externalAssetDirectories: config.externalAssetDirectories,
           showAreas,
+          ...(zoom !== undefined ? { zoom } : {}),
         });
 
         // One status + at most one consent ask PER PROVIDER. Install state is distinct from the hooksEnabled

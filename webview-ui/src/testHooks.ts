@@ -87,6 +87,8 @@ declare global {
         parentToolId?: string;
       }>;
       selectAgent?: (id: number) => void;
+      /** Live integer zoom (device pixels per sprite pixel) — for zoom-persistence specs. */
+      getZoom?: () => number;
     };
   }
 }

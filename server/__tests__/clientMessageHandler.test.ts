@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import {
   type AssetCache,
@@ -139,6 +140,54 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
 
       handleClientMessage({ type: 'setShowAreas', enabled: false }, (m) => sent.push(m), ctx);
       expect(adapter.getSetting('pixel-agents.showAreas', true)).toBe(false);
+    });
+  });
+
+  // ── setZoom ──────────────────────────────────────────────────
+
+  describe('setZoom', () => {
+    const settingsLoaded = () => {
+      sent = [];
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      return sent.find((m) => m.type === 'settingsLoaded') as { zoom?: unknown } | undefined;
+    };
+
+    it('persists an integer zoom to the standalone namespace only', () => {
+      handleClientMessage({ type: 'setZoom', zoom: 4 }, (m) => sent.push(m), ctx);
+
+      const cfg = readConfig();
+      expect(cfg.standalone.zoom).toBe(4);
+      expect(cfg.vscode.zoom).toBeUndefined();
+      // Persisting is silent: no reply to the sender.
+      expect(sent).toHaveLength(0);
+    });
+
+    it('clamps an out-of-range integer to the shared bounds', () => {
+      handleClientMessage({ type: 'setZoom', zoom: 999 }, (m) => sent.push(m), ctx);
+      expect(readConfig().standalone.zoom).toBe(ZOOM_MAX);
+
+      handleClientMessage({ type: 'setZoom', zoom: 0 }, (m) => sent.push(m), ctx);
+      expect(readConfig().standalone.zoom).toBe(ZOOM_MIN);
+    });
+
+    it('ignores a non-integer or missing zoom and keeps the stored value', () => {
+      handleClientMessage({ type: 'setZoom', zoom: 3 }, (m) => sent.push(m), ctx);
+      for (const zoom of [2.5, '5', null, undefined, Number.NaN]) {
+        handleClientMessage({ type: 'setZoom', zoom }, (m) => sent.push(m), ctx);
+      }
+      handleClientMessage({ type: 'setZoom' }, (m) => sent.push(m), ctx);
+
+      expect(readConfig().standalone.zoom).toBe(3);
+    });
+
+    it('settingsLoaded omits zoom until one is stored, then carries it', () => {
+      const before = settingsLoaded();
+      expect(before).toBeDefined();
+      expect(before && 'zoom' in before).toBe(false);
+
+      handleClientMessage({ type: 'setZoom', zoom: 7 }, (m) => sent.push(m), ctx);
+
+      expect(settingsLoaded()?.zoom).toBe(7);
     });
   });
 

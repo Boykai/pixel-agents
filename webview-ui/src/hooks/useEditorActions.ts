@@ -9,6 +9,7 @@ import {
   ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_MAX,
   ZOOM_MIN,
+  ZOOM_SAVE_DEBOUNCE_MS,
 } from '../constants.js';
 import type { ExpandDirection } from '../office/editor/editorActions.js';
 import {
@@ -88,6 +89,8 @@ interface EditorActions {
   handleResetToDefault: (defaultLayout: OfficeLayout | null) => void;
   handleSave: () => void;
   handleZoomChange: (zoom: number) => void;
+  /** Apply the persisted zoom from `settingsLoaded` without echoing a `setZoom` back. */
+  restoreZoom: (zoom: number) => void;
   handleEditorTileAction: (col: number, row: number) => void;
   handleEditorEraseAction: (col: number, row: number) => void;
   handleEditorSelectionChange: () => void;
@@ -132,6 +135,9 @@ export function useEditorActions(
   const [roomToFrame, setRoomToFrame] = useState<RoomBounds | null>(null);
   const generationFrameRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(defaultZoom);
+  const zoomRef = useRef(zoom);
+  const zoomSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userZoomedRef = useRef(false);
   const [carpetVariant, setCarpetVariantState] = useState<number>(editorState.carpetVariant);
   const [carpetColor, setCarpetColorState] = useState<ColorValue>(editorState.carpetColor);
   const [carpetAccentColor, setCarpetAccentColorState] = useState<ColorValue>(
@@ -147,6 +153,7 @@ export function useEditorActions(
   useEffect(
     () => () => {
       if (generationFrameRef.current !== null) cancelAnimationFrame(generationFrameRef.current);
+      if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
     },
     [],
   );
@@ -674,8 +681,28 @@ export function useEditorActions(
     setEditorTick((n) => n + 1);
   }, []);
 
+  // Every user-driven zoom (buttons, Ctrl+scroll, room framing) persists, debounced because
+  // Ctrl+scroll steps arrive in bursts. The mount-time default never sends, so it can't
+  // overwrite a stored zoom before settingsLoaded restores it.
   const handleZoomChange = useCallback((newZoom: number) => {
-    setZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom)));
+    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+    if (clamped === zoomRef.current) return;
+    zoomRef.current = clamped;
+    userZoomedRef.current = true;
+    setZoom(clamped);
+    if (zoomSaveTimerRef.current) clearTimeout(zoomSaveTimerRef.current);
+    zoomSaveTimerRef.current = setTimeout(() => {
+      zoomSaveTimerRef.current = null;
+      transport.send({ type: 'setZoom', zoom: clamped });
+    }, ZOOM_SAVE_DEBOUNCE_MS);
+  }, []);
+
+  // A restore only seeds the zoom: it never overrides a level the user already chose this session.
+  const restoreZoom = useCallback((savedZoom: number) => {
+    if (userZoomedRef.current) return;
+    const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, savedZoom));
+    zoomRef.current = clamped;
+    setZoom(clamped);
   }, []);
 
   const handleDragMove = useCallback(
@@ -1077,6 +1104,7 @@ export function useEditorActions(
     handleResetToDefault,
     handleSave,
     handleZoomChange,
+    restoreZoom,
     handleEditorTileAction,
     handleEditorEraseAction,
     handleEditorSelectionChange,

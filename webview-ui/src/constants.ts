@@ -81,13 +81,15 @@ export const CAMERA_FOLLOW_LERP = 0.1;
 export const CAMERA_FOLLOW_SNAP_THRESHOLD = 0.5;
 
 // ── Zoom ─────────────────────────────────────────────────────
-export const ZOOM_MIN = 1;
-export const ZOOM_MAX = 10;
+// Bounds live in core so the server clamps the persisted zoom identically.
+export { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
 export const ZOOM_DEFAULT_DPR_FACTOR = 2;
 export const ZOOM_LEVEL_FADE_DELAY_MS = 1500;
 export const ZOOM_LEVEL_HIDE_DELAY_MS = 2000;
 export const ZOOM_LEVEL_FADE_DURATION_SEC = 0.5;
 export const ZOOM_SCROLL_THRESHOLD = 50;
+/** Settle time before a zoom change is persisted (Ctrl+scroll steps in bursts). */
+export const ZOOM_SAVE_DEBOUNCE_MS = 500;
 export const PAN_MARGIN_FRACTION = 0.25;
 
 // ── Editor ───────────────────────────────────────────────────
