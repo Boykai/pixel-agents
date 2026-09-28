@@ -76,7 +76,7 @@ Mark a character as the current subject in the office (the white outline). Selec
 _Avoid_: focus (reserved for terminals), highlight
 
 **Follow**:
-The camera tracking the selected character. Ends on manual pan or deselection.
+The camera tracking the selected character or a clicked Pet — never both: following one ends following the other. Ends on manual pan or deselection (for a Pet: clicking it again or clicking empty space); a Pet follow also ends when the Layout editor opens.
 _Avoid_: track
 
 **Focus**:
@@ -182,7 +182,7 @@ The furniture category whose items create seats. Every footprint tile of a chair
 Which agent owns which seat. Persisted, and changeable by selecting a character and clicking a free seat.
 
 **Pet**:
-An animated creature that lives in the office and belongs to no agent. Purely decorative; wanders like a character.
+An animated creature that lives in the office and belongs to no agent. Purely decorative: it wanders like a character, trails a nearby one for a while, sits beside the characters of inactive agents, naps, and scurries away from those of active agents. Placed with the Layout editor; clicking one shows a heart and makes the camera Follow it. (The code calls the trailing FOLLOW; in prose, Follow always means the camera.)
 _Avoid_: mascot, animal
 
 **Wander**:

@@ -64,6 +64,9 @@ export class OfficeState {
   furnitureAnimTimer = 0;
   selectedAgentId: number | null = null;
   cameraFollowId: number | null = null;
+  /** Pet the camera follows after a pet click (pets have their own id space).
+   *  Never set together with cameraFollowId: following one clears the other. */
+  cameraFollowPetId: string | null = null;
   hoveredAgentId: number | null = null;
   hoveredTile: { col: number; row: number } | null = null;
   /** Maps "parentId:toolId" → sub-agent character ID (negative) */
@@ -95,7 +98,8 @@ export class OfficeState {
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the
-   *  character and its speech bubble). An explicit cameraFollowId outranks it. */
+   *  character and its speech bubble). An explicit cameraFollowId or
+   *  cameraFollowPetId outranks it. */
   greeterCameraTarget: { x: number; y: number } | null = null;
   /** Latched by a manual pan during the ask: the user took the camera, so the
    *  overlay's per-frame updates stop re-centering. Reset on spawn/despawn. */
@@ -1012,6 +1016,7 @@ export class OfficeState {
   removePet(id: string): void {
     const before = this.pets.length;
     this.pets = this.pets.filter((p) => p.id !== id);
+    if (this.cameraFollowPetId === id) this.cameraFollowPetId = null;
     if (this.pets.length !== before) {
       this.syncLayoutPets();
     }
@@ -1064,6 +1069,29 @@ export class OfficeState {
   }
 
   /**
+   * A click on a pet: toggle its heart bubble and make the camera follow it,
+   * or stop following when it already was. Ends any agent selection and follow.
+   */
+  clickPet(petId: string): void {
+    const pet = this.pets.find((p) => p.id === petId);
+    if (!pet) return;
+    if (pet.bubbleType) {
+      this.dismissPetBubble(petId);
+    } else {
+      this.showPetBubble(petId);
+    }
+    this.selectedAgentId = null;
+    this.cameraFollowId = null;
+    this.cameraFollowPetId = this.cameraFollowPetId === petId ? null : petId;
+  }
+
+  /** The pet the camera is following, if any. */
+  getFollowedPet(): Pet | undefined {
+    if (this.cameraFollowPetId === null) return undefined;
+    return this.pets.find((p) => p.id === this.cameraFollowPetId);
+  }
+
+  /**
    * Reconcile `this.pets` to match the layout's placed-pet roster.
    * - Pets in layout but not in runtime → spawn via addPet().
    * - Pets in runtime but not in layout → remove.
@@ -1078,6 +1106,9 @@ export class OfficeState {
 
     // 1. Remove pets no longer in layout
     this.pets = this.pets.filter((p) => placedIds.has(p.id));
+    if (this.cameraFollowPetId !== null && !placedIds.has(this.cameraFollowPetId)) {
+      this.cameraFollowPetId = null;
+    }
 
     // 2. Add pets that exist in layout but not in runtime
     const existingIds = new Set(this.pets.map((p) => p.id));
