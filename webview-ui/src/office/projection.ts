@@ -37,6 +37,22 @@ export function mapOffset(
   };
 }
 
+/** The pan that puts a world point — the followed Character or Pet — at the
+ *  canvas center. It depends on the zoom but not on the canvas size, and the
+ *  camera follow recomputes it every frame, so a zoom that changes mid-follow
+ *  (a user zoom, or the stored zoom `settingsLoaded` restores after a reload)
+ *  re-centers the camera instead of drifting. */
+export function centeringPan(
+  layout: { cols: number; rows: number },
+  focus: { x: number; y: number },
+  zoom: number,
+): { x: number; y: number } {
+  return {
+    x: (layout.cols * TILE_SIZE * zoom) / 2 - focus.x * zoom,
+    y: (layout.rows * TILE_SIZE * zoom) / 2 - focus.y * zoom,
+  };
+}
+
 /** Frame a tile rectangle inside the canvas area left unobscured by editor controls. */
 export function frameLayoutBounds(
   layout: { cols: number; rows: number },
