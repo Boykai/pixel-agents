@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased (Boykai fork)
+
+Changes in [Boykai/pixel-agents](https://github.com/Boykai/pixel-agents) on top of v1.4.1. The [README](README.md#boykaipixel-agents-feature-comparison) compares this fork with the base and with [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents), whose features it ports.
+
+### Features
+
+- **GitHub Copilot support** ([#1](https://github.com/Boykai/pixel-agents/pull/1)) — A second provider tracks Copilot CLI sessions and observes local Copilot App sessions through their `events.jsonl` transcripts, with optional hooks behind their own consent. Claude Code and Copilot agents can share one office (`--provider` / `--providers` in standalone; `pixel-agents.providers` and `pixel-agents.launchProvider` in VS Code). See [Copilot compatibility](docs/copilot-compatibility.md).
+- **Generate Room** ([#1](https://github.com/Boykai/pixel-agents/pull/1), [#11](https://github.com/Boykai/pixel-agents/pull/11)) — The Layout editor adds a furnished workspace, meeting room, or lounge in one undoable edit, connected to existing floor and expanding the grid only when nothing fits inside it. Interiors are now 6 to 15 tiles on each side (previously 5 to 8), and each candidate placement is checked in constant time, which keeps the larger search about as fast as the old one.
+- **Reset to Default** ([#1](https://github.com/Boykai/pixel-agents/pull/1)) — Replaces the office with the bundled layout after two confirmations; Undo brings the discarded office back.
+- **Agent details** ([#1](https://github.com/Boykai/pixel-agents/pull/1)) — Labels show each agent's nickname or project, and hovering or selecting a character opens its activity, session, role, source, and context usage. Agents whose current activity can't be established stay hidden instead of showing a guessed Idle.
+- **Remembered zoom and panel retention** ([#2](https://github.com/Boykai/pixel-agents/pull/2)) — Zoom moves in whole steps and is remembered per surface; the VS Code panel keeps its state while hidden.
+- **Pet behaviors and pet camera follow** ([#3](https://github.com/Boykai/pixel-agents/pull/3)) — Pets sit beside inactive agents, nap, and scurry away from active ones; clicking a pet makes the camera follow it.
+- **Token usage dashboard** ([#4](https://github.com/Boykai/pixel-agents/pull/4)) — Per-agent and office-wide usage read from transcripts: tokens for Claude Code, premium requests and nano AIU for Copilot. Never estimated or priced.
+- **Pixel text signs and draw layers** ([#5](https://github.com/Boykai/pixel-agents/pull/5)) — Signs on floors or walls in 3×5 or 5×7 glyphs, and Forward/Backward draw layers from −4 to +4 for any furniture.
+- **Mood reactions** ([#6](https://github.com/Boykai/pixel-agents/pull/6)) — Happy, error, and stressed bubbles, driven by a provider-agnostic tool-failure signal (`toolEnd.isError`). Can be turned off in Settings.
+- **Agent nicknames and costumes** ([#7](https://github.com/Boykai/pixel-agents/pull/7)) — Name an agent at launch or rename any agent later; a nickname remembers its costume and seat for the next launch.
+- **Activity panel and VS Code shortcuts** ([#8](https://github.com/Boykai/pixel-agents/pull/8)) — The toolbar's Activity panel and the status bar's **Agent** / **Activity** shortcuts, with a live Activity Quick Pick.
+- **Achievements** ([#9](https://github.com/Boykai/pixel-agents/pull/9)) — Eight milestones kept in one record across projects, windows, and surfaces, with optional popups and a gallery in Settings.
+
+### Fixes
+
+- **Integration fixes for the ported features** ([#10](https://github.com/Boykai/pixel-agents/pull/10)) — The version notice clears the bottom toolbar, Pets stay in front of furniture brought forward onto their row, Escape closes one surface at a time, the Intro bubble stacks above achievement popups, and the Usage panel lists only agents the office shows.
+
+### Documentation
+
+- **Fork feature comparison** ([#11](https://github.com/Boykai/pixel-agents/pull/11)) — The README now opens with what this fork imports from hootbu, what it leaves out and why, what it adds, and what the base has that hootbu lacks, plus how to build and run the fork. Documents Generate Room, Reset to Default, agent details, and headless ghosts, corrects the per-provider hooks setting in Troubleshooting, and removes the nonexistent `--no-terminal` flag.
+
+### Credits
+
+- [@hootbu](https://github.com/hootbu) — the original activity panel, token usage, nicknames and costumes, signs and draw layers, mood reactions, pet behaviors, zoom persistence, panel retention, and achievements in [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents) (MIT), ported here onto the current architecture.
+
 ## v1.4.1
 
 ### Features

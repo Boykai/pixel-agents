@@ -1,3 +1,110 @@
+# Boykai/pixel-agents: feature comparison
+
+This fork of [pixel-agents-hq/pixel-agents][base] (the **base**) imports the features of the
+community fork [hootbu/pixel-agents][hootbu] (**hootbu**) and adds GitHub Copilot support and room
+generation. The imported features were rebuilt on the base's current architecture, not copied
+over, so they also work in the standalone browser app and with GitHub Copilot agents.
+
+The comparison covers base [v1.4.1][base-v141], which this fork builds on; hootbu's `main` at
+[a6c4d85][hootbu-v130], hootbu's own release 1.3.0; and this fork's `main`. hootbu forked from the
+base on 2026-02-21, at [13d2c17][hootbu-fork-point], before the base's own v1.3.0 and v1.4
+releases.
+
+✅ available · ➖ partial or different · ❌ not available. PR links point to this fork.
+
+### Imported from hootbu
+
+| Feature                                    | Base                  | hootbu                   | This fork    | What this fork ships                                                                                                                                                 |
+| ------------------------------------------ | --------------------- | ------------------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Activity panel (hootbu: Tasks)             | ❌                    | ✅                       | ✅ [#8][pr8] | Every agent with its Sub-agents and Teammates nested underneath. Click a row to select and follow its Character                                                      |
+| VS Code status bar shortcuts               | ❌                    | ✅                       | ✅ [#8][pr8] | **Agent** launches an agent. **Activity** opens the same list as a live Quick Pick: picking an agent focuses its terminal, or selects its Character when it has none |
+| Token usage dashboard                      | ❌                    | ✅                       | ✅ [#4][pr4] | Per-agent rows and office-wide totals: tokens for Claude Code, premium requests for Copilot. Read from transcripts, never estimated                                  |
+| Agent nicknames                            | ❌                    | ➖ at launch only        | ✅ [#7][pr7] | Name an agent at launch, or rename any agent later, including adopted and Copilot App sessions                                                                       |
+| Costumes                                   | ❌                    | ✅                       | ✅ [#7][pr7] | Pick one of six characters and a hue per agent. Launching under a nickname you used before brings back its costume and seat                                          |
+| Pixel text signs                           | ❌                    | ✅                       | ✅ [#5][pr5] | Signs on floors or walls, with a color, 3×5 or 5×7 glyphs and a pixel scale. Edits are undoable                                                                      |
+| Draw layers                                | ❌                    | ➖ bring-to-front toggle | ✅ [#5][pr5] | **Forward** and **Backward** move any furniture through nine layers, −4 to +4                                                                                        |
+| Mood reactions                             | ❌                    | ✅                       | ✅ [#6][pr6] | Happy, error and stressed bubbles. Errors come from a new tool-failure signal that both providers report. Can be turned off                                          |
+| Achievements                               | ❌                    | ✅                       | ✅ [#9][pr9] | The same eight, kept in one record across projects, windows and surfaces. Popups can be turned off                                                                   |
+| Pet behaviors                              | ➖ wander, trail, pet | ✅                       | ✅ [#3][pr3] | Pets also sit beside inactive agents, nap and scurry away from active ones                                                                                           |
+| Pet camera follow                          | ❌                    | ✅                       | ✅ [#3][pr3] | Click a pet to have the camera follow it                                                                                                                             |
+| Remembered zoom                            | ❌                    | ✅                       | ✅ [#2][pr2] | Whole-step zoom, remembered separately for VS Code and the standalone browser                                                                                        |
+| VS Code panel keeps its state while hidden | ❌                    | ✅                       | ✅ [#2][pr2] | The panel no longer reloads when you switch away and back                                                                                                            |
+
+[#10][pr10] verified the imported features together and fixed the interactions between them.
+
+### Not imported from hootbu
+
+| hootbu feature                                                          | Why it was not imported                                                                                                              |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Permission mode prompt on every launch ([61bcec1][hootbu-61bcec1])      | The base's **+ Agent** menu already offers a **Skip permissions mode** launch                                                        |
+| Adaptive status timers and early completion ([a4ca7f4][hootbu-a4ca7f4]) | Hooks mode reports permission requests and turn ends directly. Without hooks, the base's fixed timers still apply                    |
+| Cats and dogs managed in Settings                                       | The provenance of their sprites could not be verified. Their behaviors were ported to the base's pets, which you place in the editor |
+| Seat Mode toggle                                                        | The base already reassigns seats: click a Character, then a free seat                                                                |
+| 1 px zoom steps                                                         | Zoom moves in whole steps so the pixel art stays crisp                                                                               |
+
+### Added by this fork
+
+| Feature                           | PR                    | Details                                                                                                                                                                                       |
+| --------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub Copilot support            | [#1][pr1]             | Tracks Copilot CLI sessions and observes local Copilot App sessions through their transcripts, with optional hooks you consent to. See [Copilot compatibility](docs/copilot-compatibility.md) |
+| Mixed offices                     | [#1][pr1]             | Claude Code and Copilot agents share one office, each with its own discovery, consent and hooks                                                                                               |
+| Copilot in every imported feature | [#2][pr2]–[#10][pr10] | The Activity panel, token usage, nicknames, costumes, mood reactions and achievements all count Copilot agents                                                                                |
+| Generate Room                     | [#1][pr1]             | One click in the Layout editor adds a furnished workspace, meeting room or lounge, 6 to 15 tiles on each side, connected to the office as one undoable edit                                   |
+| Reset to Default                  | [#1][pr1]             | Restores the layout Pixel Agents ships with, after two confirmations. Undo brings your office back                                                                                            |
+| Agent details                     | [#1][pr1]             | Labels show each agent's nickname or project. Hover or select a Character for its activity, session, role, source and context usage                                                           |
+| Unknown agents stay hidden        | [#1][pr1]             | An agent whose current activity can't be established is hidden until it is observed again, instead of being shown as a guessed Idle                                                           |
+
+### In the base, missing from hootbu
+
+hootbu forked before these base features landed. This fork inherits all of them:
+
+- The standalone browser app (`npx pixel-agents`), which shows the same office as VS Code
+- Hooks mode, for instant activity detection
+- Claude Agent Teams, with Lead and Teammate Characters, team roles and team lifecycle. hootbu shows spawned background agents, but has no team model
+- A context gauge on every agent
+- Carpets and workspace Areas
+- Pets placed in the layout editor, and external character, pet and furniture packs
+- Headless agents drawn as ghosts
+- Running the VS Code extension and standalone servers side by side, the AsyncAPI protocol contract, and the Playwright e2e suite
+
+## Using this fork
+
+This fork doesn't publish packages. The Marketplace, Open VSX and npm links further down install the
+base's releases, which have none of the features above. Build this fork from source instead, with
+Node.js 20 or later:
+
+```bash
+git clone https://github.com/Boykai/pixel-agents.git
+cd pixel-agents
+npm install
+npm run build
+node dist/cli.js --providers claude,copilot
+```
+
+The last command starts the standalone browser app for Claude Code and GitHub Copilot, and prints its
+URL. For VS Code, press **F5** to launch the Extension Development Host, or
+[package and install a `.vsix`](CONTRIBUTING.md#build-and-install-the-packaged-extension-locally).
+
+[base]: https://github.com/pixel-agents-hq/pixel-agents
+[base-v141]: https://github.com/pixel-agents-hq/pixel-agents/releases/tag/v1.4.1
+[hootbu]: https://github.com/hootbu/pixel-agents
+[hootbu-v130]: https://github.com/hootbu/pixel-agents/commit/a6c4d85
+[hootbu-fork-point]: https://github.com/pixel-agents-hq/pixel-agents/commit/13d2c17
+[hootbu-61bcec1]: https://github.com/hootbu/pixel-agents/commit/61bcec1
+[hootbu-a4ca7f4]: https://github.com/hootbu/pixel-agents/commit/a4ca7f4
+[pr1]: https://github.com/Boykai/pixel-agents/pull/1
+[pr2]: https://github.com/Boykai/pixel-agents/pull/2
+[pr3]: https://github.com/Boykai/pixel-agents/pull/3
+[pr4]: https://github.com/Boykai/pixel-agents/pull/4
+[pr5]: https://github.com/Boykai/pixel-agents/pull/5
+[pr6]: https://github.com/Boykai/pixel-agents/pull/6
+[pr7]: https://github.com/Boykai/pixel-agents/pull/7
+[pr8]: https://github.com/Boykai/pixel-agents/pull/8
+[pr9]: https://github.com/Boykai/pixel-agents/pull/9
+[pr10]: https://github.com/Boykai/pixel-agents/pull/10
+
+---
+
 <h1 align="center">
   <a href="https://github.com/pixel-agents-hq/pixel-agents/discussions">
     <img src="webview-ui/public/banner.png" alt="Pixel Agents">
@@ -39,7 +146,8 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **One agent, one character** — tracked Claude Code and GitHub Copilot sessions get their own animated characters
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
 - **Activity panel** — the toolbar's **Activity** panel lists what every agent is doing right now, with its sub-agents and teammates nested underneath; click a row to select and follow that character. In VS Code, the status bar's **Agent** and **Activity** shortcuts launch an agent and open the same list as a live Quick Pick
-- **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
+- **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor. **Generate Room** adds a furnished workspace, meeting room, or lounge in one click, and **Reset to Default** brings back the bundled office
+- **Agent details** — each character's label shows its nickname or project, with a context gauge underneath. Hover or select a character for its activity, project, session, role, source (Claude Code or GitHub Copilot), and context usage, plus **Rename** and **Costume** buttons
 - **Signs and draw layers** — put pixel-text signs on the floor or walls, and move any furniture forward or backward in draw order
 - **Office pets** — pets wander, trail nearby characters, sit beside inactive agents, nap, and scurry away from active ones; click one to have the camera follow it
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
@@ -48,6 +156,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **Achievements** — eight milestones, from your first agent to a million tokens, unlocked by live Claude Code and GitHub Copilot activity and kept in one record across every project, window, and surface. A popup announces each unlock (can be turned off in Settings); **Settings → Achievements** shows your progress
 - **Sound notifications** — optional chimes when an agent finishes its turn or requests permission
 - **Sub-agents and Agent Teams** — see ephemeral sub-agents and persistent Claude teammates as separate characters, including team roles and lifecycle changes
+- **Headless ghosts** — in VS Code, agents with no terminal to focus, such as sessions adopted from outside, can be drawn as translucent ghosts (**Settings → Display Headless as Ghosts**)
 - **Persistent layouts** — your office design is saved and shared across VS Code windows
 - **Remembered zoom** — whole-step zoom keeps the pixel art crisp and is remembered separately for VS Code and the standalone browser; the VS Code panel keeps its state while hidden
 - **Shared layout and assets** — import/export layouts and load external character, pet, and furniture packs
@@ -147,8 +256,6 @@ Open the URL the CLI prints - it carries a `?token=` for this session. Any brows
 
 Treat that URL as a secret: the token is a bearer capability, not proof of being local. Whoever holds it can approve the hook install from anywhere the server is reachable — so don't paste the URL into a shared channel, and note that it also lands in your browser history and (unredacted) in the server's own request log.
 
-Pass `--no-terminal` to disable the embedded terminal — watch agents without launching or attaching to them from the browser.
-
 ### Running the extension and standalone together
 
 The extension and standalone CLI can run at the same time. Each server registers under `~/.pixel-agents/servers/`; the hook script sends events to all active registrations. VS Code and standalone keep separate agents, seats, and settings while using the shared office layout.
@@ -165,6 +272,8 @@ each provider in Pixel Agents Settings before uninstalling.
 Click **Layout** to edit the office:
 
 - Paint floor patterns and walls, with color and contrast controls.
+- Click **Generate Room** to add a furnished workspace, meeting room, or lounge. Its interior is randomly 6 to 15 tiles on each side, it connects to existing floor through an opening, and it expands the grid when there's no free space inside. The whole room is one undoable edit, and everything in it stays editable.
+- Click **Reset to Default** to replace the office with the layout Pixel Agents ships with. It asks twice before discarding your layout, and **Undo** brings it back.
 - Place, rotate, recolor, select, and remove furniture.
 - Add pixel-text **Signs** from the Decor tab (they can hang on walls), and use **Forward** / **Backward** to change a selected item's draw layer.
 - Paint auto-tiling carpets and customize their main and accent colors.
@@ -225,7 +334,7 @@ The extension and CLI are bundled with esbuild; the webview is built with Vite. 
 ## Development
 
 ```bash
-git clone https://github.com/pixel-agents-hq/pixel-agents.git
+git clone https://github.com/Boykai/pixel-agents.git
 cd pixel-agents
 npm install
 npm run build
@@ -235,6 +344,7 @@ Press **F5** in VS Code to launch the Extension Development Host. To run the sta
 
 ```bash
 node dist/cli.js
+node dist/cli.js --providers claude,copilot
 ```
 
 Common checks:
@@ -266,7 +376,7 @@ The staged output serves the combined `e2e`, `server`, and `webview` Allure repo
 ## Troubleshooting
 
 - **Standalone will not start:** verify Node.js 20+, omit `--port` to choose a free port, or select another fixed port.
-- **An agent is missing:** confirm **Settings → Instant Detection (Hooks)** is on and that the session belongs to the current workspace. Enable **Watch All Sessions** if needed.
+- **An agent is missing:** confirm that its provider's **Instant Detection (Hooks)** setting is on (for example **Settings → Claude Code — Instant Detection (Hooks)**) and that the session belongs to the current workspace. Enable **Watch All Sessions** if needed. For Copilot, check that the standalone CLI was started with `--provider copilot` or `--providers claude,copilot`, or that `pixel-agents.providers` includes `"copilot"` in VS Code.
 - **The UI looks disconnected:** open **Settings → Debug View** to inspect the server connection, transcript path, and latest agent data.
 - **Extension and standalone are both running:** this is supported. Current versions create separate files under `~/.pixel-agents/servers/`; stopping one does not remove the other.
 
@@ -297,7 +407,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request and read ou
 
 ## Credits
 
-Several features were ported from the community fork [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents) (MIT, © 2026 Hootbu):
+Several features were ported from the community fork [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents) (MIT, © 2026 Hootbu). The [feature comparison](#imported-from-hootbu) at the top of this file shows how each one differs from hootbu's version:
 
 - Activity panel and VS Code shortcuts
 - Token usage dashboard
