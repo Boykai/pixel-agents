@@ -39,6 +39,12 @@ export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
 export const CHARACTER_SITTING_OFFSET_PX = 6;
 export const CHARACTER_Z_SORT_OFFSET = 0.5;
 export const OUTLINE_Z_SORT_OFFSET = 0.001;
+/**
+ * How far into its row a Pet sorts. Like CHARACTER_Z_SORT_OFFSET it must pass what a
+ * Draw layer moves onto that row (DRAW_LAYER_TIE_BREAK, plus DRAW_LAYER_SURFACE_OFFSET
+ * for the items on a layered desk), yet it stays behind a Character at the same depth.
+ */
+export const PET_Z_SORT_OFFSET = 0.4375;
 export const SELECTED_OUTLINE_ALPHA = 1.0;
 export const HOVERED_OUTLINE_ALPHA = 0.5;
 /** Headless agents (adopted, no terminal to focus) render slightly translucent. */
