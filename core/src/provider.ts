@@ -181,6 +181,13 @@ export interface HookProvider {
    *  the provider owns only the record shape. Unset = no Token usage. */
   extractTokenUsage?(record: unknown): TokenUsageSample | undefined;
 
+  /** Files a tool call modifies, read from the tool's own input — [] for a tool
+   *  that edits nothing. Paths are returned as the CLI wrote them (absolute or
+   *  relative to the session's working directory); the runtime normalizes them.
+   *  Only the provider knows its edit tools' names and input shapes. Unset = the
+   *  provider reports no edited files. */
+  editedFilePaths?(toolName: string, input: unknown): string[];
+
   // ── Optional file fallback (heuristic mode) ──
 
   readonly capabilities?: ObservationCapabilities;
