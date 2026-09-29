@@ -303,6 +303,16 @@ export const CONTEXT_GAUGE_COLOR_DANGER = '#ff8800';
 export const CONTEXT_GAUGE_COLOR_CRITICAL = '#ff2222';
 export const CONTEXT_GAUGE_BG = '#222';
 
+// ── Token Usage panel ───────────────────────────────────────
+/** Breakdown colors, ported from hootbu/pixel-agents' UsagePanel. */
+export const TOKEN_USAGE_INPUT_COLOR = '#5a8cff';
+export const TOKEN_USAGE_OUTPUT_COLOR = '#5ac88c';
+export const TOKEN_USAGE_CACHE_WRITE_COLOR = '#cca700';
+export const TOKEN_USAGE_CACHE_READ_COLOR = '#9a6adf';
+export const TOKEN_USAGE_BAR_BG = 'rgba(255, 255, 255, 0.06)';
+/** Breakdown-bar segments smaller than this share of the total (%) are not drawn. */
+export const TOKEN_USAGE_MIN_SEGMENT_PERCENT = 0.5;
+
 // ── Agent Teams ─────────────────────────────────────────────
 export const TEAM_LEAD_COLOR = '#ffd700';
 export const TEAM_ROLE_COLOR = '#66aaff';

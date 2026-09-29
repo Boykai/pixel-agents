@@ -10,6 +10,7 @@ import { hasPromotedBackgroundAgent } from './teamUtils.js';
  * 3. Background tools with runInBackground + isTeammateSpawn flags, skipping promoted spawns
  * 4. Waiting status
  * 5. Context usage
+ * 6. Token usage
  */
 export function resendAgentActivity(
   send: (message: Record<string, unknown>) => void,
@@ -96,5 +97,9 @@ export function resendAgentActivity(
         maxContextTokens: agent.maxContextTokens,
       });
     }
+
+    // 6. Token usage
+    const usage = store.tokenUsage.snapshot(id);
+    if (usage) send(usage);
   }
 }

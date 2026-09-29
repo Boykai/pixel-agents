@@ -11,6 +11,7 @@ import { MigrationNotice } from './components/MigrationNotice.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
+import { UsagePanel } from './components/UsagePanel.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
 import { ZoomControls } from './components/ZoomControls.js';
 import { ROOM_FRAME_TOP_INSET_PX } from './constants.js';
@@ -76,6 +77,7 @@ function App() {
     agentStatuses,
     subagentTools,
     subagentCharacters,
+    agentUsage,
     layoutReady,
     layoutWasReset,
     defaultLayout,
@@ -115,6 +117,7 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isUsageOpen, setIsUsageOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -572,8 +575,19 @@ function App() {
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+        isUsageOpen={isUsageOpen}
+        onToggleUsage={() => setIsUsageOpen((v) => !v)}
         workspaceFolders={workspaceFolders}
       />
+
+      {isUsageOpen && (
+        <UsagePanel
+          agents={agents}
+          agentUsage={agentUsage}
+          officeState={officeState}
+          onClose={() => setIsUsageOpen(false)}
+        />
+      )}
 
       <VersionIndicator
         currentVersion={extensionVersion}
