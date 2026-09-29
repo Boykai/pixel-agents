@@ -1,8 +1,9 @@
 import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { AGENT_NICKNAME_MAX_LENGTH } from '../../../core/src/constants.js';
 import { normalizeNickname } from '../../../core/src/normalizeNickname.js';
+import { BOTTOM_TOOLBAR_CLEARANCE_VAR } from '../constants.js';
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js';
 import type { ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime } from '../runtime.js';
@@ -18,6 +19,8 @@ interface BottomToolbarProps {
   onToggleEditMode: () => void;
   isSettingsOpen: boolean;
   onToggleSettings: () => void;
+  isActivityOpen: boolean;
+  onToggleActivity: () => void;
   isUsageOpen: boolean;
   onToggleUsage: () => void;
   workspaceFolders: WorkspaceFolder[];
@@ -31,6 +34,8 @@ export function BottomToolbar({
   onToggleEditMode,
   isSettingsOpen,
   onToggleSettings,
+  isActivityOpen,
+  onToggleActivity,
   isUsageOpen,
   onToggleUsage,
   workspaceFolders,
@@ -45,6 +50,27 @@ export function BottomToolbar({
   const folderPickerRef = useRef<HTMLDivElement>(null);
   const agentButtonRef = useRef<HTMLButtonElement>(null);
   const pendingBypassRef = useRef(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Publish where the toolbar's top edge sits, so the surfaces stacked above
+  // it move up when a narrow window wraps it onto more rows.
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    const root = toolbar?.parentElement;
+    if (!toolbar || !root) return;
+    const publish = () => {
+      const clearance = root.clientHeight - toolbar.offsetTop;
+      root.style.setProperty(BOTTOM_TOOLBAR_CLEARANCE_VAR, `${clearance}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(toolbar);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty(BOTTOM_TOOLBAR_CLEARANCE_VAR);
+    };
+  }, []);
+
   // Close folder picker / bypass menu on outside click
   useEffect(() => {
     if (!isFolderPickerOpen && !isBypassMenuOpen) return;
@@ -150,7 +176,14 @@ export function BottomToolbar({
   };
 
   return (
-    <div className="absolute bottom-10 left-10 z-20 flex items-center gap-4 pixel-panel p-4">
+    // Wraps rather than overflowing a narrow window (overflow would let a
+    // focused button scroll the whole office sideways), and stops 90px short
+    // of the right edge to stay clear of the version label (bottom-8 right-28).
+    <div
+      ref={toolbarRef}
+      data-testid="bottom-toolbar"
+      className="absolute bottom-10 left-10 z-20 flex flex-wrap items-center gap-4 max-w-[calc(100%-90px)] pixel-panel p-4"
+    >
       {/* Hide + Agent in standalone browser mode (no terminal to interact with) */}
       {!isBrowserRuntime && (
         <div
@@ -235,6 +268,15 @@ export function BottomToolbar({
         title="Edit office layout"
       >
         Layout
+      </Button>
+      <Button
+        variant={isEditMode ? 'disabled' : isActivityOpen ? 'active' : 'default'}
+        onClick={onToggleActivity}
+        disabled={isEditMode}
+        title={isEditMode ? 'Close the layout editor to see activity' : 'What every agent is doing'}
+        aria-pressed={isActivityOpen}
+      >
+        Activity
       </Button>
       <Button
         variant={isUsageOpen ? 'active' : 'default'}

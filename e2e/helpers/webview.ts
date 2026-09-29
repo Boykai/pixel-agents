@@ -23,7 +23,14 @@ export interface WebviewSettings {
   debugView?: boolean;
 }
 
-export async function runCommand(window: Page, command: string, attempts = 3): Promise<void> {
+export async function runCommand(
+  window: Page,
+  command: string,
+  attempts = 3,
+  // A command that opens its own Quick Pick keeps the quick input showing, so
+  // waiting for it to close would only burn the timeout.
+  options: { opensQuickPick?: boolean } = {},
+): Promise<void> {
   // Retry the full command palette interaction up to 3 times.
   // macOS CI can swallow keypresses or fail to populate results.
   //
@@ -77,6 +84,7 @@ export async function runCommand(window: Page, command: string, attempts = 3): P
   if (lastError) throw lastError;
 
   await window.keyboard.press('Enter');
+  if (options.opensQuickPick) return;
   await window
     .waitForSelector('.quick-input-widget', {
       state: 'hidden',

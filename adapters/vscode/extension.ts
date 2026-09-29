@@ -1,16 +1,46 @@
 import * as vscode from 'vscode';
 
 import { FileStateAdapter } from '../../server/src/fileStateAdapter.js';
+import { showActivityQuickPick } from './activityQuickPick.js';
 import {
   COMMAND_EXPORT_DEFAULT_LAYOUT,
+  COMMAND_NEW_AGENT,
+  COMMAND_SHOW_ACTIVITY,
   COMMAND_SHOW_PANEL,
   CONFIG_KEY_AUTO_SHOW_PANEL,
+  STATUS_BAR_ACTIVITY_ID,
+  STATUS_BAR_ACTIVITY_NAME,
+  STATUS_BAR_ACTIVITY_PRIORITY,
+  STATUS_BAR_ACTIVITY_TEXT,
+  STATUS_BAR_NEW_AGENT_ID,
+  STATUS_BAR_NEW_AGENT_NAME,
+  STATUS_BAR_NEW_AGENT_PRIORITY,
+  STATUS_BAR_NEW_AGENT_TEXT,
   VIEW_ID,
 } from './constants.js';
 import { migrateVsCodeState } from './migrateVsCodeState.js';
 import { PixelAgentsViewProvider } from './PixelAgentsViewProvider.js';
 
 let providerInstance: PixelAgentsViewProvider | undefined;
+
+/** A right-aligned status bar shortcut that runs `command`. */
+function createStatusBarShortcut(
+  id: string,
+  name: string,
+  text: string,
+  command: string,
+  priority: number,
+): vscode.StatusBarItem {
+  const item = vscode.window.createStatusBarItem(id, vscode.StatusBarAlignment.Right, priority);
+  item.name = name;
+  item.text = text;
+  item.tooltip = name;
+  // Read out as the command it runs, not as the icon name plus the text.
+  item.accessibilityInformation = { label: name };
+  item.command = command;
+  item.show();
+  return item;
+}
 
 export function activate(context: vscode.ExtensionContext) {
   console.log(`[Pixel Agents] PIXEL_AGENTS_DEBUG=${process.env.PIXEL_AGENTS_DEBUG ?? 'not set'}`);
@@ -41,6 +71,25 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(COMMAND_EXPORT_DEFAULT_LAYOUT, () => {
       provider.exportDefaultLayout();
     }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(COMMAND_NEW_AGENT, () => provider.launchAgentFromCommand()),
+    vscode.commands.registerCommand(COMMAND_SHOW_ACTIVITY, () => showActivityQuickPick(provider)),
+    createStatusBarShortcut(
+      STATUS_BAR_NEW_AGENT_ID,
+      STATUS_BAR_NEW_AGENT_NAME,
+      STATUS_BAR_NEW_AGENT_TEXT,
+      COMMAND_NEW_AGENT,
+      STATUS_BAR_NEW_AGENT_PRIORITY,
+    ),
+    createStatusBarShortcut(
+      STATUS_BAR_ACTIVITY_ID,
+      STATUS_BAR_ACTIVITY_NAME,
+      STATUS_BAR_ACTIVITY_TEXT,
+      COMMAND_SHOW_ACTIVITY,
+      STATUS_BAR_ACTIVITY_PRIORITY,
+    ),
   );
 
   // Auto-show panel: focus the Pixel Agents panel on startup if the user has

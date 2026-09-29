@@ -56,18 +56,27 @@ function findJsonlFileForSession(tmpHome: string, sessionId: string): string | n
   return null;
 }
 
+/**
+ * Launch an internal agent and wait for its mock claude and JSONL. `launch`
+ * replaces the default "+ Agent" click (e.g. the status bar's New Agent item).
+ */
 export async function spawnInternalAgentAndWait(
   frame: Frame,
   tmpHome: string,
   mockLogFile: string,
+  launch?: () => Promise<void>,
 ): Promise<InternalAgentSpawn> {
   // Count invocations BEFORE clicking, then wait for a NEW one. Polling for a
   // merely non-empty log is satisfied instantly by a PRIOR agent's entry, so a
   // second spawn in the same test could read a stale log and return the first
   // agent's identity.
   const launchesBefore = countInvocations(readInvocationLog(mockLogFile));
-  narrate.step('clicking "+ Agent" — a terminal launches the mock claude');
-  await clickAddAgent(frame);
+  if (launch) {
+    await launch();
+  } else {
+    narrate.step('clicking "+ Agent" — a terminal launches the mock claude');
+    await clickAddAgent(frame);
+  }
 
   await expect
     .poll(() => countInvocations(readInvocationLog(mockLogFile)), {

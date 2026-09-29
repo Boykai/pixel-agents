@@ -52,6 +52,16 @@
       {
         "command": "pixel-agents.exportDefaultLayout",
         "title": "Pixel Agents: Export Layout as Default"
+      },
+      {
+        "command": "pixel-agents.newAgent",
+        "title": "Pixel Agents: New Agent",
+        "icon": "$(add)"
+      },
+      {
+        "command": "pixel-agents.showActivity",
+        "title": "Pixel Agents: Show Activity",
+        "icon": "$(checklist)"
       }
     ],
     "viewsContainers": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getAchievement } from '../../../core/src/achievements.js';
+import { subtaskLabel } from '../../../core/src/activityLabel.js';
 import type {
   AchievementProgress,
   AgentUsage,
@@ -15,6 +16,7 @@ import {
   MOOD_TICK_INTERVAL_MS,
 } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
+import { followCharacter } from '../office/activityRows.js';
 import { applyAgentStatus, clearPermissionBubbles } from '../office/engine/agentStatus.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
 import {
@@ -541,7 +543,7 @@ export function useExtensionMessages(
           !isTeammateSpawn &&
           (!runInBackground || !parentHasTeam)
         ) {
-          const label = status.startsWith('Subtask:') ? status.slice('Subtask:'.length).trim() : '';
+          const label = subtaskLabel(status);
           const subId = os.addSubagent(id, toolId);
           setSubagentCharacters((prev) => {
             if (prev.some((s) => s.id === subId)) return prev;
@@ -612,6 +614,8 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentSelected') {
         const id = msg.id as number;
         setSelectedAgent(id);
+        // Picked outside the office (VS Code Activity Quick Pick): show it here too.
+        if (msg.reveal === true) followCharacter(os, id);
       } else if (msg.type === 'agentMetadata') {
         reconcileAgentMetadata(os, pendingAgents, msg.id, {
           sessionName: msg.sessionName,

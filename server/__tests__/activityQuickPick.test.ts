@@ -1,0 +1,850 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { showActivityQuickPick } from '../../adapters/vscode/activityQuickPick.js';
+import {
+  activityQuickPickItem,
+  activityQuickPickNotice,
+  ActivityTracker,
+  buildActivityQuickPickRows,
+} from '../../adapters/vscode/activityQuickPickRows.js';
+import { restoreAgents } from '../../adapters/vscode/agentManager.js';
+import { ACTIVITY_QUICK_PICK_REFRESH_MS } from '../../adapters/vscode/constants.js';
+import type { StateAdapter } from '../../core/src/adapter.js';
+import type { PersistedAgent } from '../../core/src/schemas.js';
+import type { AgentRuntime } from '../src/agentRuntime.js';
+import { AgentStateStore } from '../src/agentStateStore.js';
+import { createFileWatcherContext } from '../src/fileWatcher.js';
+import { claudeProvider } from '../src/providers/hook/claude/claude.js';
+import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
+import { processCopilotRecord } from '../src/providers/hook/copilot/eventReducer.js';
+import type { AgentState } from '../src/types.js';
+
+// Just enough of vscode.window to drive the live Activity Quick Pick, and to
+// restore headless Agents (restore only looks for terminal Agents' terminals).
+const vscodeMock = vi.hoisted(() => {
+  class FakeQuickPick {
+    title = '';
+    placeholder = '';
+    matchOnDescription = false;
+    matchOnDetail = false;
+    keepScrollPosition = false;
+    items: Array<{ label: string }> = [];
+    activeItems: Array<{ label: string }> = [];
+    selectedItems: Array<{ label: string }> = [];
+    visible = false;
+    private hideListener: (() => void) | undefined;
+    onDidAccept(): { dispose(): void } {
+      return { dispose() {} };
+    }
+    onDidHide(listener: () => void): { dispose(): void } {
+      this.hideListener = listener;
+      return { dispose() {} };
+    }
+    show(): void {
+      this.visible = true;
+    }
+    hide(): void {
+      this.visible = false;
+      this.hideListener?.();
+    }
+    dispose(): void {}
+  }
+  return { FakeQuickPick, opened: [] as FakeQuickPick[] };
+});
+vi.mock('vscode', () => ({
+  window: {
+    createQuickPick: () => {
+      const quickPick = new vscodeMock.FakeQuickPick();
+      vscodeMock.opened.push(quickPick);
+      return quickPick;
+    },
+    terminals: [],
+  },
+}));
+
+const providers = [claudeProvider, copilotProvider];
+
+function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
+  return {
+    id: 0,
+    sessionId: 'test-session',
+    isExternal: false,
+    projectDir: '/test',
+    jsonlFile: '/test/session.jsonl',
+    fileOffset: 0,
+    lineBuffer: '',
+    activeToolIds: new Set(),
+    activeToolStatuses: new Map(),
+    activeToolNames: new Map(),
+    activeSubagentToolIds: new Map(),
+    activeSubagentToolNames: new Map(),
+    backgroundAgentToolIds: new Set(),
+    isWaiting: false,
+    permissionSent: false,
+    hadToolsInTurn: false,
+    lastDataAt: 0,
+    linesProcessed: 0,
+    seenUnknownRecordTypes: new Set(),
+    hookDelivered: false,
+    contextTokens: 0,
+    maxContextTokens: 200_000,
+    ...overrides,
+  } as AgentState;
+}
+
+function terminal(name: string): AgentState['terminalRef'] {
+  return { name } as unknown as AgentState['terminalRef'];
+}
+
+/** Tools as the runtime records them: id → [name, status], in start order. */
+function tools(entries: Record<string, [string, string]>): Partial<AgentState> {
+  return {
+    activeToolIds: new Set(Object.keys(entries)),
+    activeToolNames: new Map(Object.entries(entries).map(([id, [name]]) => [id, name])),
+    activeToolStatuses: new Map(Object.entries(entries).map(([id, [, status]]) => [id, status])),
+  };
+}
+
+/** A tool start as the store broadcasts it to the office. */
+function toolStart(id: number, toolId: string, status: string) {
+  return { type: 'agentToolStart', id, toolId, status };
+}
+
+function setup(...agents: AgentState[]) {
+  const store = new AgentStateStore();
+  for (const agent of agents) store.set(agent.id, agent);
+  const tracker = new ActivityTracker((id) => store.get(id)?.backgroundAgentToolIds);
+  const rows = () => buildActivityQuickPickRows(store, tracker, providers);
+  return { store, tracker, rows };
+}
+
+describe('buildActivityQuickPickRows', () => {
+  it('describes each Agent with the shared Activity label precedence', () => {
+    const { tracker, rows } = setup(
+      createTestAgent({ id: 1, folderName: 'thinking' }),
+      createTestAgent({ id: 2, folderName: 'idle', isWaiting: true }),
+      createTestAgent({ id: 3, folderName: 'asking', isWaiting: true, awaitingInput: true }),
+      createTestAgent({ id: 4, folderName: 'approval', permissionSent: true }),
+      createTestAgent({ id: 5, folderName: 'working' }),
+    );
+    tracker.observe(toolStart(4, 't1', 'Running: npm test'));
+    tracker.observe(toolStart(5, 't1', 'Reading a.ts'));
+    tracker.observe(toolStart(5, 't2', 'Editing b.ts'));
+
+    expect(rows().map(({ name, activity, state }) => ({ name, activity, state }))).toEqual([
+      { name: 'thinking', activity: 'Thinking…', state: 'active' },
+      { name: 'idle', activity: 'Idle', state: 'done' },
+      { name: 'asking', activity: 'Waiting for input', state: 'input' },
+      { name: 'approval', activity: 'Needs approval', state: 'permission' },
+      { name: 'working', activity: 'Editing b.ts', state: 'active' },
+    ]);
+  });
+
+  it('shows the tools the office shows, which hooks deliver before the transcript does', () => {
+    const agent = createTestAgent({ id: 1, folderName: 'app', hookDelivered: true });
+    const { tracker, rows } = setup(agent);
+    const activity = () => rows()[0].activity;
+
+    // A hook started the tool; the transcript hasn't recorded it yet.
+    tracker.observe(toolStart(1, 'hook-1', 'Running: npm test'));
+    expect(activity()).toBe('Running: npm test');
+
+    // The transcript caught up under its own tool id, then the hook ended the tool.
+    Object.assign(agent, tools({ toolu_1: ['Bash', 'Running: npm test'] }));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'hook-1' });
+    expect(activity()).toBe('Thinking…');
+
+    // Turn end.
+    agent.isWaiting = true;
+    tracker.observe({ type: 'agentToolsClear', id: 1 });
+    expect(activity()).toBe('Idle');
+  });
+
+  it('names an Agent like the office does, and says where it runs', () => {
+    const { rows } = setup(
+      createTestAgent({
+        id: 1,
+        agentName: 'researcher',
+        sessionName: 'Fix login',
+        folderName: 'app',
+        terminalRef: terminal('Claude Code #1'),
+      }),
+      createTestAgent({ id: 2, sessionName: 'Fix login', folderName: 'app' }),
+      createTestAgent({ id: 3, providerId: 'copilot', isExternal: true }),
+    );
+
+    expect(
+      rows().map(({ key, agentId, depth, kind, name, detail }) => ({
+        key,
+        agentId,
+        depth,
+        kind,
+        name,
+        detail,
+      })),
+    ).toEqual([
+      {
+        key: 'agent:1',
+        agentId: 1,
+        depth: 0,
+        kind: 'agent',
+        name: 'researcher',
+        detail: 'Claude Code · Claude Code #1',
+      },
+      {
+        key: 'agent:2',
+        agentId: 2,
+        depth: 0,
+        kind: 'agent',
+        name: 'Fix login',
+        detail: 'Claude Code · Headless',
+      },
+      {
+        key: 'agent:3',
+        agentId: 3,
+        depth: 0,
+        kind: 'agent',
+        name: 'Agent #3',
+        detail: 'GitHub Copilot CLI · Headless',
+      },
+    ]);
+  });
+
+  it('names an Agent by its Nickname first, down to its Sub-agents’ rows', () => {
+    const { store, rows } = setup(
+      createTestAgent({
+        id: 1,
+        nickname: 'Ada',
+        agentName: 'researcher',
+        sessionName: 'Fix login',
+        ...tools({ spawn: ['Task', 'Subtask: Research'] }),
+      }),
+      createTestAgent({ id: 2, sessionName: 'Fix login', folderName: 'app' }),
+    );
+    const names = () => rows().map(({ name, detail }) => ({ name, detail }));
+
+    expect(names()).toEqual([
+      { name: 'Ada', detail: 'Claude Code · Headless' },
+      { name: 'Research', detail: 'Sub-agent of Ada' },
+      { name: 'Fix login', detail: 'Claude Code · Headless' },
+    ]);
+
+    // A rename takes effect at once, and a cleared ('') Nickname falls back.
+    store.setNickname(1, '');
+    store.setNickname(2, 'Scout');
+    expect(names()).toEqual([
+      { name: 'researcher', detail: 'Claude Code · Headless' },
+      { name: 'Research', detail: 'Sub-agent of researcher' },
+      { name: 'Scout', detail: 'Claude Code · Headless' },
+    ]);
+  });
+
+  it('nests Teammates under their Lead, after the Lead’s Sub-agents', () => {
+    const { rows } = setup(
+      createTestAgent({ id: 3, agentName: 'tester', leadAgentId: 1 }),
+      createTestAgent({
+        id: 1,
+        folderName: 'app',
+        isTeamLead: true,
+        terminalRef: terminal('Claude Code #1'),
+        ...tools({ spawn: ['Task', 'Subtask: Explore the repo'] }),
+      }),
+      createTestAgent({ id: 2, agentName: 'reviewer', leadAgentId: 1 }),
+      createTestAgent({ id: 4, folderName: 'other' }),
+    );
+
+    expect(
+      rows().map(({ key, depth, kind, name, detail }) => ({ key, depth, kind, name, detail })),
+    ).toEqual([
+      {
+        key: 'agent:1',
+        depth: 0,
+        kind: 'lead',
+        name: 'app',
+        detail: 'Lead · Claude Code · Claude Code #1',
+      },
+      {
+        key: 'subagent:1:spawn',
+        depth: 1,
+        kind: 'subagent',
+        name: 'Explore the repo',
+        detail: 'Sub-agent of app',
+      },
+      {
+        key: 'agent:3',
+        depth: 1,
+        kind: 'teammate',
+        name: 'tester',
+        detail: 'Teammate · Claude Code',
+      },
+      {
+        key: 'agent:2',
+        depth: 1,
+        kind: 'teammate',
+        name: 'reviewer',
+        detail: 'Teammate · Claude Code',
+      },
+      { key: 'agent:4', depth: 0, kind: 'agent', name: 'other', detail: 'Claude Code · Headless' },
+    ]);
+  });
+
+  it('hides Agents in an unknown state, lifting their Teammates to the top level', () => {
+    const { rows } = setup(
+      createTestAgent({ id: 1, folderName: 'app', isTeamLead: true, observation: 'unknown' }),
+      createTestAgent({ id: 2, agentName: 'reviewer', leadAgentId: 1 }),
+    );
+
+    expect(rows().map(({ key, depth }) => ({ key, depth }))).toEqual([
+      { key: 'agent:2', depth: 0 },
+    ]);
+  });
+
+  it('never loses an Agent to a Lead link that loops', () => {
+    const { rows } = setup(
+      createTestAgent({ id: 1, agentName: 'a', leadAgentId: 2 }),
+      createTestAgent({ id: 2, agentName: 'b', leadAgentId: 1 }),
+      createTestAgent({ id: 3, agentName: 'self', leadAgentId: 3 }),
+    );
+
+    expect(rows().map(({ key, depth }) => ({ key, depth }))).toEqual([
+      { key: 'agent:3', depth: 0 },
+      { key: 'agent:1', depth: 0 },
+      { key: 'agent:2', depth: 1 },
+    ]);
+  });
+
+  it('lists a Sub-agent per running spawn, with its own latest tool', () => {
+    const { tracker, rows } = setup(
+      createTestAgent({
+        id: 1,
+        folderName: 'app',
+        ...tools({
+          read: ['Read', 'Reading a.ts'],
+          spawn: ['Task', 'Subtask: Research'],
+          bare: ['Agent', 'Running Agent'],
+        }),
+      }),
+    );
+    const subRows = () =>
+      rows()
+        .filter((row) => row.kind === 'subagent')
+        .map(({ key, agentId, name, activity, state }) => ({
+          key,
+          agentId,
+          name,
+          activity,
+          state,
+        }));
+
+    expect(subRows()).toEqual([
+      {
+        key: 'subagent:1:spawn',
+        agentId: 1,
+        name: 'Research',
+        activity: 'Thinking…',
+        state: 'active',
+      },
+      {
+        key: 'subagent:1:bare',
+        agentId: 1,
+        name: 'Sub-agent',
+        activity: 'Thinking…',
+        state: 'active',
+      },
+    ]);
+
+    tracker.observe({
+      type: 'subagentToolStart',
+      id: 1,
+      parentToolId: 'spawn',
+      toolId: 'grep',
+      status: 'Searching code',
+    });
+    tracker.observe({
+      type: 'subagentToolStart',
+      id: 1,
+      parentToolId: 'spawn',
+      toolId: 'view',
+      status: 'Reading c.ts',
+    });
+    expect(subRows()[0]).toMatchObject({ activity: 'Reading c.ts', state: 'active' });
+
+    tracker.observe({ type: 'subagentToolDone', id: 1, parentToolId: 'spawn', toolId: 'view' });
+    expect(subRows()[0]).toMatchObject({ activity: 'Searching code', state: 'active' });
+
+    tracker.observe({ type: 'subagentToolDone', id: 1, parentToolId: 'spawn', toolId: 'grep' });
+    expect(subRows()[0]).toMatchObject({ activity: 'Thinking…', state: 'active' });
+
+    tracker.observe({ type: 'subagentToolPermission', id: 1, parentToolId: 'spawn' });
+    expect(subRows()[0]).toMatchObject({ activity: 'Needs approval', state: 'permission' });
+    expect(subRows()[1]).toMatchObject({ activity: 'Thinking…' });
+
+    tracker.observe({ type: 'agentToolPermissionClear', id: 1, parentToolId: 'spawn' });
+    expect(subRows()[0]).toMatchObject({ activity: 'Thinking…', state: 'active' });
+  });
+
+  it('knows each provider’s spawn tools', () => {
+    const { rows } = setup(
+      createTestAgent({
+        id: 1,
+        providerId: 'copilot',
+        folderName: 'app',
+        ...tools({ spawn: ['task', 'Subtask: Research'], other: ['Task', 'Running Task'] }),
+      }),
+      createTestAgent({
+        id: 2,
+        folderName: 'web',
+        ...tools({ spawn: ['task', 'Running task'] }),
+      }),
+    );
+
+    expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'subagent:1:spawn', 'agent:2']);
+  });
+
+  it('leaves out spawns that the office shows as Teammates instead', () => {
+    const { store, rows } = setup(
+      createTestAgent({
+        id: 1,
+        folderName: 'app',
+        isTeamLead: true,
+        teammateSpawnToolIds: new Set(['named']),
+        backgroundAgentToolIds: new Set(['promoted']),
+        ...tools({
+          named: ['Agent', 'Subtask: reviewer'],
+          promoted: ['Agent', 'Subtask: tester'],
+        }),
+      }),
+      createTestAgent({ id: 2, agentName: 'tester', leadAgentId: 1, spawnToolUseId: 'promoted' }),
+    );
+
+    // The promoted spawn is its Teammate's row, and the named one will be.
+    expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'agent:2']);
+
+    // Once the Teammate is gone, the spawn is an ordinary Sub-agent again.
+    store.delete(2);
+    expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'subagent:1:promoted']);
+  });
+
+  it('shows a teamed Lead’s background spawn once it reports its own tools', () => {
+    const { tracker, rows } = setup(
+      createTestAgent({
+        id: 1,
+        folderName: 'app',
+        teamName: 'session-1a2b3c4d',
+        backgroundAgentToolIds: new Set(['bg']),
+        ...tools({ bg: ['Agent', 'Subtask: Audit'], fg: ['Agent', 'Subtask: Plan'] }),
+      }),
+    );
+    tracker.observe(toolStart(1, 'bg', 'Subtask: Audit'));
+    tracker.observe(toolStart(1, 'fg', 'Subtask: Plan'));
+
+    expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'subagent:1:fg']);
+
+    tracker.observe({
+      type: 'subagentToolStart',
+      id: 1,
+      parentToolId: 'bg',
+      toolId: 'read',
+      status: 'Reading d.ts',
+    });
+    expect(rows().map(({ key, activity }) => ({ key, activity }))).toEqual([
+      { key: 'agent:1', activity: 'Subtask: Plan' },
+      { key: 'subagent:1:bg', activity: 'Reading d.ts' },
+      { key: 'subagent:1:fg', activity: 'Thinking…' },
+    ]);
+  });
+
+  it('skips spawns of an Agent whose provider is not enabled', () => {
+    const store = new AgentStateStore();
+    store.set(
+      1,
+      createTestAgent({
+        id: 1,
+        providerId: 'copilot',
+        folderName: 'app',
+        ...tools({ spawn: ['task', 'Subtask: Research'] }),
+      }),
+    );
+    const tracker = new ActivityTracker(() => undefined);
+
+    expect(
+      buildActivityQuickPickRows(store, tracker, [claudeProvider]).map(({ key, detail }) => ({
+        key,
+        detail,
+      })),
+    ).toEqual([{ key: 'agent:1', detail: 'copilot · Headless' }]);
+  });
+});
+
+describe('ActivityTracker', () => {
+  const start = (id: number, parentToolId: string, toolId: string, status: string) => ({
+    type: 'subagentToolStart',
+    id,
+    parentToolId,
+    toolId,
+    status,
+  });
+
+  it('follows an Agent’s own tools until its turn ends', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'read', 'Reading a.ts'));
+    tracker.observe(toolStart(1, 'edit', 'Editing b.ts'));
+    tracker.observe(toolStart(2, 'bash', 'Running: npm test'));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'read' });
+
+    expect(tracker.agentTools(1)).toEqual([
+      { status: 'Reading a.ts', done: true },
+      { status: 'Editing b.ts', done: false },
+    ]);
+
+    tracker.observe({ type: 'agentToolsClear', id: 1 });
+    expect(tracker.agentTools(1)).toEqual([]);
+    expect(tracker.agentTools(2)).toEqual([{ status: 'Running: npm test', done: false }]);
+  });
+
+  it('keeps a finished tool finished when its start is re-sent', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'spawn', 'Subtask: Research'));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'spawn' });
+    tracker.observe(toolStart(1, 'spawn', 'Subtask: Research'));
+    tracker.observe(start(1, 'spawn', 'read', 'Reading a.ts'));
+    tracker.observe({ type: 'subagentToolDone', id: 1, parentToolId: 'spawn', toolId: 'read' });
+    tracker.observe(start(1, 'spawn', 'read', 'Reading a.ts'));
+
+    expect(tracker.agentTools(1)).toEqual([{ status: 'Subtask: Research', done: true }]);
+    expect(tracker.describeSubagent(1, 'spawn')).toEqual({ label: 'Thinking…', state: 'active' });
+  });
+
+  it('clears every spawn’s approval when the parent’s approval clears', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe({ type: 'subagentToolPermission', id: 1, parentToolId: 'a' });
+    tracker.observe({ type: 'subagentToolPermission', id: 1, parentToolId: 'b' });
+    tracker.observe({ type: 'agentToolPermissionClear', id: 1 });
+
+    expect(tracker.describeSubagent(1, 'a').state).toBe('active');
+    expect(tracker.describeSubagent(1, 'b').state).toBe('active');
+  });
+
+  it('keeps only background spawns past the parent’s turn end', () => {
+    const tracker = new ActivityTracker((id) => (id === 1 ? new Set(['bg']) : undefined));
+    tracker.observe(start(1, 'bg', 't1', 'Reading a.ts'));
+    tracker.observe(start(1, 'fg', 't2', 'Reading b.ts'));
+    tracker.observe(start(2, 'fg', 't3', 'Reading c.ts'));
+    tracker.observe({ type: 'agentToolsClear', id: 1 });
+    tracker.observe({ type: 'agentToolsClear', id: 2 });
+
+    expect(tracker.hasSubagentActivity(1, 'bg')).toBe(true);
+    expect(tracker.hasSubagentActivity(1, 'fg')).toBe(false);
+    expect(tracker.hasSubagentActivity(2, 'fg')).toBe(false);
+  });
+
+  it('drops a finished spawn and a departed Agent', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'a', 'Subtask: Research'));
+    tracker.observe(start(1, 'a', 't1', 'Reading a.ts'));
+    tracker.observe(start(1, 'b', 't2', 'Reading b.ts'));
+    tracker.observe({ type: 'subagentClear', id: 1, parentToolId: 'a' });
+
+    expect(tracker.hasSubagentActivity(1, 'a')).toBe(false);
+    expect(tracker.hasSubagentActivity(1, 'b')).toBe(true);
+
+    tracker.forget(1);
+    expect(tracker.hasSubagentActivity(1, 'b')).toBe(false);
+    expect(tracker.agentTools(1)).toEqual([]);
+  });
+
+  it('ignores messages it cannot place', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe({ type: 'subagentToolStart', id: '1', parentToolId: 'a', toolId: 't' });
+    tracker.observe({ type: 'subagentToolStart', id: 1, toolId: 't', status: 'x' });
+    tracker.observe({ type: 'agentToolStart', id: '1', toolId: 't', status: 'x' });
+    tracker.observe({ type: 'agentToolStart', id: 1, status: 'x' });
+
+    expect(tracker.hasSubagentActivity(1, 'a')).toBe(false);
+    expect(tracker.agentTools(1)).toEqual([]);
+  });
+});
+
+describe('restoring Agents', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-activity-restore-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function transcript(name: string, records: Array<Record<string, unknown>>): string {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, records.map((record) => JSON.stringify(record) + '\n').join(''));
+    return file;
+  }
+
+  /** A headless GitHub Copilot session whose transcript ends mid-tool. */
+  function copilotMidTool(): PersistedAgent {
+    const jsonlFile = transcript('events.jsonl', [
+      { type: 'session.start', data: {} },
+      { type: 'assistant.turn_start', data: { turnId: 'turn-1' } },
+      {
+        type: 'tool.execution_start',
+        data: { toolCallId: 'call-1', toolName: 'view', arguments: { path: 'src/app.ts' } },
+      },
+    ]);
+    return {
+      id: 7,
+      providerId: 'copilot',
+      terminalName: '',
+      isExternal: true,
+      jsonlFile,
+      projectDir: dir,
+    };
+  }
+
+  /**
+   * The extension's restore, with the tracker fed as PixelAgentsViewProvider
+   * feeds it: every store broadcast, plus the restored Agents' replay.
+   * @param onRegister runs where registering a session flushes its buffered hook events.
+   */
+  function restoreScene(
+    persisted: PersistedAgent[],
+    onRegister: (store: AgentStateStore, agentId: number) => void = () => {},
+  ) {
+    let saved = persisted;
+    const adapter: StateAdapter = {
+      loadAgents: () => structuredClone(saved),
+      saveAgents: (agents) => {
+        saved = structuredClone(agents);
+      },
+      loadSeats: () => ({}),
+      saveSeats: () => {},
+      getSetting: <T>(_key: string, defaultValue: T): T => defaultValue,
+      setSetting: () => {},
+    };
+    const { store, tracker, rows } = setup();
+    store.setAdapter(adapter);
+    const broadcasts: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (message) => {
+      broadcasts.push(message);
+      tracker.observe(message);
+    });
+    // The real transcript recovery, which fills in tools without broadcasting them.
+    const watchers = new Map(
+      providers.map((provider) => {
+        const watcher = createFileWatcherContext();
+        watcher.setHookProvider(provider);
+        return [provider.id, { recoverAgent: watcher.recoverAgent, startFileWatching: vi.fn() }];
+      }),
+    );
+    const runtime = {
+      fileWatchers: new Map(),
+      pollingTimers: new Map(),
+      waitingTimers: new Map(),
+      permissionTimers: new Map(),
+      jsonlPollTimers: new Map(),
+      getProvider: (id: string) => providers.find((provider) => provider.id === id),
+      getFileWatcher: (id: string) => watchers.get(id),
+      getKnownJsonlFiles: () => new Set<string>(),
+      registerAgent: (_sessionId: string, agentId: number) => onRegister(store, agentId),
+      startProjectScan: () => {},
+    } as unknown as AgentRuntime;
+    const restore = () => restoreAgents(adapter, runtime, store);
+    /** What the extension does on each webviewReady; returns the Agents restore added. */
+    const webviewReady = (): number[] => {
+      const restored = restore();
+      tracker.hydrateRestored(store, restored);
+      return restored;
+    };
+    const activities = () => rows().map(({ key, activity, state }) => ({ key, activity, state }));
+    return { store, tracker, broadcasts, restore, webviewReady, activities };
+  }
+
+  it('shows the tool a restored Agent is running, though restore never broadcasts it', () => {
+    const scene = restoreScene([copilotMidTool()]);
+
+    const restored = scene.restore();
+    expect(restored).toEqual([7]);
+    expect(scene.broadcasts.filter(({ type }) => type === 'agentToolStart')).toEqual([]);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:7', activity: 'Thinking…', state: 'active' },
+    ]);
+
+    // The replay the office gets too, once its layout loads.
+    scene.tracker.hydrateRestored(scene.store, restored);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:7', activity: 'Reading app.ts', state: 'active' },
+    ]);
+  });
+
+  it('takes in the replay even when hook events reach the Agent during restore', () => {
+    // Hook events that arrived before the office opened were buffered; they
+    // reach the tracker, as broadcasts, before the replay does.
+    const scene = restoreScene([copilotMidTool()], (store, agentId) =>
+      processCopilotRecord(
+        agentId,
+        {
+          type: 'tool.execution_start',
+          data: { toolCallId: 'call-2', toolName: 'bash', arguments: { command: 'npm test' } },
+        },
+        store.get(agentId) as AgentState,
+        store,
+        new Map(),
+        new Map(),
+        { source: 'hook' },
+      ),
+    );
+
+    expect(scene.webviewReady()).toEqual([7]);
+    expect(scene.broadcasts).toContainEqual(
+      expect.objectContaining({ type: 'agentToolStart', id: 7, toolId: 'call-2' }),
+    );
+    const agentTools = scene.tracker.agentTools(7);
+    expect(agentTools).toHaveLength(2);
+    expect(agentTools).toEqual(
+      expect.arrayContaining([
+        { status: 'Reading app.ts', done: false },
+        { status: 'Running: npm test', done: false },
+      ]),
+    );
+  });
+
+  it('takes nothing stale from the replay when the office reloads', () => {
+    const jsonlFile = transcript('session-1.jsonl', []);
+    const scene = restoreScene([
+      {
+        id: 3,
+        providerId: 'claude',
+        terminalName: '',
+        isExternal: true,
+        jsonlFile,
+        projectDir: dir,
+      },
+    ]);
+    expect(scene.webviewReady()).toEqual([3]);
+    const agent = scene.store.get(3) as AgentState;
+
+    // Hooks mode: a hook starts a tool, the transcript records the same tool
+    // under its own id without a broadcast, and the hook ends it first.
+    scene.store.broadcast(toolStart(3, 'hook-1', 'Running: npm test'));
+    Object.assign(agent, tools({ toolu_1: ['Bash', 'Running: npm test'] }));
+    scene.store.broadcast({ type: 'agentToolDone', id: 3, toolId: 'hook-1' });
+
+    // The office reloads while the Agent is still in the store.
+    const restoredAgain = scene.webviewReady();
+    expect(scene.tracker.agentTools(3)).toEqual([{ status: 'Running: npm test', done: true }]);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:3', activity: 'Thinking…', state: 'active' },
+    ]);
+    expect(restoredAgain).toEqual([]);
+  });
+});
+
+describe('activityQuickPickItem', () => {
+  it('indents nested rows and marks each state with an icon', () => {
+    expect(
+      activityQuickPickItem({
+        key: 'agent:1',
+        agentId: 1,
+        depth: 0,
+        kind: 'lead',
+        name: 'app',
+        activity: 'Reading a.ts',
+        state: 'active',
+        detail: 'Lead · Claude Code · Claude Code #1',
+      }),
+    ).toEqual({
+      label: '$(sync~spin) app',
+      description: 'Reading a.ts',
+      detail: 'Lead · Claude Code · Claude Code #1',
+    });
+
+    expect(
+      activityQuickPickItem({
+        key: 'subagent:1:spawn',
+        agentId: 1,
+        depth: 1,
+        kind: 'subagent',
+        name: 'Research',
+        activity: 'Needs approval',
+        state: 'permission',
+        detail: 'Sub-agent of app',
+      }).label,
+    ).toBe('\u2003$(arrow-small-right) $(warning) Research');
+
+    expect(
+      activityQuickPickItem({
+        key: 'agent:2',
+        agentId: 2,
+        depth: 1,
+        kind: 'teammate',
+        name: 'reviewer',
+        activity: 'Waiting for input',
+        state: 'input',
+        detail: 'Teammate · Claude Code',
+      }).label,
+    ).toBe('\u2003$(arrow-small-right) $(question) reviewer');
+
+    expect(
+      activityQuickPickItem({
+        key: 'agent:3',
+        agentId: 3,
+        depth: 0,
+        kind: 'agent',
+        name: 'web',
+        activity: 'Idle',
+        state: 'done',
+        detail: 'Claude Code · Headless',
+      }).label,
+    ).toBe('$(check) web');
+  });
+});
+
+describe('activityQuickPickNotice', () => {
+  it('offers the office until restore and discovery have run, rows or not', () => {
+    // Before the office's first load only shortcut-launched Agents are known.
+    expect(activityQuickPickNotice(0, false)).toBe('openOffice');
+    expect(activityQuickPickNotice(2, false)).toBe('openOffice');
+  });
+
+  it('says there are no Agents only once discovery has run', () => {
+    expect(activityQuickPickNotice(0, true)).toBe('empty');
+    expect(activityQuickPickNotice(1, true)).toBeUndefined();
+  });
+});
+
+describe('showActivityQuickPick', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vscodeMock.opened.length = 0;
+  });
+
+  it('relabels an open row when its Agent is renamed, and stops listening once hidden', () => {
+    const { store, tracker } = setup(createTestAgent({ id: 1, sessionName: 'Fix login' }));
+    showActivityQuickPick({
+      store,
+      activityTracker: tracker,
+      activityProviders: providers,
+      discoveryStarted: true,
+      showAgent: () => {},
+      openOffice: () => {},
+    });
+    const [quickPick] = vscodeMock.opened;
+    const labels = () => quickPick.items.map((item) => item.label);
+    expect(quickPick.visible).toBe(true);
+    expect(labels()).toEqual([expect.stringMatching(/ Fix login$/)]);
+
+    store.setNickname(1, 'Ada');
+    vi.advanceTimersByTime(ACTIVITY_QUICK_PICK_REFRESH_MS);
+    expect(labels()).toEqual([expect.stringMatching(/ Ada$/)]);
+
+    quickPick.hide();
+    store.setNickname(1, 'Bea');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(labels()).toEqual([expect.stringMatching(/ Ada$/)]);
+  });
+});

@@ -61,16 +61,19 @@ export interface TestHooksWindow extends Window {
 /**
  * Dismiss the first-run tooltips ("Hooks Installed", "Updated to vN")
  * that overlay the top toolbar and would otherwise intercept the Layout click.
- * Mirrors the helper inlined in pets.spec.ts.
+ * Each close button is looked up in its title's own row: a page-wide
+ * `div:has-text()` resolves to the app root, whose first button containing an
+ * "x" can be a Character's label or an open panel's close button instead.
  */
 export async function dismissFirstRunTooltips(frame: Frame): Promise<void> {
   for (const tooltipText of ['Hooks Installed', 'Updated to v']) {
-    const tooltip = frame.locator('div', { hasText: tooltipText }).first();
-    if (await tooltip.isVisible().catch(() => false)) {
-      const closeBtn = tooltip.locator('button', { hasText: 'x' }).first();
-      if (await closeBtn.isVisible().catch(() => false)) {
-        await closeBtn.click().catch(() => {});
-      }
+    const closeBtn = frame
+      .getByText(tooltipText)
+      .locator('xpath=..')
+      .getByRole('button', { name: 'x', exact: true })
+      .first();
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click().catch(() => {});
     }
   }
 }
