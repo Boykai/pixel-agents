@@ -332,8 +332,8 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 
 ### `@area:standalone` (29 tests)
 
-- `e2e/standalone/activity-panel.spec.ts:20` — lists Copilot agents with nested sub-agents and live activity, and selects on click (Standalone / Activity panel)
-- `e2e/standalone/activity-panel.spec.ts:134` — lists Claude and Copilot agents side by side with a Claude sub-agent (Standalone / Activity panel with mixed providers)
+- `e2e/standalone/activity-panel.spec.ts:21` — lists Copilot agents with nested sub-agents and live activity, and selects on click (Standalone / Activity panel)
+- `e2e/standalone/activity-panel.spec.ts:147` — lists Claude and Copilot agents side by side with a Claude sub-agent (Standalone / Activity panel with mixed providers)
 - `e2e/standalone/copilot.spec.ts:19` — Settings reports a refused Copilot hook install and clears the error after retry (Standalone / Copilot transcript observation)
 - `e2e/standalone/copilot.spec.ts:53` — compact labels reveal one readable hover inspector with keyboard and narrow-screen support (Standalone / Copilot transcript observation)
 - `e2e/standalone/copilot.spec.ts:137` — sub-agents inherit project labels while live activity remains in hover details (Standalone / Copilot transcript observation)

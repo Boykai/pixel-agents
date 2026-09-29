@@ -158,9 +158,10 @@ export function BottomToolbar({
         Layout
       </Button>
       <Button
-        variant={isActivityOpen ? 'active' : 'default'}
+        variant={isEditMode ? 'disabled' : isActivityOpen ? 'active' : 'default'}
         onClick={onToggleActivity}
-        title="What every agent is doing"
+        disabled={isEditMode}
+        title={isEditMode ? 'Close the layout editor to see activity' : 'What every agent is doing'}
         aria-pressed={isActivityOpen}
       >
         Activity

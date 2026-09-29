@@ -122,6 +122,8 @@ function App() {
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
+  // Layout mode takes the panel's corner: it steps aside and returns when editing ends.
+  const activityShown = isActivityOpen && !editor.isEditMode;
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
@@ -523,7 +525,7 @@ function App() {
             alwaysShowOverlay={alwaysShowOverlay}
           />
 
-          {isActivityOpen && !editor.isEditMode && (
+          {activityShown && (
             <ActivityPanel
               officeState={officeState}
               agents={agents}
@@ -619,7 +621,7 @@ function App() {
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
-        isActivityOpen={isActivityOpen}
+        isActivityOpen={activityShown}
         onToggleActivity={() => setIsActivityOpen((v) => !v)}
         isUsageOpen={isUsageOpen}
         onToggleUsage={() => setIsUsageOpen((v) => !v)}

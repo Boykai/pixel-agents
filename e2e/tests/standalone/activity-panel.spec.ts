@@ -9,6 +9,7 @@ import {
   getActivityToggle,
   openActivityPanel,
 } from '../../helpers/activity';
+import { enterEditMode } from '../../helpers/editor';
 import { arrangeNextClaudeInvocation, claudeScenario } from '../../helpers/mock-claude';
 import { copilotScenario } from '../../helpers/mock-copilot';
 import { buildAssistantToolUseRecord } from '../../helpers/team';
@@ -121,6 +122,18 @@ test.describe('Standalone / Activity panel', () => {
     const details = page.getByRole('region', { name: 'Agent details' });
     await expect(details).toHaveAttribute('data-agent-id', '-1');
     await expect(details).toContainText('Sub-agent');
+
+    // Layout mode takes the panel's corner: the panel steps aside, its toggle
+    // can't be flipped unseen, and the panel returns when editing ends.
+    const activityToggle = getActivityToggle(page);
+    await enterEditMode(page.mainFrame());
+    await expect(getActivityPanel(page)).toHaveCount(0);
+    await expect(activityToggle).toBeDisabled();
+    await expect(activityToggle).toHaveAttribute('aria-pressed', 'false');
+    await page.locator('button[title="Edit office layout"]').click();
+    await expect(getActivityPanel(page)).toBeVisible();
+    await expect(activityToggle).toBeEnabled();
+    await expect(activityToggle).toHaveAttribute('aria-pressed', 'true');
 
     await panel.getByRole('button', { name: 'Close activity' }).click();
     await expect(getActivityPanel(page)).toHaveCount(0);
