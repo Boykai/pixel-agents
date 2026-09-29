@@ -47,7 +47,7 @@ from cumulative checkpoints, with token counts only once a shutdown reports them
 
 ### Pet system (`@area:pets`)
 
-The animated pets feature, which has no hook dependency. Pet sprites load and the `petSpritesLoaded` broadcast arrives with manifest display names; placing a pet from the Pets-tab carousel toggles it on/off and persists across a panel reload via `~/.pixel-agents/layout.json`; clicking a pet shows a heart bubble that auto-dismisses and dismisses again on re-click. Pets render only on the canvas, so live state is read through the `getPets` / `petClick` e2e test hooks. FSM internals, pathfinding, FOLLOW, z-sort, and legacy-layout migration are covered by webview unit tests, not e2e.
+The animated pets feature, which has no hook dependency. Pet sprites load and the `petSpritesLoaded` broadcast arrives with manifest display names; placing a pet from the Pets-tab carousel toggles it on/off and persists across a panel reload via `~/.pixel-agents/layout.json`; clicking a pet shows a heart bubble that auto-dismisses and dismisses again on re-click; clicking a pet makes the camera follow it, a second click toggles that off, and a wheel pan or opening the Layout editor ends it. The follow-then-wheel-pan case also runs against the standalone server (`standalone/pets.spec.ts`), since both surfaces serve the same SPA. Pets render only on the canvas, so live state is read through the `getPets` / `petClick` / `getCameraFollow` e2e test hooks. FSM internals (FOLLOW, APPROACH, SIT, SLEEP, FLEE, driven by a scripted RNG), pathfinding, z-sort, the camera-follow clearing rules, and legacy-layout migration are covered by webview unit tests, not e2e.
 
 ### Generate Room (`@area:standalone`, `@area:cross-cutting`)
 
@@ -371,11 +371,13 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 - `e2e/claude/hooks-off/carpet.spec.ts:201` — carpet tiles persist across a save + panel reload (Carpet)
 - `e2e/claude/hooks-off/carpet.spec.ts:293` — a seeded carpet coexists with furniture on the same tile (Carpet surface placement (seeded))
 
-### `@area:pets` (3 tests)
+### `@area:pets` (5 tests)
 
-- `e2e/claude/hooks-off/pets.spec.ts:90` — pet sprites load, broadcast, and expose manifest names in the editor (Pets)
-- `e2e/claude/hooks-off/pets.spec.ts:117` — placing a pet toggles it on/off and persists across a panel reload (Pets)
-- `e2e/claude/hooks-off/pets.spec.ts:196` — clicking a pet shows a heart bubble that auto-dismisses and dismisses on re-click (Pets)
+- `e2e/claude/hooks-off/pets.spec.ts:103` — pet sprites load, broadcast, and expose manifest names in the editor (Pets)
+- `e2e/claude/hooks-off/pets.spec.ts:130` — placing a pet toggles it on/off and persists across a panel reload (Pets)
+- `e2e/claude/hooks-off/pets.spec.ts:209` — clicking a pet shows a heart bubble that auto-dismisses and dismisses on re-click (Pets)
+- `e2e/claude/hooks-off/pets.spec.ts:281` — clicking a pet makes the camera follow it; a wheel pan or the editor ends the follow (Pets)
+- `e2e/standalone/pets.spec.ts:48` — clicking a pet makes the camera follow it; a wheel pan ends the follow (Standalone / Pets)
 
 <!-- END:E2E-INVENTORY -->
 
