@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
+import type { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import {
   type AssetCache,
@@ -224,6 +225,62 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       const exempt = Object.fromEntries(caps.map((m) => [m.providerId, m.permissionExemptTools]));
       expect(exempt.claude).toEqual(expect.arrayContaining(['AskUserQuestion']));
       expect(exempt.copilot).toEqual(expect.arrayContaining(['ask_user']));
+    });
+  });
+
+  // ── Achievements ─────────────────────────────────────────────
+
+  describe('achievements', () => {
+    const progress = [
+      { id: 'first_agent', current: 1, unlocked: true, unlockedAt: 1_768_474_800_000 },
+      { id: 'marathon', current: 3, unlocked: false },
+    ];
+
+    function withTracker(): void {
+      ctx.runtime = {
+        achievements: { snapshot: () => progress },
+        watchAllSessions: { current: false },
+        getProviders: () => [claudeProvider],
+        setHooksEnabled: () => {},
+        restoreExternalAgents: () => {},
+      } as unknown as AgentRuntime;
+    }
+
+    it('popups default to on, persist per namespace, and ride the next handshake', () => {
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      expect(sent.find((m) => m.type === 'settingsLoaded')?.achievementPopups).toBe(true);
+
+      handleClientMessage(
+        { type: 'setAchievementPopups', enabled: false },
+        (m) => sent.push(m),
+        ctx,
+      );
+      expect(readConfig().standalone.achievementPopups).toBe(false);
+      expect(readConfig().vscode.achievementPopups).toBe(true);
+
+      sent = [];
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      expect(sent.find((m) => m.type === 'settingsLoaded')?.achievementPopups).toBe(false);
+    });
+
+    it('sends the progress snapshot after settingsLoaded, and again on request', () => {
+      withTracker();
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+
+      const types = sent.map((m) => m.type);
+      expect(types.indexOf('achievementsLoaded')).toBeGreaterThan(types.indexOf('settingsLoaded'));
+      expect(sent.filter((m) => m.type === 'achievementsLoaded')).toEqual([
+        { type: 'achievementsLoaded', achievements: progress },
+      ]);
+
+      sent = [];
+      handleClientMessage({ type: 'requestAchievements' }, (m) => sent.push(m), ctx);
+      expect(sent).toEqual([{ type: 'achievementsLoaded', achievements: progress }]);
+    });
+
+    it('answers with no progress when no tracker runs', () => {
+      handleClientMessage({ type: 'requestAchievements' }, (m) => sent.push(m), ctx);
+      expect(sent).toEqual([{ type: 'achievementsLoaded', achievements: [] }]);
     });
   });
 
