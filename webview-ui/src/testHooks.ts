@@ -49,6 +49,15 @@ declare global {
       /** Count of placed furniture instances — lets a spec assert furniture
        *  placed onto a carpet tile (surface placement) without it being blocked. */
       getFurnitureCount?: () => number;
+      /** Placed furniture as the layout holds it, with Sign text and Draw layer. */
+      getFurniture?: () => Array<{
+        uid: string;
+        type: string;
+        col: number;
+        row: number;
+        text?: { value: string; color: string; size: string; scale: number };
+        zLayer?: number;
+      }>;
       /** Seated top-level agents with the area their seat falls in (or null). */
       getAgentSeats?: () => Array<{
         id: number;
@@ -270,6 +279,21 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     const os = officeStateRef.current;
     if (!os) return 0;
     return os.furniture.length;
+  };
+
+  // The layout's own items (not the render instances), so a spec can assert
+  // what a save persists: Sign text and Draw layer ride on PlacedFurniture.
+  hooks.getFurniture = () => {
+    const os = officeStateRef.current;
+    if (!os) return [];
+    return os.getLayout().furniture.map((f) => ({
+      uid: f.uid,
+      type: f.type,
+      col: f.col,
+      row: f.row,
+      ...(f.text ? { text: { ...f.text } } : {}),
+      ...(f.zLayer !== undefined ? { zLayer: f.zLayer } : {}),
+    }));
   };
 
   hooks.getAgentSeats = () => {

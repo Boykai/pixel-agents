@@ -85,6 +85,22 @@ export class EditorState {
   /** First tile of an area drag sets direction: true=erase same label, false=paint. */
   areaDragErasing: boolean | null = null;
 
+  // ── Sign editor state (ported from hootbu/pixel-agents (MIT) 69c433f) ──
+  /** Tile a new Sign is placed on once the Sign editor confirms its text. */
+  pendingSignPlacement: { col: number; row: number } | null = null;
+  /** Placed Sign whose text the Sign editor is changing. */
+  editingSignUid: string | null = null;
+
+  /** Whether the Sign editor dialog is open (it owns the keyboard while it is). */
+  isSignEditorOpen(): boolean {
+    return this.pendingSignPlacement !== null || this.editingSignUid !== null;
+  }
+
+  clearSignEditor(): void {
+    this.pendingSignPlacement = null;
+    this.editingSignUid = null;
+  }
+
   snapshot(layout: OfficeLayout): EditorSnapshot {
     return { layout, offset: { ...this.gridOffset } };
   }
@@ -134,6 +150,7 @@ export class EditorState {
 
   clearSelection(): void {
     this.selectedFurnitureUid = null;
+    this.editingSignUid = null;
   }
 
   clearGhost(): void {
@@ -182,5 +199,6 @@ export class EditorState {
     this.carpetStrokeInitialLayout = null;
     this.selectedAreaLabel = null;
     this.areaDragErasing = null;
+    this.clearSignEditor();
   }
 }
