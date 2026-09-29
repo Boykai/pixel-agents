@@ -14,6 +14,7 @@ import {
   subtaskLabel,
 } from '../../core/src/activityLabel.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { resendAgentActivity } from '../../server/src/agentActivityResend.js';
 import type { AgentStateStore } from '../../server/src/agentStateStore.js';
 import { hasPromotedBackgroundAgent } from '../../server/src/teamUtils.js';
 import type { AgentState } from '../../server/src/types.js';
@@ -126,6 +127,17 @@ export class ActivityTracker {
   forget(agentId: number): void {
     this.tools.delete(agentId);
     this.spawns.delete(agentId);
+  }
+
+  /**
+   * Take in the activity of the Agents restore just added. Restore fills in
+   * their tools without broadcasting them; the office gets them in the replay
+   * it's sent once its layout loads, and this takes in that same replay. Never
+   * pass Agents that were already in the store: their replay is stale, since it
+   * re-sends the transcript's tool ids, which hooks mode ends without a broadcast.
+   */
+  hydrateRestored(store: AgentStateStore, agentIds: readonly number[]): void {
+    for (const id of agentIds) resendAgentActivity((message) => this.observe(message), store, id);
   }
 
   /** An Agent's own tools in start order, as its Character shows them. */

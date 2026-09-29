@@ -300,16 +300,18 @@ export function persistAgents(agents: AgentStateStore, adapter: StateAdapter): v
   adapter.saveAgents(persisted);
 }
 
+/** @returns the ids of the Agents it added to the store; Agents already there are skipped. */
 export function restoreAgents(
   adapter: StateAdapter,
   runtime: AgentRuntime,
   store: AgentStateStore,
-): void {
+): number[] {
   const { fileWatchers, pollingTimers, waitingTimers, permissionTimers, jsonlPollTimers } = runtime;
   const nextAgentIdRef = store.nextAgentId;
   const nextTerminalIndexRef = store.nextTerminalIndex;
   const persisted = adapter.loadAgents();
-  if (persisted.length === 0) return;
+  const restored: number[] = [];
+  if (persisted.length === 0) return restored;
 
   const liveTerminals = vscode.window.terminals;
   let maxId = 0;
@@ -392,6 +394,7 @@ export function restoreAgents(
     recoverAgent(agent, store, waitingTimers, permissionTimers);
     assignPaletteIfNeeded(agent, store);
     store.set(p.id, agent);
+    restored.push(p.id);
     knownJsonlFiles.add(p.jsonlFile);
     if (isExternal) {
       console.log(
@@ -467,6 +470,7 @@ export function restoreAgents(
 
   // Re-persist cleaned-up list (removes entries whose terminals are gone)
   store.persist();
+  return restored;
 }
 
 export function sendExistingAgents(

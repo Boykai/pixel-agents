@@ -86,7 +86,10 @@ const MAX_PENDING_BROADCASTS = 1_000;
 export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, ActivitySource {
   store = new AgentStateStore();
   webviewView: vscode.WebviewView | undefined;
-  /** The activity the office shows, replayed from the store's broadcasts for the Activity Quick Pick. */
+  /**
+   * The activity the office shows, for the Activity Quick Pick: every store
+   * broadcast, plus restored Agents' replay.
+   */
   readonly activityTracker = new ActivityTracker(
     (agentId) => this.store.get(agentId)?.backgroundAgentToolIds,
   );
@@ -766,7 +769,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
           mappings: config.vscode.areaMappings ?? {},
         });
 
-        restoreAgents(this.adapter, this.runtime, this.store);
+        // Restore fills in tool state without broadcasting it, and the office only
+        // gets it in the replay sent once its layout loads. Hand the Quick Pick's
+        // tracker that same replay now, for the Agents restore just added.
+        this.activityTracker.hydrateRestored(
+          this.store,
+          restoreAgents(this.adapter, this.runtime, this.store),
+        );
 
         // Auto-spawn: launch one agent on first webviewReady if the setting is
         // enabled and no agents are currently running.

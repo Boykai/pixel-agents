@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { showActivityQuickPick } from '../../adapters/vscode/activityQuickPick.js';
@@ -7,13 +10,20 @@ import {
   ActivityTracker,
   buildActivityQuickPickRows,
 } from '../../adapters/vscode/activityQuickPickRows.js';
+import { restoreAgents } from '../../adapters/vscode/agentManager.js';
 import { ACTIVITY_QUICK_PICK_REFRESH_MS } from '../../adapters/vscode/constants.js';
+import type { StateAdapter } from '../../core/src/adapter.js';
+import type { PersistedAgent } from '../../core/src/schemas.js';
+import type { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { createFileWatcherContext } from '../src/fileWatcher.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
+import { processCopilotRecord } from '../src/providers/hook/copilot/eventReducer.js';
 import type { AgentState } from '../src/types.js';
 
-// Just enough of vscode.window.createQuickPick to drive the live Activity Quick Pick.
+// Just enough of vscode.window to drive the live Activity Quick Pick, and to
+// restore headless Agents (restore only looks for terminal Agents' terminals).
 const vscodeMock = vi.hoisted(() => {
   class FakeQuickPick {
     title = '';
@@ -51,6 +61,7 @@ vi.mock('vscode', () => ({
       vscodeMock.opened.push(quickPick);
       return quickPick;
     },
+    terminals: [],
   },
 }));
 
@@ -554,6 +565,179 @@ describe('ActivityTracker', () => {
 
     expect(tracker.hasSubagentActivity(1, 'a')).toBe(false);
     expect(tracker.agentTools(1)).toEqual([]);
+  });
+});
+
+describe('restoring Agents', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-activity-restore-'));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function transcript(name: string, records: Array<Record<string, unknown>>): string {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, records.map((record) => JSON.stringify(record) + '\n').join(''));
+    return file;
+  }
+
+  /** A headless GitHub Copilot session whose transcript ends mid-tool. */
+  function copilotMidTool(): PersistedAgent {
+    const jsonlFile = transcript('events.jsonl', [
+      { type: 'session.start', data: {} },
+      { type: 'assistant.turn_start', data: { turnId: 'turn-1' } },
+      {
+        type: 'tool.execution_start',
+        data: { toolCallId: 'call-1', toolName: 'view', arguments: { path: 'src/app.ts' } },
+      },
+    ]);
+    return {
+      id: 7,
+      providerId: 'copilot',
+      terminalName: '',
+      isExternal: true,
+      jsonlFile,
+      projectDir: dir,
+    };
+  }
+
+  /**
+   * The extension's restore, with the tracker fed as PixelAgentsViewProvider
+   * feeds it: every store broadcast, plus the restored Agents' replay.
+   * @param onRegister runs where registering a session flushes its buffered hook events.
+   */
+  function restoreScene(
+    persisted: PersistedAgent[],
+    onRegister: (store: AgentStateStore, agentId: number) => void = () => {},
+  ) {
+    let saved = persisted;
+    const adapter: StateAdapter = {
+      loadAgents: () => structuredClone(saved),
+      saveAgents: (agents) => {
+        saved = structuredClone(agents);
+      },
+      loadSeats: () => ({}),
+      saveSeats: () => {},
+      getSetting: <T>(_key: string, defaultValue: T): T => defaultValue,
+      setSetting: () => {},
+    };
+    const { store, tracker, rows } = setup();
+    store.setAdapter(adapter);
+    const broadcasts: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (message) => {
+      broadcasts.push(message);
+      tracker.observe(message);
+    });
+    // The real transcript recovery, which fills in tools without broadcasting them.
+    const watchers = new Map(
+      providers.map((provider) => {
+        const watcher = createFileWatcherContext();
+        watcher.setHookProvider(provider);
+        return [provider.id, { recoverAgent: watcher.recoverAgent, startFileWatching: vi.fn() }];
+      }),
+    );
+    const runtime = {
+      fileWatchers: new Map(),
+      pollingTimers: new Map(),
+      waitingTimers: new Map(),
+      permissionTimers: new Map(),
+      jsonlPollTimers: new Map(),
+      getProvider: (id: string) => providers.find((provider) => provider.id === id),
+      getFileWatcher: (id: string) => watchers.get(id),
+      getKnownJsonlFiles: () => new Set<string>(),
+      registerAgent: (_sessionId: string, agentId: number) => onRegister(store, agentId),
+      startProjectScan: () => {},
+    } as unknown as AgentRuntime;
+    const restore = () => restoreAgents(adapter, runtime, store);
+    /** What the extension does on each webviewReady; returns the Agents restore added. */
+    const webviewReady = (): number[] => {
+      const restored = restore();
+      tracker.hydrateRestored(store, restored);
+      return restored;
+    };
+    const activities = () => rows().map(({ key, activity, state }) => ({ key, activity, state }));
+    return { store, tracker, broadcasts, restore, webviewReady, activities };
+  }
+
+  it('shows the tool a restored Agent is running, though restore never broadcasts it', () => {
+    const scene = restoreScene([copilotMidTool()]);
+
+    const restored = scene.restore();
+    expect(restored).toEqual([7]);
+    expect(scene.broadcasts.filter(({ type }) => type === 'agentToolStart')).toEqual([]);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:7', activity: 'Thinking…', state: 'active' },
+    ]);
+
+    // The replay the office gets too, once its layout loads.
+    scene.tracker.hydrateRestored(scene.store, restored);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:7', activity: 'Reading app.ts', state: 'active' },
+    ]);
+  });
+
+  it('takes in the replay even when hook events reach the Agent during restore', () => {
+    // Hook events that arrived before the office opened were buffered; they
+    // reach the tracker, as broadcasts, before the replay does.
+    const scene = restoreScene([copilotMidTool()], (store, agentId) =>
+      processCopilotRecord(
+        agentId,
+        {
+          type: 'tool.execution_start',
+          data: { toolCallId: 'call-2', toolName: 'bash', arguments: { command: 'npm test' } },
+        },
+        store.get(agentId) as AgentState,
+        store,
+        new Map(),
+        new Map(),
+        { source: 'hook' },
+      ),
+    );
+
+    expect(scene.webviewReady()).toEqual([7]);
+    expect(scene.broadcasts).toContainEqual(
+      expect.objectContaining({ type: 'agentToolStart', id: 7, toolId: 'call-2' }),
+    );
+    const agentTools = scene.tracker.agentTools(7);
+    expect(agentTools).toHaveLength(2);
+    expect(agentTools).toEqual(
+      expect.arrayContaining([
+        { status: 'Reading app.ts', done: false },
+        { status: 'Running: npm test', done: false },
+      ]),
+    );
+  });
+
+  it('takes nothing stale from the replay when the office reloads', () => {
+    const jsonlFile = transcript('session-1.jsonl', []);
+    const scene = restoreScene([
+      {
+        id: 3,
+        providerId: 'claude',
+        terminalName: '',
+        isExternal: true,
+        jsonlFile,
+        projectDir: dir,
+      },
+    ]);
+    expect(scene.webviewReady()).toEqual([3]);
+    const agent = scene.store.get(3) as AgentState;
+
+    // Hooks mode: a hook starts a tool, the transcript records the same tool
+    // under its own id without a broadcast, and the hook ends it first.
+    scene.store.broadcast(toolStart(3, 'hook-1', 'Running: npm test'));
+    Object.assign(agent, tools({ toolu_1: ['Bash', 'Running: npm test'] }));
+    scene.store.broadcast({ type: 'agentToolDone', id: 3, toolId: 'hook-1' });
+
+    // The office reloads while the Agent is still in the store.
+    const restoredAgain = scene.webviewReady();
+    expect(scene.tracker.agentTools(3)).toEqual([{ status: 'Running: npm test', done: true }]);
+    expect(scene.activities()).toEqual([
+      { key: 'agent:3', activity: 'Thinking…', state: 'active' },
+    ]);
+    expect(restoredAgain).toEqual([]);
   });
 });
 

@@ -23,7 +23,10 @@ import {
 /** What the Activity Quick Pick reads and drives (PixelAgentsViewProvider). */
 export interface ActivitySource {
   readonly store: AgentStateStore;
-  /** Fed every store broadcast from activation on, before any Quick Pick listens. */
+  /**
+   * Fed every store broadcast from activation on, before any Quick Pick
+   * listens, and restored Agents' replay.
+   */
   readonly activityTracker: ActivityTracker;
   readonly activityProviders: readonly ActivityProviderInfo[];
   /** Agent restore and session discovery have run (they start with the office's first load). */
