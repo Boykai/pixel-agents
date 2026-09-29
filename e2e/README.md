@@ -45,6 +45,14 @@ per message even though each content block's record repeats the message's usage,
 totals replayed to a reloaded page, and Copilot premium requests and nano AIU
 from cumulative checkpoints, with token counts only once a shutdown reports them.
 
+The Activity panel lists a Copilot lead with its Sub-agent nested underneath,
+follows their activity live (a running tool, "Thinking…", waiting for input), and
+selects a Character when its row is clicked; a second case puts a Claude agent and
+its Sub-agent beside a Copilot agent. In VS Code (`@area:cross-cutting`), the
+status bar's Agent and Activity shortcuts launch an agent and open the live
+Activity Quick Pick, whose rows drop a finished Sub-agent while open, and picking
+a headless external session's row selects its Character in the office.
+
 ### Pet system (`@area:pets`)
 
 The animated pets feature, which has no hook dependency. Pet sprites load and the `petSpritesLoaded` broadcast arrives with manifest display names; placing a pet from the Pets-tab carousel toggles it on/off and persists across a panel reload via `~/.pixel-agents/layout.json`; clicking a pet shows a heart bubble that auto-dismisses and dismisses again on re-click; clicking a pet makes the camera follow it, a second click toggles that off, and a wheel pan or opening the Layout editor ends it. The follow-then-wheel-pan case also runs against the standalone server (`standalone/pets.spec.ts`), since both surfaces serve the same SPA. Pets render only on the canvas, so live state is read through the `getPets` / `petClick` / `getCameraFollow` e2e test hooks. FSM internals (FOLLOW, APPROACH, SIT, SLEEP, FLEE, driven by a scripted RNG), pathfinding, z-sort, the camera-follow clearing rules, and legacy-layout migration are covered by webview unit tests, not e2e.
