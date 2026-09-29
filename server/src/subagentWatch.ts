@@ -19,6 +19,7 @@
 
 import type * as fs from 'fs';
 
+import type { AgentActivityEvent } from './agentActivity.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { DEFAULT_MAX_CONTEXT_TOKENS } from './constants.js';
 import type { FileWatcherContext } from './fileWatcher.js';
@@ -62,6 +63,7 @@ export class SubagentWatch {
   ) {
     this.store.nextAgentId.current = SHADOW_ID_BASE;
     this.store.on('broadcast', (message) => this.translate(message));
+    this.store.activity.subscribe((event) => this.forwardActivity(event));
   }
 
   /** Is this transcript already watched? Consulted by scanner dedupe loops. */
@@ -113,6 +115,8 @@ export class SubagentWatch {
       `[Pixel Agents] Watching background sub-agent transcript for lead Agent ${leadId} (${entry.toolUseId})`,
     );
 
+    // Read from the start: after a reload the watch is re-materialized over a
+    // transcript that already holds the sub-agent's earlier work.
     this.watcher.startFileWatching(
       id,
       entry.jsonlPath,
@@ -121,6 +125,7 @@ export class SubagentWatch {
       this.pollingTimers,
       this.waitingTimers,
       this.permissionTimers,
+      true,
     );
     this.watcher.readNewLines(id, this.store, this.waitingTimers, this.permissionTimers);
   }
@@ -239,6 +244,34 @@ export class SubagentWatch {
       }
       default:
         break;
+    }
+  }
+
+  /** The Sub-agent's tool starts and failures are its lead's Agent activity.
+   *  The shadow feed already dropped replayed history, so they go out as live.
+   *  Its interactions are not the lead's and are not forwarded. */
+  private forwardActivity(event: AgentActivityEvent): void {
+    const key = this.subKeys.get(event.agentId);
+    const lead = key ? this.mainStore.get(key.leadId) : undefined;
+    if (!lead) return;
+    if (event.kind === 'toolStart') {
+      this.mainStore.activity.live(
+        lead,
+        {
+          kind: 'toolStart',
+          toolId: event.toolId,
+          toolName: event.toolName,
+          input: event.input,
+          subagent: true,
+        },
+        event.recordedAt,
+      );
+    } else if (event.kind === 'toolFailure') {
+      this.mainStore.activity.live(
+        lead,
+        { kind: 'toolFailure', toolId: event.toolId, subagent: true },
+        event.recordedAt,
+      );
     }
   }
 

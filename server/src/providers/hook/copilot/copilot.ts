@@ -100,6 +100,41 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
   }
 }
 
+// ── editedFilePaths ──
+
+const APPLY_PATCH_FILE_HEADER = /^\*\*\* (?:Update|Add) File: (.+)$/gm;
+
+/** The files named by an apply_patch envelope's Update/Add headers. A deleted
+ *  file is not an edit, and `*** Move to:` renames a file its Update header
+ *  already counted. */
+function applyPatchFilePaths(input: unknown): string[] {
+  const patch =
+    typeof input === 'string'
+      ? input
+      : input && typeof input === 'object' && !Array.isArray(input)
+        ? firstStringField(input as Record<string, unknown>, ['input', 'patch'])
+        : '';
+  const paths: string[] = [];
+  for (const match of patch.matchAll(APPLY_PATCH_FILE_HEADER)) {
+    const filePath = match[1].trim();
+    if (filePath && !paths.includes(filePath)) paths.push(filePath);
+  }
+  return paths;
+}
+
+export function editedFilePaths(toolName: string, input: unknown): string[] {
+  if (toolName === 'apply_patch') return applyPatchFilePaths(input);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
+  const inp = input as Record<string, unknown>;
+  const edits =
+    toolName === 'edit' ||
+    toolName === 'create' ||
+    toolName === 'write' ||
+    (toolName === 'str_replace_editor' && inp.command !== 'view');
+  const filePath = edits ? firstStringField(inp, ['path', 'file_path']) : '';
+  return filePath ? [filePath] : [];
+}
+
 // ── Session dir + launch command ──
 
 function readWorkspaceYamlContent(workspaceYamlPath: string): string | undefined {
@@ -307,6 +342,7 @@ export const copilotProvider: HookProvider = {
   readingTools: new Set(['view', 'read', 'grep', 'rg', 'glob', 'web_fetch', 'fetch', 'web_search']),
   terminalNamePrefix: COPILOT_TERMINAL_NAME_PREFIX,
   extractTokenUsage: extractCopilotTokenUsage,
+  editedFilePaths,
 
   getSessionDirs,
   getAllSessionRoots,

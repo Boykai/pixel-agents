@@ -74,6 +74,7 @@ export function startWaitingTimer(
   delayMs: number,
   agents: AgentStateStore,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  onDone?: (agent: AgentState) => void,
 ): void {
   cancelWaitingTimer(agentId, waitingTimers);
   const timer = setTimeout(() => {
@@ -89,6 +90,7 @@ export function startWaitingTimer(
       // so this is "Done", not "Waiting for input".
       awaitingInput: false,
     });
+    onDone?.(agent);
   }, delayMs);
   waitingTimers.set(agentId, timer);
 }

@@ -4,6 +4,7 @@ import { appendFileSync } from 'node:fs';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import type { NicknameProfile } from '../../core/src/schemas.js';
+import { AgentActivityFeed } from './agentActivity.js';
 import {
   findNicknameProfile,
   nicknameSessionKey,
@@ -59,8 +60,15 @@ export class AgentStateStore {
   /** Per-agent Token usage totals, broadcast as throttled `agentUsage` messages.
    *  `onLiveUsage` reports only newly observed usage, never seeded history. */
   readonly tokenUsage = new TokenUsageTracker((message) => this.broadcast(message));
+  /** What agents did, reported once at parse time and never from history
+   *  (agentActivity.ts). Internal: counted by features, never broadcast. */
+  readonly activity: AgentActivityFeed;
   private adapter: StateAdapter | undefined;
   private activeProviders: readonly string[] | undefined;
+
+  constructor(options: { now?: () => number } = {}) {
+    this.activity = new AgentActivityFeed(options.now);
+  }
 
   // ── Adapter ──────────────────────────────────────────────────
 
@@ -152,6 +160,7 @@ export class AgentStateStore {
   delete(id: number): boolean {
     const existed = this.agents.delete(id);
     this.tokenUsage.remove(id);
+    this.activity.forget(id);
     if (existed) {
       this.emitter.emit('agentRemoved', id);
     }
@@ -161,6 +170,7 @@ export class AgentStateStore {
   clear(): void {
     this.agents.clear();
     this.tokenUsage.clear();
+    this.activity.clear();
   }
 
   updateMetadata(id: number, metadata: Pick<AgentState, 'sessionName' | 'folderName'>): void {
@@ -329,6 +339,7 @@ export class AgentStateStore {
 
   dispose(): void {
     this.tokenUsage.dispose();
+    this.activity.dispose();
     this.emitter.removeAllListeners();
   }
 
