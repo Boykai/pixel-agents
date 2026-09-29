@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { MAX_COLS, MAX_ROWS, ROOM_ASSETS } from '../src/constants.js';
+import { MAX_COLS, MAX_ROWS, ROOM_ASSETS, ROOM_INTERIOR_SIZES } from '../src/constants.js';
 import type { GeneratedRoom, RoomTheme } from '../src/office/editor/roomGeneration.js';
 import { generateRoom } from '../src/office/editor/roomGeneration.js';
 import { getCatalogEntry } from '../src/office/layout/furnitureCatalog.js';
@@ -25,6 +25,9 @@ import {
 
 beforeAll(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
 afterAll(() => vi.restoreAllMocks());
+
+const SMALLEST = Math.min(...ROOM_INTERIOR_SIZES);
+const LARGEST = Math.max(...ROOM_INTERIOR_SIZES);
 
 function verifyRoom(before: OfficeLayout, result: GeneratedRoom): void {
   const after = result.layout;
@@ -112,10 +115,11 @@ function verifyRoom(before: OfficeLayout, result: GeneratedRoom): void {
 }
 
 describe.each(['workspace', 'meeting', 'lounge'] as RoomTheme[])('%s template', (theme) => {
-  it('fits every interior size on every side with both open and walled attachment', () => {
-    loadRoomCatalog(theme);
-    for (const width of [5, 6, 7, 8]) {
-      for (const height of [5, 6, 7, 8]) {
+  it.each(ROOM_INTERIOR_SIZES)(
+    'fits interior width %i at every height on every side with both open and walled attachment',
+    (width) => {
+      loadRoomCatalog(theme);
+      for (const height of ROOM_INTERIOR_SIZES) {
         for (const [dc, dr] of [
           [1, 0],
           [-1, 0],
@@ -146,8 +150,8 @@ describe.each(['workspace', 'meeting', 'lounge'] as RoomTheme[])('%s template', 
           }
         }
       }
-    }
-  });
+    },
+  );
 });
 
 it('generates repeatedly in the bundled office without changing old furniture or routes', () => {
@@ -156,7 +160,11 @@ it('generates repeatedly in the bundled office without changing old furniture or
   for (let seed = 1; seed <= 10; seed++) {
     const result = generateRoom(
       layout,
-      generationOptions(5 + (seed % 4), 5 + ((seed + 1) % 4), seed),
+      generationOptions(
+        ROOM_INTERIOR_SIZES[seed % ROOM_INTERIOR_SIZES.length],
+        ROOM_INTERIOR_SIZES[(seed + 1) % ROOM_INTERIOR_SIZES.length],
+        seed,
+      ),
     );
     assert.ok(result.ok);
     verifyRoom(layout, result);
@@ -190,7 +198,7 @@ it('can attach to a generated room after the original room has no free entrance'
       });
     }
   }
-  const second = generateRoom(occupiedOriginal, generationOptions(5, 5, 2));
+  const second = generateRoom(occupiedOriginal, generationOptions(SMALLEST, SMALLEST, 2));
   assert.ok(second.ok);
   verifyRoom(occupiedOriginal, second);
   const door = {
@@ -253,18 +261,19 @@ it.each([
 
 it('tries a smaller size when only a minimum-size attachment fits', () => {
   loadRoomCatalog();
-  const layout = attachmentLayout(5, 5, 1, 0, true);
-  for (let row = 20; row < 27; row++) {
-    for (let col = 20; col < 27; col++) {
-      if (row === 20 || row === 26 || col === 20 || col === 26) {
+  const layout = attachmentLayout(SMALLEST, SMALLEST, 1, 0, true);
+  const last = 20 + SMALLEST + 1;
+  for (let row = 20; row <= last; row++) {
+    for (let col = 20; col <= last; col++) {
+      if (row === 20 || row === last || col === 20 || col === last) {
         layout.tiles[row * layout.cols + col] = TileType.WALL;
       }
     }
   }
-  const result = generateRoom(layout, generationOptions(8, 8));
+  const result = generateRoom(layout, generationOptions(LARGEST, LARGEST));
   assert.ok(result.ok);
-  expect(result.interior.cols).toBe(5);
-  expect(result.interior.rows).toBe(5);
+  expect(result.interior.cols).toBe(SMALLEST);
+  expect(result.interior.rows).toBe(SMALLEST);
   verifyRoom(layout, result);
 });
 
@@ -273,7 +282,10 @@ it('uses a supported theme with an explicit notice instead of missing assets', (
   const result = generateRoom(defaultRoomLayout(), generationOptions());
   // The default contains old assets excluded from this catalog; don't guess their bounds.
   expect(result).toMatchObject({ ok: false, reason: 'assets' });
-  const supported = generateRoom(attachmentLayout(5, 5, 1, 0, false), generationOptions());
+  const supported = generateRoom(
+    attachmentLayout(SMALLEST, SMALLEST, 1, 0, false),
+    generationOptions(),
+  );
   assert.ok(supported.ok);
   expect(supported.theme).toBe('lounge');
   expect(supported.notice).toContain('workspace');
@@ -294,7 +306,7 @@ it('rejects unusable chair footprints instead of succeeding without seats', () =
     const entry = getCatalogEntry(type)!;
     entry.backgroundTiles = entry.footprintH;
   }
-  expect(generateRoom(attachmentLayout(5, 5, 1, 0, false))).toMatchObject({
+  expect(generateRoom(attachmentLayout(SMALLEST, SMALLEST, 1, 0, false))).toMatchObject({
     ok: false,
     reason: 'assets',
   });
@@ -339,8 +351,8 @@ it('finishes the finite search on a fragmented maximum-size grid', () => {
 
 it('protects wall decoration and background footprints on otherwise empty candidate tiles', () => {
   loadRoomCatalog();
-  const layout = attachmentLayout(5, 5, 1, 0, true);
-  for (let row = 20; row < 27; row++) {
+  const layout = attachmentLayout(SMALLEST, SMALLEST, 1, 0, true);
+  for (let row = 20; row < 20 + SMALLEST + 2; row++) {
     layout.furniture.push({
       uid: `painting-${row}`,
       type: 'SMALL_PAINTING',
@@ -351,6 +363,51 @@ it('protects wall decoration and background footprints on otherwise empty candid
   const original = structuredClone(layout);
   expect(generateRoom(layout)).toMatchObject({ ok: false, reason: 'no-space' });
   expect(layout).toEqual(original);
+});
+
+it('keeps rooms clear of wall decoration overhanging the top of the grid', () => {
+  loadRoomCatalog();
+  // The top wall's only opening is at (4, 0) and every other floor tile holds furniture, so every
+  // candidate room expands the grid upward, and its bottom wall on row -1 covers columns 3 to 5.
+  const layout = emptyLayout(9, 9);
+  layout.tiles.fill(TileType.FLOOR_1);
+  for (let col = 0; col < layout.cols; col++) {
+    if (col !== 4) layout.tiles[col] = TileType.WALL;
+  }
+  for (let row = 1; row < layout.rows; row++) {
+    for (let col = 0; col < layout.cols; col++) {
+      layout.furniture.push({ uid: `old-${col}-${row}`, type: ROOM_ASSETS.decoration, col, row });
+    }
+  }
+  const open = generateRoom(layout, generationOptions());
+  assert.ok(open.ok);
+  expect(open.shift.row).toBeGreaterThan(0);
+  verifyRoom(layout, open);
+
+  // A 1×2 painting hung on the top wall at `col` overhangs the grid at (col, -1).
+  const hang = (col: number): OfficeLayout => ({
+    ...layout,
+    furniture: [...layout.furniture, { uid: 'painting', type: 'SMALL_PAINTING', col, row: -1 }],
+  });
+
+  // Beside the opening, the overhang lies under every candidate's wall ring.
+  const blocked = hang(3);
+  const original = structuredClone(blocked);
+  expect(generateRoom(blocked, generationOptions())).toMatchObject({
+    ok: false,
+    reason: 'no-space',
+  });
+  expect(blocked).toEqual(original);
+
+  // Further along the wall a room still fits, but never over the overhanging tile.
+  const beside = hang(1);
+  for (let seed = 1; seed <= 8; seed++) {
+    const result = generateRoom(beside, generationOptions(SMALLEST, SMALLEST, seed));
+    assert.ok(result.ok);
+    verifyRoom(beside, result);
+    const overhang = (result.shift.row - 1) * result.layout.cols + 1 + result.shift.col;
+    expect(result.layout.tiles[overhang]).toBe(TileType.VOID);
+  }
 });
 
 it('replays deterministically and rejects duplicate IDs without changing the layout', () => {

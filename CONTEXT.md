@@ -187,7 +187,7 @@ _Avoid_: factory layout, stock layout
 
 **Room**:
 A furnished floor rectangle bounded by walls and connected to existing floor through an opening.
-Generate Room adds one room from the Layout toolbar; its interior is 5 to 8 tiles on each side,
+Generate Room adds one room from the Layout toolbar; its interior is 6 to 15 tiles on each side,
 with walls outside those dimensions. Rooms are ordinary editable tiles and furniture, not
 persisted entities or Areas. Open floor space can also receive a room attachment.
 

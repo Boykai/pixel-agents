@@ -42,7 +42,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.                        |
 | Nicknames and Costumes             | Any Copilot agent, observed App sessions included, can be renamed and given a Costume (Appearance). Its Sub-agents wear the Costume; a Teammate starts in its Lead's. |
 | Achievements                       | Adopted sessions count. Token credit lands when `session.shutdown` records tokens; failures are transcript-only; a turn counts when it settles Done.                  |
-| Office features                    | Pets, Signs, Draw layers, zoom persistence and camera Follow depend only on the office and its Characters, so they work the same with Copilot agents.                 |
+| Office features                    | Pets, Signs, Draw layers, Generate Room, Reset to Default, zoom persistence and camera Follow depend only on the office, so they work the same with Copilot agents.   |
 | App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                                  |
 
 This is source-based capability coverage, not a claim that every installed App

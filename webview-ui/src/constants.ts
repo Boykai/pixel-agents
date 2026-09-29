@@ -159,7 +159,7 @@ export const EDITOR_BUTTON_DISABLED_ALPHA = 0.35;
 export const EDITOR_BUTTON_HIT_PADDING_PX = 2;
 
 // ── Room generation ──────────────────────────────────────────
-export const ROOM_INTERIOR_SIZES = [5, 6, 7, 8] as const;
+export const ROOM_INTERIOR_SIZES = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export const ROOM_WALL_THICKNESS = 1;
 export const ROOM_AISLE_WIDTH = 1;
 export const ROOM_LARGE_INTERIOR_MIN = 7;

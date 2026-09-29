@@ -64,7 +64,7 @@ The Layout toolbar generates a furnished room, preserves existing layout layers
 through expansion, and supports one-step Undo/Redo, normal furniture editing,
 Save/Reset, export/import, and reload. Standalone cases also cover empty/full
 layouts and keyboard operation at narrow widths; VS Code covers the same action
-and panel lifecycle. Deterministic domain tests cover all 16 interior size pairs,
+and panel lifecycle. Deterministic domain tests cover all 100 interior size pairs,
 three themes, four attachment directions, and per-seat pathfinding.
 
 ### Mood bubbles (`@area:standalone`, `@area:cross-cutting`)

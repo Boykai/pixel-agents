@@ -281,20 +281,74 @@ function roomBounds(door: Attachment, width: number, height: number, offset: num
   };
 }
 
-function fits(layout: OfficeLayout, bounds: RoomBounds, occupied: Set<string>): boolean {
-  for (let row = bounds.row; row < bounds.row + bounds.rows; row++) {
-    for (let col = bounds.col; col < bounds.col + bounds.cols; col++) {
-      if (occupied.has(`${col},${row}`)) return false;
-      const tile = tileAt(layout, col, row);
-      const edge =
-        col === bounds.col ||
-        row === bounds.row ||
-        col === bounds.col + bounds.cols - 1 ||
-        row === bounds.row + bounds.rows - 1;
-      if (tile !== TileType.VOID && !(edge && tile === TileType.WALL)) return false;
+/** Summed-area tables so each candidate placement is checked in constant time. */
+interface Clearance {
+  cols: number;
+  rows: number;
+  /** Tiles that can't sit inside a room's outer ring: anything but VOID, or furniture. */
+  interior: Int32Array;
+  /** Tiles that can't sit on a room's outer ring: floor, or furniture. Existing walls can be shared. */
+  edge: Int32Array;
+  /** Furniture tiles outside the grid, such as wall decoration overhanging the top row. */
+  outside: Position[];
+}
+
+function summedArea(layout: OfficeLayout, blocked: (index: number) => boolean): Int32Array {
+  const stride = layout.cols + 1;
+  const sums = new Int32Array(stride * (layout.rows + 1));
+  for (let row = 0; row < layout.rows; row++) {
+    for (let col = 0; col < layout.cols; col++) {
+      const i = (row + 1) * stride + col + 1;
+      sums[i] =
+        (blocked(row * layout.cols + col) ? 1 : 0) +
+        sums[i - 1] +
+        sums[i - stride] -
+        sums[i - stride - 1];
     }
   }
-  return true;
+  return sums;
+}
+
+function clearance(layout: OfficeLayout, occupied: Uint8Array, outside: Position[]): Clearance {
+  return {
+    cols: layout.cols,
+    rows: layout.rows,
+    interior: summedArea(layout, (i) => occupied[i] === 1 || layout.tiles[i] !== TileType.VOID),
+    edge: summedArea(layout, (i) => occupied[i] === 1 || isFloor(layout.tiles[i])),
+    outside,
+  };
+}
+
+/** Counts blocked in-grid tiles in columns [left, right) and rows [top, bottom). */
+function blockedCount(
+  space: Clearance,
+  sums: Int32Array,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): number {
+  left = Math.max(0, left);
+  top = Math.max(0, top);
+  right = Math.min(space.cols, right);
+  bottom = Math.min(space.rows, bottom);
+  if (left >= right || top >= bottom) return 0;
+  const stride = space.cols + 1;
+  return (
+    sums[bottom * stride + right] -
+    sums[top * stride + right] -
+    sums[bottom * stride + left] +
+    sums[top * stride + left]
+  );
+}
+
+function fits(space: Clearance, bounds: RoomBounds): boolean {
+  const { col, row } = bounds;
+  const right = col + bounds.cols;
+  const bottom = row + bounds.rows;
+  if (blockedCount(space, space.edge, col, row, right, bottom)) return false;
+  if (blockedCount(space, space.interior, col + 1, row + 1, right - 1, bottom - 1)) return false;
+  return !space.outside.some((tile) => contains(bounds, tile.col, tile.row));
 }
 
 function buildGeometry(
@@ -520,7 +574,8 @@ export function generateRoom(
       message: 'Room furniture is unavailable. Load the bundled furniture assets and try again.',
     };
   }
-  const occupied = new Set<string>();
+  const occupied = new Uint8Array(layout.cols * layout.rows);
+  const outside: Position[] = [];
   for (const item of layout.furniture) {
     const entry = roomAsset(item.type);
     if (!entry)
@@ -531,10 +586,16 @@ export function generateRoom(
       };
     const bounds = footprint(item, entry);
     for (let row = bounds.row; row < bounds.row + bounds.rows; row++) {
-      for (let col = bounds.col; col < bounds.col + bounds.cols; col++)
-        occupied.add(`${col},${row}`);
+      for (let col = bounds.col; col < bounds.col + bounds.cols; col++) {
+        if (col < 0 || row < 0 || col >= layout.cols || row >= layout.rows) {
+          outside.push({ col, row });
+        } else {
+          occupied[row * layout.cols + col] = 1;
+        }
+      }
     }
   }
+  const space = clearance(layout, occupied, outside);
   const walkable = getWalkableTiles(layoutToTileMap(layout), getBlockedTiles(layout.furniture));
   if (!walkable.length) {
     return {
@@ -558,16 +619,18 @@ export function generateRoom(
   for (const allowExpansion of [false, true]) {
     for (const { width, height } of sizes) {
       for (const door of entrances) {
-        const offsets = shuffled(
-          Array.from({ length: door.dc ? height : width }, (_, i) => i + ROOM_WALL_THICKNESS),
-          random,
-        );
-        for (const offset of offsets) {
+        const placements: RoomBounds[] = [];
+        const span = door.dc ? height : width;
+        for (let offset = ROOM_WALL_THICKNESS; offset < span + ROOM_WALL_THICKNESS; offset++) {
           const bounds = roomBounds(door, width, height, offset);
           const cols = Math.max(layout.cols, bounds.col + bounds.cols) - Math.min(0, bounds.col);
           const rows = Math.max(layout.rows, bounds.row + bounds.rows) - Math.min(0, bounds.row);
           if ((cols !== layout.cols || rows !== layout.rows) !== allowExpansion) continue;
-          if (cols > MAX_COLS || rows > MAX_ROWS || !fits(layout, bounds, occupied)) continue;
+          if (cols > MAX_COLS || rows > MAX_ROWS || !fits(space, bounds)) continue;
+          placements.push(bounds);
+        }
+        // Shuffle only placements that fit: the search is exhaustive, so rejects must stay cheap.
+        for (const bounds of shuffled(placements, random)) {
           const geometry = buildGeometry(
             layout,
             bounds,
