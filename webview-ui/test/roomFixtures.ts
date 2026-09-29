@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { buildFurnitureCatalog } from '../../core/src/assets/build.js';
 import { decodeAllFurniture } from '../../core/src/assets/loader.js';
-import { DEFAULT_FLOOR_COLOR, MAX_COLS, MAX_ROWS } from '../src/constants.js';
+import { DEFAULT_FLOOR_COLOR, MAX_COLS, MAX_ROWS, ROOM_INTERIOR_SIZES } from '../src/constants.js';
 import type { RoomTheme } from '../src/office/editor/roomGeneration.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout } from '../src/office/types.js';
@@ -86,8 +86,18 @@ export function seededRandom(seed = 1): () => number {
   };
 }
 
-export function generationOptions(width = 5, height = 5, seed = 1) {
-  const choices = [(width - 5) / 4, (height - 5) / 4];
+export function generationOptions(
+  width: number = ROOM_INTERIOR_SIZES[0],
+  height: number = ROOM_INTERIOR_SIZES[0],
+  seed = 1,
+) {
+  // The generator's first two draws pick the interior size it tries first.
+  const choice = (size: number) => {
+    const index = (ROOM_INTERIOR_SIZES as readonly number[]).indexOf(size);
+    if (index < 0) throw new Error(`${size} is not a room interior size`);
+    return (index + 0.5) / ROOM_INTERIOR_SIZES.length;
+  };
+  const choices = [choice(width), choice(height)];
   const next = seededRandom(seed);
   let id = 0;
   return {

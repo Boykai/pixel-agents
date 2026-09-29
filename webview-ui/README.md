@@ -3,9 +3,9 @@
 ## Generate Room
 
 Open **Layout**, then select **Generate Room** to add a furnished workspace,
-meeting room, or lounge. Each interior is randomly chosen from 5 to 8 tiles wide
-and 5 to 8 tiles high, before furnishing. A one-tile wall perimeter lies outside
-those dimensions. The room attaches through an open passage to existing
+meeting room, or lounge. Each interior is randomly chosen from 6 to 15 tiles
+wide and 6 to 15 tiles high, before furnishing. A one-tile wall perimeter lies
+outside those dimensions. The room attaches through an open passage to existing
 walkable floor, including hand-built layouts without enclosing walls.
 
 Generation uses small arrangements made from available bundled catalog assets:
