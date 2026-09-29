@@ -1,6 +1,7 @@
 /**
- * Achievements in the webview: the gallery's rows and the popup queue. Pure
- * (no DOM, no transport), so both run under the Node test runner.
+ * Achievements in the webview: the gallery's rows, the popup queue, and the
+ * gate that decides which unlocks reach it. Pure (no DOM, no transport), so
+ * all of it runs under the Node test runner.
  *
  * Ported from hootbu/pixel-agents (d0843a9): the gallery's rows, counts and
  * progress bars, and the popup's show-then-fade timing. The fork showed one
@@ -153,5 +154,50 @@ export class AchievementPopupQueue {
   private cancelTimer(): void {
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
+  }
+}
+
+/**
+ * Decides which unlocks pop up. Whether popups are on is unknown until the
+ * first settingsLoaded, and unlocks can arrive before it: VS Code flushes the
+ * messages it buffered while the webview loaded ahead of settingsLoaded. So
+ * those are held, then shown or dropped by what settingsLoaded says; after it,
+ * an unlock goes straight to the queue, or nowhere with popups off. The gallery
+ * takes every unlock either way (applyUnlock).
+ */
+export class AchievementPopupGate {
+  private enabled = true;
+  /** Unlocks waiting for the first settingsLoaded; null once it has arrived. */
+  private held: string[] | null = [];
+  private readonly queue: Pick<AchievementPopupQueue, 'push' | 'clear'>;
+
+  constructor(queue: Pick<AchievementPopupQueue, 'push' | 'clear'>) {
+    this.queue = queue;
+  }
+
+  unlocked(id: string): void {
+    if (this.held) {
+      if (!this.held.includes(id)) this.held.push(id);
+    } else if (this.enabled) {
+      this.queue.push(id);
+    }
+  }
+
+  /** Popups turned on or off; off drops what is showing, waiting or held. */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (enabled) return;
+    if (this.held) this.held.length = 0;
+    this.queue.clear();
+  }
+
+  /** Settings arrived. Without the setting (`undefined`) popups stay as they
+   *  were, which is on unless the user turned them off. */
+  settingsLoaded(enabled: boolean | undefined): void {
+    if (enabled !== undefined) this.setEnabled(enabled);
+    const held = this.held;
+    this.held = null;
+    if (!held || !this.enabled) return;
+    for (const id of held) this.queue.push(id);
   }
 }

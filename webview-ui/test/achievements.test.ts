@@ -1,11 +1,12 @@
 /**
  * Unit tests for the webview side of Achievements — the pure module behind the
- * popup queue and the gallery rows (src/achievements.ts).
+ * popup queue, the popup gate and the gallery rows (src/achievements.ts).
  *
  * WHY THIS IS A UNIT TEST, given "E2E over webview unit tests" (CLAUDE.md): the
  * queue is a timing rule (each popup stays up 4 s, fades for 0.3 s, then the
- * next shows) that e2e could only observe by waiting it out, and the row
- * helpers clamp server input a browser never sends malformed.
+ * next shows) that e2e could only observe by waiting it out, the gate is an
+ * ordering rule (an unlock that beats settingsLoaded) that e2e cannot stage on
+ * demand, and the row helpers clamp server input a browser never sends malformed.
  * `e2e/tests/standalone/achievements.spec.ts` covers what IS user-visible: an
  * unlock pops once, the gallery lists it, and the setting turns popups off.
  *
@@ -19,6 +20,7 @@ import { test } from 'vitest';
 import { ACHIEVEMENTS } from '../../core/src/achievements.js';
 import type { AchievementPopupView } from '../src/achievements.js';
 import {
+  AchievementPopupGate,
   AchievementPopupQueue,
   achievementRows,
   applyUnlock,
@@ -180,6 +182,93 @@ test('dispose cancels the timers without reporting a change', () => {
   assert.equal(timers.pending, 0);
   timers.advance(DURATION_MS + FADE_MS);
   assert.equal(seen.length, reported);
+});
+
+// ── Popup gate ──────────────────────────────────────────────────
+
+/** A gate in front of a queue that records what reaches it. */
+function gate(): { gate: AchievementPopupGate; pushed: string[]; clears: () => number } {
+  const pushed: string[] = [];
+  let clears = 0;
+  return {
+    gate: new AchievementPopupGate({
+      push: (id) => pushed.push(id),
+      clear: () => {
+        clears++;
+      },
+    }),
+    pushed,
+    clears: () => clears,
+  };
+}
+
+// Regression: VS Code flushes the messages it buffered while the webview
+// loaded BEFORE settingsLoaded, so an unlock used to pop up with popups off.
+test('unlocks before the first settingsLoaded are dropped when it says popups are off', () => {
+  const { gate: g, pushed } = gate();
+  g.unlocked('first_agent');
+  g.unlocked('team_player');
+  assert.deepEqual(pushed, [], 'held until the setting is known');
+
+  g.settingsLoaded(false);
+  assert.deepEqual(pushed, []);
+  g.unlocked('marathon');
+  assert.deepEqual(pushed, [], 'and later ones go nowhere');
+});
+
+test('unlocks before the first settingsLoaded pop up, in order, when it says popups are on', () => {
+  const { gate: g, pushed } = gate();
+  g.unlocked('first_agent');
+  g.unlocked('team_player');
+  g.unlocked('first_agent');
+  assert.deepEqual(pushed, []);
+
+  g.settingsLoaded(true);
+  assert.deepEqual(pushed, ['first_agent', 'team_player']);
+});
+
+test('a settingsLoaded without the setting counts as on', () => {
+  const { gate: g, pushed } = gate();
+  g.unlocked('night_owl');
+  g.settingsLoaded(undefined);
+  assert.deepEqual(pushed, ['night_owl']);
+});
+
+test('after settingsLoaded an unlock goes straight through, or nowhere with popups off', () => {
+  const { gate: g, pushed, clears } = gate();
+  g.settingsLoaded(true);
+  g.unlocked('architect');
+  assert.deepEqual(pushed, ['architect']);
+
+  g.setEnabled(false);
+  assert.equal(clears(), 1, 'turning popups off drops what is showing and waiting');
+  g.unlocked('decorator');
+  g.setEnabled(true);
+  g.unlocked('marathon');
+  // A later settingsLoaded (another handshake) has nothing held to release.
+  g.settingsLoaded(true);
+  assert.deepEqual(pushed, ['architect', 'marathon']);
+});
+
+test('turning popups off before settings arrive drops what was held', () => {
+  const { gate: g, pushed } = gate();
+  g.unlocked('first_agent');
+  g.setEnabled(false);
+  g.settingsLoaded(undefined);
+  assert.deepEqual(pushed, []);
+});
+
+test('the gate feeds the real queue', () => {
+  const { queue: q, timers } = queue();
+  const g = new AchievementPopupGate(q);
+  g.unlocked('first_agent');
+  assert.equal(q.showing, null);
+  g.settingsLoaded(true);
+  assert.deepEqual(q.showing, { id: 'first_agent', leaving: false });
+
+  g.setEnabled(false);
+  assert.equal(q.showing, null);
+  assert.equal(timers.pending, 0);
 });
 
 // ── Gallery rows ────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import type {
 } from '../../../core/src/messages.js';
 import { parseZoom } from '../../../core/src/zoom.js';
 import type { AchievementPopupView } from '../achievements.js';
-import { AchievementPopupQueue, applyUnlock } from '../achievements.js';
+import { AchievementPopupGate, AchievementPopupQueue, applyUnlock } from '../achievements.js';
 import {
   ACHIEVEMENT_POPUP_DURATION_MS,
   ACHIEVEMENT_POPUP_FADE_MS,
@@ -222,14 +222,12 @@ export function useExtensionMessages(
     [getOfficeState],
   );
 
-  // The message handler reads the setting through a ref (it is registered once).
-  // Turning popups off also drops the one showing and any waiting.
-  const achievementPopupsRef = useRef(true);
-  const achievementQueueRef = useRef<AchievementPopupQueue | null>(null);
+  // Popups are decided by the gate the message handler owns (it is registered
+  // once); turning popups off also drops the one showing and any waiting.
+  const achievementGateRef = useRef<AchievementPopupGate | null>(null);
   const applyAchievementPopups = useCallback((enabled: boolean) => {
-    achievementPopupsRef.current = enabled;
     setAchievementPopupsState(enabled);
-    if (!enabled) achievementQueueRef.current?.clear();
+    achievementGateRef.current?.setEnabled(enabled);
   }, []);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
@@ -268,7 +266,9 @@ export function useExtensionMessages(
         setAchievementPopup(popup);
       },
     });
-    achievementQueueRef.current = achievementQueue;
+    // Unlocks announced before the first settingsLoaded wait to learn whether popups are on.
+    const achievementGate = new AchievementPopupGate(achievementQueue);
+    achievementGateRef.current = achievementGate;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
@@ -838,9 +838,14 @@ export function useExtensionMessages(
         if (typeof msg.moodBubbles === 'boolean') {
           applyMoodBubbles(msg.moodBubbles as boolean);
         }
-        if (typeof msg.achievementPopups === 'boolean') {
-          applyAchievementPopups(msg.achievementPopups as boolean);
+        const achievementPopupsSetting =
+          typeof msg.achievementPopups === 'boolean'
+            ? (msg.achievementPopups as boolean)
+            : undefined;
+        if (achievementPopupsSetting !== undefined) {
+          setAchievementPopupsState(achievementPopupsSetting);
         }
+        achievementGate.settingsLoaded(achievementPopupsSetting);
         if (typeof msg.hooksEnabled === 'boolean') {
           setHooksEnabled(msg.hooksEnabled as boolean);
         }
@@ -953,7 +958,7 @@ export function useExtensionMessages(
           const id = msg.id as string;
           const unlockedAt = msg.unlockedAt as number;
           setAchievements((prev) => applyUnlock(prev, id, unlockedAt));
-          if (achievementPopupsRef.current && getAchievement(id)) achievementQueue.push(id);
+          if (getAchievement(id)) achievementGate.unlocked(id);
         }
       }
     };
@@ -999,7 +1004,7 @@ export function useExtensionMessages(
       unsubscribe();
       clearInterval(moodTick);
       achievementQueue.dispose();
-      if (achievementQueueRef.current === achievementQueue) achievementQueueRef.current = null;
+      if (achievementGateRef.current === achievementGate) achievementGateRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getOfficeState]);
