@@ -62,6 +62,7 @@ import {
   GLOBAL_KEY_GHOST_HEADLESS_AGENTS,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
   GLOBAL_KEY_LAST_SEEN_VERSION,
+  GLOBAL_KEY_MOOD_BUBBLES,
   GLOBAL_KEY_SHOW_AREAS,
   GLOBAL_KEY_SOUND_ENABLED,
   GLOBAL_KEY_WATCH_ALL_SESSIONS,
@@ -477,6 +478,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         this.adapter.setSetting(GLOBAL_KEY_ALWAYS_SHOW_LABELS, message.enabled);
       } else if (message.type === 'setGhostHeadlessAgents') {
         this.adapter.setSetting(GLOBAL_KEY_GHOST_HEADLESS_AGENTS, message.enabled);
+      } else if (message.type === 'setMoodBubbles') {
+        this.adapter.setSetting(GLOBAL_KEY_MOOD_BUBBLES, message.enabled);
       } else if (message.type === 'setHooksEnabled') {
         // The provider id is echoed by the webview, never originated; an
         // unknown id names nothing to install into, so it is dropped like a
@@ -559,6 +562,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             displayName: provider.displayName,
             readingTools: [...provider.readingTools],
             subagentToolNames: [...provider.subagentToolNames],
+            permissionExemptTools: [...provider.permissionExemptTools],
             capabilities: provider.capabilities,
             consentDisclosure: provider.consentDisclosure(),
           });
@@ -593,6 +597,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         const showAreas = this.adapter.getSetting<boolean>(GLOBAL_KEY_SHOW_AREAS, false);
         // Omitted until the user zooms, so the webview keeps its devicePixelRatio default.
         const zoom = parseZoom(this.adapter.getSetting<unknown>(GLOBAL_KEY_ZOOM, undefined));
+        const moodBubbles = this.adapter.getSetting<boolean>(GLOBAL_KEY_MOOD_BUBBLES, true);
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -608,6 +613,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           externalAssetDirectories: config.externalAssetDirectories,
           showAreas,
           ...(zoom !== undefined ? { zoom } : {}),
+          moodBubbles,
         });
 
         // One status + at most one consent ask PER PROVIDER. Install state is distinct from the hooksEnabled

@@ -42,6 +42,14 @@ export const Direction = {
 } as const;
 export type Direction = (typeof Direction)[keyof typeof Direction];
 
+/** A character's transient emotional reaction to its own activity (see CONTEXT.md "Mood"). */
+export const Mood = {
+  HAPPY: 'happy',
+  ERROR: 'error',
+  STRESSED: 'stressed',
+} as const;
+export type Mood = (typeof Mood)[keyof typeof Mood];
+
 /** 2D array of hex color strings: '' = transparent, '#RRGGBB' = opaque, '#RRGGBBAA' = semi-transparent. [row][col] */
 export type SpriteData = string[][];
 
@@ -228,6 +236,12 @@ export interface Character {
   waitingAwaitingInput?: boolean;
   /** Countdown timer for bubble (waiting: 2→0, permission: unused) */
   bubbleTimer: number;
+  /** Showing Mood bubble, or null/undefined when none. Lower priority than
+   *  bubbleType: hidden (and its clock paused) behind a permission bubble or
+   *  a Done checkmark. */
+  moodType?: Mood | null;
+  /** Seconds left on the Mood bubble (MOOD_BUBBLE_DURATION_SEC → 0). */
+  moodTimer?: number;
   /** Timer to stay seated while inactive after seat reassignment (counts down to 0) */
   seatTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */

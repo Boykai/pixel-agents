@@ -98,6 +98,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       wallTiles.ts                   Wall auto-tile: 16 bitmask sprites
       sprites/
         spriteData.ts                Pixel data (characters, furniture, tiles, bubbles)
+        moodSprites.ts               Mood bubble pixel data (happy / error / stressed)
         spriteCache.ts               SpriteData → offscreen canvas, per-zoom WeakMap
         pixelFont.ts                 3×5 / 5×7 pixel fonts, text → SpriteData (Sign text; ported from hootbu)
         textSpriteCache.ts           Sign text normalization, bounded LRU of text sprites, text → footprint
@@ -118,6 +119,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
         renderer.ts                  Canvas: tiles, z-sorted entities, overlays, edit UI
         matrixEffect.ts              Spawn/despawn digital rain (drawing only)
         matrixEffectState.ts         Effect state: startMatrixEffect/advanceMatrixEffect (DOM-free)
+        moodTracker.ts               Mood rules over the ServerMessage stream (DOM-free, Node-runner tested)
       components/
         OfficeCanvas.tsx             Canvas, resize, DPR, mouse hit-testing, drag-to-move
         ToolOverlay.tsx              Activity label above hovered/selected character
@@ -200,8 +202,8 @@ Adding a new CLI integration is one subdirectory under `server/src/providers/hoo
 
 `core/asyncapi.yaml` is the contract. Pinned to **3.0.0** because `@asyncapi/modelina@5.10.1` declares `supportedVersions: ['3.0.0']` only; bumping to 3.1.0 produces `export type Root = any`. Revisit when Modelina ships 3.1.0 support.
 
-- **27 ServerMessage variants** (server → client): agent lifecycle, agent activity, sub-agent activity, team + context usage, assets, settings + workspace, diagnostics.
-- **18 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`), discovery + assets, diagnostics.
+- **34 ServerMessage variants** (server → client): agent lifecycle, agent activity, sub-agent activity, team + context usage, assets, settings + workspace, diagnostics.
+- **24 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`, `setMoodBubbles`), discovery + assets, diagnostics.
 
 Both unions use `oneOf` with `discriminator: type`. Every concrete message sets `additionalProperties: false`.
 
@@ -234,6 +236,8 @@ export type TransportState = 'connecting' | 'connected' | 'reconnecting' | 'disc
 - **Optional team extension**: `team?: TeamProvider` for Lead + Teammates support.
 
 `AgentEvent.kind` values: `toolStart`, `toolEnd`, `turnEnd`, `subagentStart`, `subagentEnd`, `subagentTurnEnd`, `progress`, `permissionRequest`, `sessionStart`, `sessionEnd`. The runtime dispatches on `kind`, never on CLI-specific tool names.
+
+**Tool-failure seam**: `toolEnd.isError?: true` marks a tool that ran and reported failure (absent = success or unknown). Sources: Claude `PostToolUseFailure` (hooks), `tool_result.is_error` (transcript), Copilot `tool.execution_complete` with `success: false` or `tool.execution_failed` (transcript only; no Copilot tool hooks). The runtime forwards it at most once per failed tool, as `agentToolDone.isError` for the agent's own tool or `subagentToolDone.isError` for a Sub-agent's (including the shadow-store translation in `subagentWatch.ts`), so a `broadcast` subscriber on `AgentStateStore` can count failures. Single-count rules: in hooks mode each done has one owner — the hook path, except for spawn tools (`subagentToolNames`) and leads with inline teammates, whose dones the transcript owns (the hook path leaves those unflagged or silent); a Claude `PostToolUseFailure` carrying `agent_id` stays unflagged because the Sub-agent's transcript `tool_result` reports it. Denials and validation rejections never reach `PostToolUseFailure`, so they count only in transcript mode, where they surface as `is_error` results. Known undercount (never a double count): a foreground Sub-agent's failed tool goes uncounted when Claude writes no `agent_progress` for it (newer releases), because nothing reads that Sub-agent's own transcript and the hook path leaves `agent_id` failures to the transcript. **Ordering**: transcript tool dones go out `TOOL_DONE_DELAY_MS` late, but a failed tool's done always reaches the store before the turn-end `agentStatus` and the next prompt's `agentToolsClear`: every turn boundary calls `flushToolDones(agent)` (turn_duration, new user prompt, /clear, and `HookEventHandler.markAgentWaiting`, which each runtime wires to its own parser). The one gap is a hooks-mode Stop that arrives before the poller has read the failed spawn tool's `tool_result`.
 
 ### TeamProvider (Lead + Teammates)
 
@@ -335,7 +339,7 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
 ```
 
-`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
+`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom`, `moodBubbles` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
 
 `migrateVsCodeState` (VS Code adapter only) walks each known legacy key once with **verify-before-clear** semantics: write to file, read back, only then clear the legacy key. While anything remains unmigrated, activation shows a non-blocking warning.
 
@@ -404,6 +408,8 @@ Custom ESLint rules (`eslint-rules/pixel-agents-rules.mjs`) enforce: `no-inline-
 **Sub-agents**: Negative IDs (from -1 down). Created on `agentToolStart` with "Subtask:" prefix, or lazily by `subagentToolStart` when missing (watched background spawns, post-reload recreation). Same palette + hueShift as parent. Click focuses parent terminal. Not persisted. Spawn at the closest free walkable tile to the parent (`closestFreeWalkableTile`) — around it, never in a seat. Idle (stop typing) when every tracked sub-tool row is done; overlay shows the latest non-done sub-tool status, falling back to the Subtask label.
 
 **Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2 s. Sprites in `spriteData.ts`.
+
+**Mood bubbles** (ported from hootbu/pixel-agents `d0843a9`): transient happy / error / stressed icons, derived only in the webview by `moodTracker.ts` from existing messages, so they need no provider knowledge. Error: `agentToolDone`/`subagentToolDone` with `isError`, shown on the character that ran the tool. Happy: a non-replay `agentStatus: 'waiting'` (not `awaitingInput`) ends a turn that ran ≥1 tool with no failure. Stressed: `MOOD_STRESSED_RAPID_COUNT` (4) fresh tool starts within `MOOD_STRESSED_RAPID_THRESHOLD_MS` (2 s), or one tool running `MOOD_STRESSED_TOOL_DURATION_MS` (30 s, checked on a 1 s tick). The clock pauses on a permission prompt, question or unknown observation, and restarts on resume. It never runs for background spawns, teammate spawns, or tools in the provider's `subagentToolNames`/`permissionExemptTools`; the latter reaches the webview as the optional `providerCapabilities.permissionExemptTools`. `agentToolStart.replay: true` marks the reconnect snapshot (`resendAgentActivity`), and turn-end re-sends of still-running background tools are deduplicated by tool id, so neither triggers a Mood. A Mood shows for `MOOD_BUBBLE_DURATION_SEC` (3 s, last 0.5 s fading) via `renderMoodBubbles`. Permission and waiting bubbles always cover it, and its timer pauses while covered. Toggled per namespace by `moodBubbles` (`setMoodBubbles`, default on). Sprites in `sprites/moodSprites.ts`.
 
 **Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` on canvas mousedown resumes the context (webviews start suspended). Toggled via Settings modal. Persisted per-namespace in `~/.pixel-agents/config.json`.
 
@@ -493,7 +499,7 @@ Run: `npm run test:server` (or `npm test` for all).
 
 ### Webview unit (Vitest, Node runner)
 
-`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring.
+`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, mood tracking, and Vite/browser wiring.
 
 Run: `npm run test:webview`.
 

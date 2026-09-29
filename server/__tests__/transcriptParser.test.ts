@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from '../src/constants.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import {
   processTranscriptLine,
@@ -347,5 +348,238 @@ describe('transcriptParser: teammate spawn results (new-harness implicit teams)'
     );
     expect(agent.teamName).toBeUndefined();
     expect(agent.isTeamLead).toBeUndefined();
+  });
+});
+
+function failedToolResultRecord(toolId: string, text: string) {
+  return JSON.stringify({
+    type: 'user',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: toolId, is_error: true, content: text }],
+    },
+  });
+}
+
+function subagentProgressRecord(parentToolId: string, message: Record<string, unknown>) {
+  return JSON.stringify({
+    type: 'progress',
+    parentToolUseID: parentToolId,
+    data: { type: 'agent_progress', message },
+  });
+}
+
+describe('transcriptParser: tool-failure signal (tool_result.is_error)', () => {
+  let agents: AgentStateStore;
+  let agent: AgentState;
+  let messages: Array<Record<string, unknown>>;
+  const waitingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const permissionTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+  function feed(line: string): void {
+    processTranscriptLine(1, line, agents, waitingTimers, permissionTimers);
+  }
+
+  function toolDones(type: 'agentToolDone' | 'subagentToolDone') {
+    return messages.filter((m) => m.type === type);
+  }
+
+  /** Dones, clears and statuses in broadcast order, for the ordering tests. */
+  function sequence(): string[] {
+    return messages.flatMap((m) => {
+      if (m.type === 'agentToolDone' || m.type === 'subagentToolDone') {
+        return [`${m.type as string}${m.isError === true ? ':error' : ''}`];
+      }
+      if (m.type === 'agentToolsClear' || m.type === 'subagentClear') return [m.type];
+      if (m.type === 'agentStatus') return [`agentStatus:${m.status as string}`];
+      return [];
+    });
+  }
+
+  const turnDurationRecord = JSON.stringify({ type: 'system', subtype: 'turn_duration' });
+
+  beforeEach(() => {
+    setHookProvider(claudeProvider);
+    agents = new AgentStateStore();
+    agent = createTestAgent();
+    agents.set(1, agent);
+    messages = [];
+    agents.on('broadcast', (msg) => {
+      messages.push(msg as Record<string, unknown>);
+    });
+    vi.useFakeTimers();
+    return () => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    };
+  });
+
+  it('flags a failed tool on its agentToolDone (hooks off)', () => {
+    feed(agentToolUseRecord('toolu_1', 'Bash', { command: 'false' }));
+    feed(failedToolResultRecord('toolu_1', 'Exit code 1'));
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+    expect(toolDones('agentToolDone')).toEqual([
+      { type: 'agentToolDone', id: 1, toolId: 'toolu_1', isError: true },
+    ]);
+  });
+
+  it('omits isError for a successful tool', () => {
+    feed(agentToolUseRecord('toolu_1', 'Read', { file_path: '/tmp/x' }));
+    feed(toolResultRecord('toolu_1', 'file contents'));
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+    expect(toolDones('agentToolDone')).toEqual([
+      { type: 'agentToolDone', id: 1, toolId: 'toolu_1' },
+    ]);
+  });
+
+  it('leaves regular tools to the hook path once hooks are delivering', () => {
+    // PostToolUseFailure reports this failure in hooks mode; the transcript must
+    // not report it a second time.
+    agent.hookDelivered = true;
+    feed(agentToolUseRecord('toolu_1', 'Bash', { command: 'false' }));
+    feed(failedToolResultRecord('toolu_1', 'Exit code 1'));
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+    expect(toolDones('agentToolDone')).toEqual([]);
+  });
+
+  it('reports a failed spawn tool from the transcript even with hooks on', () => {
+    agent.hookDelivered = true;
+    feed(agentToolUseRecord('toolu_1', 'Task', { description: 'explore' }));
+    feed(failedToolResultRecord('toolu_1', 'Agent type not found'));
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+    expect(toolDones('agentToolDone')).toEqual([
+      { type: 'agentToolDone', id: 1, toolId: 'toolu_1', isError: true },
+    ]);
+  });
+
+  it("flags a Sub-agent's failed tool on subagentToolDone (agent_progress)", () => {
+    feed(agentToolUseRecord('toolu_parent', 'Task', { description: 'explore' }));
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'sub_1', name: 'Bash', input: { command: 'x' } }],
+        },
+      }),
+    );
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'sub_1', is_error: true, content: 'not found' },
+          ],
+        },
+      }),
+    );
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'sub_2', name: 'Read', input: { file_path: '/x' } }],
+        },
+      }),
+    );
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'sub_2', content: 'ok' }] },
+      }),
+    );
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+    expect(toolDones('subagentToolDone')).toEqual([
+      {
+        type: 'subagentToolDone',
+        id: 1,
+        parentToolId: 'toolu_parent',
+        toolId: 'sub_1',
+        isError: true,
+      },
+      { type: 'subagentToolDone', id: 1, parentToolId: 'toolu_parent', toolId: 'sub_2' },
+    ]);
+    // A Sub-agent's failure is not the parent's failure.
+    expect(toolDones('agentToolDone')).toEqual([]);
+  });
+
+  // The done is deferred TOOL_DONE_DELAY_MS; turn boundaries read in the same
+  // poll must not overtake it, or the failure is charged to the wrong turn.
+  it("sends a failed tool's done before the turn_duration that ends its turn", () => {
+    feed(agentToolUseRecord('toolu_1', 'Bash', { command: 'false' }));
+    messages.length = 0;
+    feed(failedToolResultRecord('toolu_1', 'Exit code 1'));
+    feed(turnDurationRecord);
+
+    expect(sequence()).toEqual(['agentToolDone:error', 'agentStatus:waiting']);
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+    expect(toolDones('agentToolDone')).toHaveLength(1);
+  });
+
+  it.each([
+    ['string', 'next task'],
+    ['text block', [{ type: 'text', text: 'next task' }]],
+  ])('keeps a failure in its own turn when a new %s prompt follows at once', (_shape, content) => {
+    feed(agentToolUseRecord('toolu_1', 'Bash', { command: 'false' }));
+    messages.length = 0;
+    feed(failedToolResultRecord('toolu_1', 'Exit code 1'));
+    feed(JSON.stringify({ type: 'user', message: { content } }));
+
+    expect(sequence()).toEqual(['agentToolDone:error', 'agentToolsClear', 'agentStatus:active']);
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+    expect(toolDones('agentToolDone')).toHaveLength(1);
+  });
+
+  it('ends a text-idle turn only after its failed tool is reported', () => {
+    feed(agentToolUseRecord('toolu_1', 'Bash', { command: 'false' }));
+    messages.length = 0;
+    feed(failedToolResultRecord('toolu_1', 'Exit code 1'));
+    feed(
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'That failed.' }] },
+      }),
+    );
+    vi.advanceTimersByTime(TEXT_IDLE_DELAY_MS);
+
+    expect(sequence()).toEqual(['agentToolDone:error', 'agentStatus:waiting']);
+  });
+
+  it("sends a Sub-agent's failed tool done before its parent's turn ends", () => {
+    feed(agentToolUseRecord('toolu_parent', 'Task', { description: 'explore' }));
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'sub_1', name: 'Bash', input: { command: 'x' } }],
+        },
+      }),
+    );
+    messages.length = 0;
+    feed(
+      subagentProgressRecord('toolu_parent', {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'sub_1', is_error: true, content: 'not found' },
+          ],
+        },
+      }),
+    );
+    feed(toolResultRecord('toolu_parent', 'explored'));
+    feed(turnDurationRecord);
+
+    const order = sequence();
+    expect(order.indexOf('subagentToolDone:error')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('subagentToolDone:error')).toBeLessThan(
+      order.indexOf('agentStatus:waiting'),
+    );
+    vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+    expect(toolDones('subagentToolDone')).toHaveLength(1);
+    expect(toolDones('agentToolDone')).toEqual([
+      { type: 'agentToolDone', id: 1, toolId: 'toolu_parent' },
+    ]);
   });
 });

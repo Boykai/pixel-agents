@@ -156,6 +156,7 @@ export class AgentRuntime {
         new SessionRouter(provider.id),
         this.watchAllSessions,
         parser.notifyBackgroundAgentCompleted,
+        parser.flushToolDones,
       ),
       subagents: new SubagentWatch(this.store, watcher),
       knownFiles: first ? this.knownJsonlFiles : new PathSet(),

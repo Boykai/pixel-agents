@@ -640,6 +640,84 @@ describe('Copilot evidence-based observation', () => {
     ).toBe(false);
   });
 
+  describe('tool-failure signal', () => {
+    const dones = (type: 'agentToolDone' | 'subagentToolDone') =>
+      messages.filter((message) => message.type === type);
+
+    it('flags a completion that reports success: false', () => {
+      start('shell');
+      event('tool.execution_complete', { toolCallId: 'shell', success: false });
+      expect(dones('agentToolDone')).toEqual([
+        { type: 'agentToolDone', id: 1, toolId: 'shell', isError: true },
+      ]);
+    });
+
+    it('flags a tool.execution_failed record', () => {
+      start('shell');
+      event('tool.execution_failed', { toolCallId: 'shell' });
+      expect(dones('agentToolDone')).toEqual([
+        { type: 'agentToolDone', id: 1, toolId: 'shell', isError: true },
+      ]);
+    });
+
+    it('omits isError for a successful or outcome-less completion', () => {
+      start('ok');
+      start('silent');
+      event('tool.execution_complete', { toolCallId: 'ok', success: true });
+      event('tool.execution_complete', { toolCallId: 'silent' });
+      expect(dones('agentToolDone')).toEqual([
+        { type: 'agentToolDone', id: 1, toolId: 'ok' },
+        { type: 'agentToolDone', id: 1, toolId: 'silent' },
+      ]);
+    });
+
+    it("flags a Sub-agent's failed tool on subagentToolDone only", () => {
+      start('spawn', 'task', { description: 'Research' });
+      event(
+        'subagent.started',
+        { toolCallId: 'spawn', agentName: 'explore', executionMode: 'background' },
+        { agentId: 'child' },
+      );
+      event(
+        'tool.execution_start',
+        { toolCallId: 'child-tool', toolName: 'powershell' },
+        { agentId: 'child' },
+      );
+      event(
+        'tool.execution_complete',
+        { toolCallId: 'child-tool', success: false },
+        { agentId: 'child' },
+      );
+      expect(dones('subagentToolDone')).toEqual([
+        {
+          type: 'subagentToolDone',
+          id: 1,
+          parentToolId: 'spawn',
+          toolId: 'child-tool',
+          isError: true,
+        },
+      ]);
+      expect(dones('agentToolDone')).toEqual([]);
+    });
+
+    it('never reports a failure for tools retired by idle', () => {
+      start('work');
+      event('session.idle');
+      expect(dones('agentToolDone')).toEqual([{ type: 'agentToolDone', id: 1, toolId: 'work' }]);
+    });
+
+    it('never broadcasts a failure while replaying history', () => {
+      event(
+        'tool.execution_start',
+        { toolCallId: 'old', toolName: 'powershell' },
+        {},
+        { replay: true },
+      );
+      event('tool.execution_complete', { toolCallId: 'old', success: false }, {}, { replay: true });
+      expect(messages).toEqual([]);
+    });
+  });
+
   it('malformed and unfamiliar records never create false state', () => {
     for (const data of [null, [], 'invalid', 42]) {
       processCopilotRecord(

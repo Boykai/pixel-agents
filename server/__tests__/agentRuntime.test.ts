@@ -1,8 +1,10 @@
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { PersistedAgent } from '../../core/src/schemas.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
@@ -74,5 +76,98 @@ describe('AgentRuntime -- D5 foreign-session gate', () => {
     runtime.startProjectScan(dir); // marks `dir` as owned/tracked
     fireSessionStartThenStop('d5-tracked-dir', dir);
     expect(store.size).toBe(1);
+  });
+});
+
+/**
+ * Tool-failure seam: a turn's failed tool reaches the store before the turn
+ * end that concludes it. In hooks mode the Stop hook ends the turn while the
+ * transcript still holds the spawn tool's done (deferred TOOL_DONE_DELAY_MS);
+ * the runtime must hand its handler the flush of ITS OWN parser, or the flush
+ * reaches the module-level facade and misses.
+ */
+describe('AgentRuntime -- tool-failure ordering', () => {
+  let dir: string;
+  let runtime: AgentRuntime | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-tool-failure-'));
+  });
+
+  afterEach(() => {
+    runtime?.dispose();
+    runtime = undefined;
+    vi.useRealTimers();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("the Stop hook reports a failed spawn tool before the turn's end", () => {
+    const sessionId = crypto.randomUUID();
+    const file = path.join(dir, `${sessionId}.jsonl`);
+    fs.writeFileSync(file, '');
+    const persisted: PersistedAgent = {
+      id: 1,
+      providerId: 'claude',
+      sessionId,
+      terminalName: '',
+      isExternal: true,
+      projectDir: dir,
+      jsonlFile: file,
+    };
+    const store = new AgentStateStore();
+    store.setAdapter({
+      loadAgents: () => [persisted],
+      saveAgents: () => {},
+      loadSeats: () => ({}),
+      saveSeats: () => {},
+      getSetting: <T>(_key: string, fallback: T) => fallback,
+      setSetting: () => {},
+    });
+    const messages: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (message) => messages.push(message));
+    const current = new AgentRuntime(store, claudeProvider);
+    runtime = current;
+    current.restoreExternalAgents();
+    current.handleHookEvent('claude', {
+      hook_event_name: 'SessionStart',
+      session_id: sessionId,
+      transcript_path: file,
+      cwd: dir,
+      source: 'resume',
+    });
+    expect(store.get(1)?.hookDelivered).toBe(true);
+
+    const records = [
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'toolu_task', name: 'Task', input: { prompt: 'x' } }],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_task', is_error: true, content: 'failed' },
+          ],
+        },
+      },
+    ];
+    fs.appendFileSync(file, records.map((record) => JSON.stringify(record) + '\n').join(''));
+    current
+      .getFileWatcher('claude')
+      .readNewLines(1, store, current.waitingTimers, current.permissionTimers);
+    messages.length = 0;
+
+    current.handleHookEvent('claude', { hook_event_name: 'Stop', session_id: sessionId });
+
+    const order = messages.flatMap((m) => {
+      if (m.type === 'agentToolDone') return [m.isError === true ? 'agentToolDone:error' : m.type];
+      if (m.type === 'agentToolsClear') return [m.type];
+      if (m.type === 'agentStatus') return [`agentStatus:${m.status as string}`];
+      return [];
+    });
+    expect(order).toEqual(['agentToolDone:error', 'agentToolsClear', 'agentStatus:waiting']);
   });
 });

@@ -84,15 +84,32 @@ describe('claudeProvider', () => {
         hook_event_name: 'PostToolUse',
         session_id: 'sess-1',
       });
-      expect(result?.event.kind).toBe('toolEnd');
+      expect(result?.event).toEqual({ kind: 'toolEnd', toolId: 'current' });
     });
 
-    it('normalizes PostToolUseFailure to toolEnd (same as PostToolUse)', () => {
+    it('normalizes PostToolUseFailure to toolEnd carrying the tool-failure signal', () => {
       const result = claudeProvider.normalizeHookEvent({
         hook_event_name: 'PostToolUseFailure',
         session_id: 'sess-1',
+        tool_name: 'Bash',
+        tool_use_id: 'toolu_01',
+        error: 'Exit code 1',
       });
-      expect(result?.event.kind).toBe('toolEnd');
+      expect(result?.event).toEqual({ kind: 'toolEnd', toolId: 'current', isError: true });
+    });
+
+    it('leaves a sub-agent PostToolUseFailure (agent_id) to the transcript path', () => {
+      // The sub-agent's tool_result reaches its own transcript, which attributes
+      // the failure to the Sub-agent's character; flagging it here would also
+      // count it against the parent.
+      const result = claudeProvider.normalizeHookEvent({
+        hook_event_name: 'PostToolUseFailure',
+        session_id: 'sess-1',
+        agent_id: 'agent-abc123',
+        agent_type: 'Explore',
+        tool_name: 'Bash',
+      });
+      expect(result?.event).toEqual({ kind: 'toolEnd', toolId: 'current' });
     });
 
     it('normalizes Stop to turnEnd without awaitingInput (Done, not waiting)', () => {

@@ -32,6 +32,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | Local discovery                    | New first-batch activity is detected even after an empty startup. Existing saved history is baselined rather than imported wholesale.                     |
 | Activity and requests              | Tool activity comes from transcripts; supported lifecycle/request hooks supplement it. Silence never establishes a Copilot permission wait.               |
 | Children                           | Unnamed work remains a Sub-agent; positively named background work becomes a Teammate. Child activity and completion are routed separately from the lead. |
+| Tool failures                      | A completion with `success: false` or a `tool.execution_failed` record is a tool failure on the lead or child that ran it; it shows the error Mood.       |
 | Recovery                           | Bounded tail reads hydrate current state without replaying historical notifications. Incomplete evidence produces Unknown.                                |
 | Labels                             | CLI-provided repository/workspace and session titles are used, including observed title changes. No guessed App IDs or metadata mapping files are used.   |
 | VS Code launch                     | The selected provider owns the command and expected transcript path. Copilot uses a fresh UUID with `--session-id` and requires its executable on PATH.   |
@@ -97,6 +98,12 @@ These distinctions are essential to avoid false status and missing characters:
   must not change the lead's activity.
 - `subagent.started`/`completed` supply an explicit spawning tool-call ID and
   child identity. Display names and agent types are not unique identities.
+- `tool.execution_complete` with `success: false`, and `tool.execution_failed`,
+  report a tool that ran and failed: the tool-failure signal behind the error
+  Mood. A completion without an explicit `success: false` does not carry the
+  failure signal; its outcome is a success or unknown, never a confirmed
+  success. Tool hooks are not installed (see above), so failures come only from
+  transcripts.
 - `session.usage_checkpoint` contains spend/checkpoint information, not a current
   context-window percentage. Do not sum it into a context gauge.
 - `session.usage_checkpoint` and `session.shutdown` carry whole-session totals
