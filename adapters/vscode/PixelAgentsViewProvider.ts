@@ -48,6 +48,9 @@ import { applyConsentChoice } from '../../server/src/providers/hook/consentExecu
 import { hooksConsentRequest } from '../../server/src/providers/hook/consentGate.js';
 import { copyProviderHookScript } from '../../server/src/providers/index.js';
 import { PixelAgentsServer } from '../../server/src/server.js';
+import type { ActivitySource } from './activityQuickPick.js';
+import type { ActivityProviderInfo } from './activityQuickPickRows.js';
+import { ActivityTracker } from './activityQuickPickRows.js';
 import {
   getProjectDirPath,
   launchNewTerminal,
@@ -57,6 +60,7 @@ import {
   sendLayout,
 } from './agentManager.js';
 import {
+  AGENT_REVEAL_TIMEOUT_MS,
   CONFIG_KEY_AUTO_SHOW_PANEL,
   CONFIG_KEY_AUTO_SPAWN_AGENT,
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
@@ -69,6 +73,8 @@ import {
   GLOBAL_KEY_WATCH_ALL_SESSIONS,
   GLOBAL_KEY_ZOOM,
   LAYOUT_REVISION_KEY,
+  NEW_AGENT_FOLDER_PLACEHOLDER,
+  VIEW_ID,
 } from './constants.js';
 import { enabledProviders, launchProvider } from './providerSelection.js';
 import { VscodeTerminalAdapter } from './vscodeTerminalAdapter.js';
@@ -77,9 +83,16 @@ import { VscodeTerminalAdapter } from './vscodeTerminalAdapter.js';
  *  wrong (webviewReady never arriving) — log and drop the oldest. */
 const MAX_PENDING_BROADCASTS = 1_000;
 
-export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
+export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, ActivitySource {
   store = new AgentStateStore();
   webviewView: vscode.WebviewView | undefined;
+  /**
+   * The activity the office shows, for the Activity Quick Pick: every store
+   * broadcast, plus restored Agents' replay.
+   */
+  readonly activityTracker = new ActivityTracker(
+    (agentId) => this.store.get(agentId)?.backgroundAgentToolIds,
+  );
 
   // Webview iframe takes ~hundreds of ms to load the React app and attach
   // message handlers. Broadcasts that fire in this window are otherwise lost
@@ -89,6 +102,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   // start writing within ~3 s of agent spawn) silently never reach the UI.
   private isWebviewReady = false;
   private pendingBroadcasts: Array<Record<string, unknown>> = [];
+  // Characters exist only once the layout and agent statuses were sent after
+  // `webviewReady`; a Quick Pick reveal waits for that, then is sent once.
+  private officeLoaded = false;
+  private pendingReveal: { id: number; until: number } | undefined;
+  // Agent restore and session discovery start with the office's first load in this window.
+  private discoveryStartedOnce = false;
 
   // Shared agent lifecycle core (timer Maps, scanners, hook handler, dismissal tracker)
   private runtime: AgentRuntime;
@@ -141,9 +160,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       });
     });
     this.store.on('agentRemoved', (id) => {
+      this.activityTracker.forget(id);
       this.sendOrBuffer({ type: 'agentClosed', id });
     });
     this.store.on('broadcast', (message) => {
+      this.activityTracker.observe(message);
       this.sendOrBuffer(message);
     });
 
@@ -409,53 +430,133 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     };
   }
 
+  /** The enabled providers, as the Activity Quick Pick names them and finds their spawn tools. */
+  get activityProviders(): readonly ActivityProviderInfo[] {
+    return this.providers;
+  }
+
+  /** Agent restore and session discovery have run, so the store holds every known Agent. */
+  get discoveryStarted(): boolean {
+    return this.discoveryStartedOnce;
+  }
+
+  /** Open the Pixel Agents panel; its first load starts restore and discovery. */
+  openOffice(): void {
+    void vscode.commands.executeCommand(`${VIEW_ID}.focus`);
+  }
+
+  /** Launch an agent in a new terminal: the office's + Agent and the New Agent command. */
+  async launchAgent(
+    providerId?: unknown,
+    folderPath?: string,
+    bypassPermissions?: boolean,
+    nickname?: unknown,
+  ): Promise<void> {
+    const provider = launchProvider(this.providers, providerId);
+    if (!provider) {
+      void vscode.window.showWarningMessage(
+        'Pixel Agents: the selected launch provider is not enabled.',
+      );
+      return;
+    }
+    try {
+      await launchNewTerminal(
+        this.runtime,
+        provider,
+        this.store,
+        folderPath,
+        bypassPermissions,
+        undefined,
+        nickname,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Pixel Agents: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** The New Agent command: the configured launch provider, in a folder the user
+   *  picks when the workspace has several (as the office's folder picker does). */
+  async launchAgentFromCommand(): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders;
+    let folderPath: string | undefined;
+    if (folders && folders.length > 1) {
+      const folder = await vscode.window.showWorkspaceFolderPick({
+        placeHolder: NEW_AGENT_FOLDER_PLACEHOLDER,
+      });
+      if (!folder) return;
+      folderPath = folder.uri.fsPath;
+    }
+    await this.launchAgent(undefined, folderPath);
+  }
+
+  /** Focus the Agent's terminal, or its Lead's for a Teammate without one. False if neither has one. */
+  private focusAgentTerminal(id: number): boolean {
+    const agent = this.store.get(id);
+    if (!agent) return false;
+    const terminal =
+      agent.terminalRef ??
+      (agent.leadAgentId !== undefined
+        ? this.store.get(agent.leadAgentId)?.terminalRef
+        : undefined);
+    if (!terminal) return false;
+    terminal.show();
+    return true;
+  }
+
+  /** Show an Agent picked outside the office: focus its terminal, or, for a
+   *  headless Agent, open the office and select its Character. */
+  showAgent(id: number): void {
+    if (this.focusAgentTerminal(id)) return;
+    this.pendingReveal = { id, until: Date.now() + AGENT_REVEAL_TIMEOUT_MS };
+    void vscode.commands.executeCommand(`${VIEW_ID}.focus`);
+    this.replayReveal();
+  }
+
+  /** Send the pending reveal once the office is visible and its Characters exist. */
+  private replayReveal(): void {
+    const pending = this.pendingReveal;
+    if (!pending) return;
+    if (Date.now() > pending.until || !this.store.has(pending.id)) {
+      this.pendingReveal = undefined;
+      return;
+    }
+    if (!this.isWebviewReady || !this.officeLoaded || !this.webviewView?.visible) return;
+    this.pendingReveal = undefined;
+    void this.webview?.postMessage({ type: 'agentSelected', id: pending.id, reveal: true });
+  }
+
+  /** The layout and agent statuses were sent, so every Character exists. The replay is
+   *  queued so it also follows `existingAgents`, which the handler sends after the
+   *  synchronous no-assets path returns. */
+  private markOfficeLoaded(): void {
+    this.officeLoaded = true;
+    queueMicrotask(() => this.replayReveal());
+  }
+
   resolveWebviewView(webviewView: vscode.WebviewView) {
     this.webviewView = webviewView;
     // Fresh iframe; any prior buffer is for the destroyed iframe and obsolete
     // (the `webviewReady` handler resends current state via restoreAgents +
     // sendCurrentAgentStatuses + asset loaders).
     this.isWebviewReady = false;
+    this.officeLoaded = false;
     this.pendingBroadcasts = [];
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
+    webviewView.onDidChangeVisibility(() => this.replayReveal());
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       if (message.type === 'launchAgent') {
-        const provider = launchProvider(this.providers, message.providerId);
-        if (!provider) {
-          void vscode.window.showWarningMessage(
-            'Pixel Agents: the selected launch provider is not enabled.',
-          );
-          return;
-        }
-        try {
-          await launchNewTerminal(
-            this.runtime,
-            provider,
-            this.store,
-            message.folderPath as string | undefined,
-            message.bypassPermissions as boolean | undefined,
-            undefined,
-            message.nickname,
-          );
-        } catch (error) {
-          void vscode.window.showErrorMessage(
-            `Pixel Agents: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        await this.launchAgent(
+          message.providerId,
+          message.folderPath as string | undefined,
+          message.bypassPermissions as boolean | undefined,
+          message.nickname,
+        );
       } else if (message.type === 'focusAgent') {
-        const agent = this.store.get(message.id);
-        if (agent) {
-          if (agent.terminalRef) {
-            agent.terminalRef.show();
-          } else if (agent.leadAgentId !== undefined) {
-            // Teammate (tmux): focus the lead's terminal instead
-            const lead = this.store.get(agent.leadAgentId);
-            if (lead?.terminalRef) {
-              lead.terminalRef.show();
-            }
-          }
-        }
+        this.focusAgentTerminal(message.id);
       } else if (message.type === 'closeAgent') {
         const agent = this.store.get(message.id);
         if (agent) {
@@ -553,6 +654,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           }
         }
       } else if (message.type === 'webviewReady') {
+        // A reloaded iframe re-sends webviewReady; its Characters don't exist again until the layout is re-sent.
+        this.officeLoaded = false;
         // Flush any messages buffered while the iframe was loading. Mark
         // ready BEFORE flush so re-entrant broadcasts (triggered by handlers
         // below) go directly. Order is preserved: buffered first, new second.
@@ -666,7 +769,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           mappings: config.vscode.areaMappings ?? {},
         });
 
-        restoreAgents(this.adapter, this.runtime, this.store);
+        // Restore fills in tool state without broadcasting it, and the office only
+        // gets it in the replay sent once its layout loads. Hand the Quick Pick's
+        // tracker that same replay now, for the Agents restore just added.
+        this.activityTracker.hydrateRestored(
+          this.store,
+          restoreAgents(this.adapter, this.runtime, this.store),
+        );
 
         // Auto-spawn: launch one agent on first webviewReady if the setting is
         // enabled and no agents are currently running.
@@ -722,6 +831,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         this.runtime.startDiscovery(
           wsFolders?.map((folder) => folder.uri.fsPath) ?? [os.homedir()],
         );
+        this.discoveryStartedOnce = true;
 
         this.runtime.startStaleCheck();
 
@@ -751,6 +861,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
                 // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
                 sendCurrentAgentStatuses(this.store, this.webview);
                 this.startLayoutWatcher();
+                this.markOfficeLoaded();
               }
               return;
             }
@@ -815,6 +926,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
             sendCurrentAgentStatuses(this.store, this.webview);
             this.startLayoutWatcher();
+            this.markOfficeLoaded();
           }
         })();
         sendExistingAgents(this.store, this.adapter, this.webview);

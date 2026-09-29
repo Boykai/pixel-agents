@@ -301,7 +301,10 @@ components:
           type: integer
 
     AgentSelected:
-      description: An agent's terminal was focused (VS Code only). UI should highlight it.
+      description: >-
+        An agent was picked in VS Code (VS Code only): its terminal was focused,
+        or, with `reveal`, it was chosen in the Activity Quick Pick. UI should
+        highlight it.
       type: object
       additionalProperties: false
       required: [type, id]
@@ -310,6 +313,13 @@ components:
           const: agentSelected
         id:
           type: integer
+        reveal:
+          type: boolean
+          description: >-
+            The user picked this agent outside the office (the VS Code Activity
+            Quick Pick), so the UI should also select its Character and follow it
+            with the camera. Absent/false (a plain terminal switch) only
+            highlights it.
 
     ExistingAgents:
       description: |

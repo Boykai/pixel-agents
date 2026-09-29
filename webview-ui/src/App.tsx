@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import { toMajorMinor } from './changelogData.js';
+import { ActivityPanel } from './components/ActivityPanel.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { ConnectionIndicator } from './components/ConnectionIndicator.js';
@@ -124,6 +125,9 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
+  // Layout mode takes the panel's corner: it steps aside and returns when editing ends.
+  const activityShown = isActivityOpen && !editor.isEditMode;
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
@@ -571,6 +575,17 @@ function App() {
             onRenameAgent={handleRenameAgent}
             onOpenCostume={setCostumeAgentId}
           />
+
+          {activityShown && (
+            <ActivityPanel
+              officeState={officeState}
+              agents={agents}
+              agentTools={agentTools}
+              subagentTools={subagentTools}
+              subagentCharacters={subagentCharacters}
+              onClose={() => setIsActivityOpen(false)}
+            />
+          )}
           {costumeCharacter && (
             <CostumePanel
               key={costumeAgentId}
@@ -668,6 +683,8 @@ function App() {
         onToggleEditMode={editor.handleToggleEditMode}
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+        isActivityOpen={activityShown}
+        onToggleActivity={() => setIsActivityOpen((v) => !v)}
         isUsageOpen={isUsageOpen}
         onToggleUsage={() => setIsUsageOpen((v) => !v)}
         workspaceFolders={workspaceFolders}

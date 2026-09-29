@@ -44,3 +44,44 @@ export const CONFIG_KEY_LAUNCH_PROVIDER = 'pixel-agents.launchProvider';
 export const VIEW_ID = 'pixel-agents.panelView';
 export const COMMAND_SHOW_PANEL = 'pixel-agents.showPanel';
 export const COMMAND_EXPORT_DEFAULT_LAYOUT = 'pixel-agents.exportDefaultLayout';
+export const COMMAND_NEW_AGENT = 'pixel-agents.newAgent';
+export const COMMAND_SHOW_ACTIVITY = 'pixel-agents.showActivity';
+
+// ── Status Bar ──────────────────────────────────────────────
+export const STATUS_BAR_NEW_AGENT_ID = 'pixel-agents.statusBar.newAgent';
+export const STATUS_BAR_NEW_AGENT_NAME = 'Pixel Agents: New Agent';
+export const STATUS_BAR_NEW_AGENT_TEXT = '$(add) Agent';
+export const STATUS_BAR_ACTIVITY_ID = 'pixel-agents.statusBar.activity';
+export const STATUS_BAR_ACTIVITY_NAME = 'Pixel Agents: Show Activity';
+export const STATUS_BAR_ACTIVITY_TEXT = '$(checklist) Activity';
+/** Right-aligned; higher priority sits further left, keeping the pair together. */
+export const STATUS_BAR_NEW_AGENT_PRIORITY = 100_000;
+export const STATUS_BAR_ACTIVITY_PRIORITY = 99_999;
+export const NEW_AGENT_FOLDER_PLACEHOLDER = 'Launch the agent in which folder?';
+
+// ── Activity Quick Pick ─────────────────────────────────────
+export const ACTIVITY_QUICK_PICK_TITLE = 'Pixel Agents: Activity';
+export const ACTIVITY_QUICK_PICK_PLACEHOLDER =
+  'Pick an agent to focus its terminal, or to select it in the office';
+export const ACTIVITY_QUICK_PICK_EMPTY = '$(info) No active agents';
+/** Shown until the office first loads in the window, when restore and discovery start. */
+export const ACTIVITY_QUICK_PICK_OPEN_OFFICE = '$(eye) Open the office to find running agents';
+export const ACTIVITY_QUICK_PICK_OPEN_OFFICE_DETAIL =
+  'Restored agents and sessions started outside Pixel Agents appear once the panel loads';
+/** Coalesces a burst of store events into one Quick Pick refresh. */
+export const ACTIVITY_QUICK_PICK_REFRESH_MS = 100;
+/** Codicon per Activity state (core/src/activityLabel.ts ActivityState). */
+export const ACTIVITY_QUICK_PICK_STATE_ICONS = {
+  active: '$(sync~spin)',
+  permission: '$(warning)',
+  input: '$(question)',
+  done: '$(check)',
+} as const;
+/** Prefix of a Sub-agent or Teammate row, after its indent. */
+export const ACTIVITY_QUICK_PICK_NESTED_ICON = '$(arrow-small-right)';
+/** One nesting level. An em space, because the Quick Pick collapses leading ASCII spaces. */
+export const ACTIVITY_QUICK_PICK_INDENT = '\u2003';
+export const ACTIVITY_QUICK_PICK_DETAIL_SEPARATOR = ' \u00b7 ';
+/** How long a headless Agent picked in the Quick Pick waits for the office to
+ *  open (first load included) before the pick is dropped. */
+export const AGENT_REVEAL_TIMEOUT_MS = 10_000;

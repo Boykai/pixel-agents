@@ -184,7 +184,7 @@ export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePa
     <section
       aria-label="Token usage"
       data-testid="usage-panel"
-      className="absolute top-8 right-8 z-20 w-[min(310px,calc(100%-16px))] max-h-[calc(100%-96px)] overflow-y-auto pixel-panel pixel-scrollbar pb-4"
+      className="absolute top-8 right-8 z-20 w-[min(310px,calc(100%-16px))] clear-of-bottom-toolbar overflow-y-auto pixel-panel pixel-scrollbar pb-4"
     >
       <div className="flex items-center justify-between py-4 px-12 border-b border-border mb-4">
         <span className="text-accent-bright text-lg">Token usage</span>

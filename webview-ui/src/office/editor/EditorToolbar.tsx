@@ -283,7 +283,7 @@ export function EditorToolbar({
   return (
     <div
       ref={toolbarRef}
-      className="absolute bottom-76 left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]"
+      className="absolute above-bottom-toolbar left-10 z-10 pixel-panel p-4 flex flex-col-reverse gap-4 max-w-[calc(100vw-20px)]"
     >
       {/* Tool row — at the bottom */}
       <div className="flex gap-4 flex-wrap">

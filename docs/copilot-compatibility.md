@@ -38,6 +38,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | VS Code launch                     | The selected provider owns the command and expected transcript path. Copilot uses a fresh UUID with `--session-id` and requires its executable on PATH.   |
 | Context                            | An explicit occupancy/limit snapshot is supported when emitted. The observed App did not supply it; billing totals are not a substitute.                  |
 | Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated. |
+| Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.            |
 | App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                      |
 
 This is source-based capability coverage, not a claim that every installed App

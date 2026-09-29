@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import {
+  ACTIVITY_LABEL,
+  agentDisplayName,
+  describeAgentActivity,
+} from '../../../../core/src/activityLabel.js';
 import { AGENT_NICKNAME_MAX_LENGTH } from '../../../../core/src/constants.js';
 import { normalizeNickname } from '../../../../core/src/normalizeNickname.js';
 import { normalizeProjectName } from '../../../../core/src/normalizeProjectName.js';
@@ -29,12 +34,6 @@ import { providerDisplayName } from '../toolUtils.js';
 import type { ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
 
-// Both turn-end states show the green checkmark bubble. A finished turn (Stop)
-// shows ONLY the checkmark (the label falls through to its normal idle text);
-// going idle waiting on the user (Notification(idle_prompt)) additionally
-// surfaces this label. Driven by Character.waitingAwaitingInput.
-const WAITING_INPUT_ACTIVITY_TEXT = 'Waiting for input';
-
 interface ToolOverlayProps {
   officeState: OfficeState;
   agents: number[];
@@ -50,38 +49,6 @@ interface ToolOverlayProps {
   onRenameAgent?: (id: number, nickname: string) => void;
   /** Open the Costume panel for an agent. */
   onOpenCostume?: (id: number) => void;
-}
-
-/** Derive a short human-readable activity string from tools/status */
-function getActivityText(
-  agentId: number,
-  agentTools: Record<number, ToolActivity[]>,
-  isActive: boolean,
-  bubbleType: 'permission' | 'waiting' | null,
-  waitingAwaitingInput: boolean,
-): string {
-  if (bubbleType === 'permission') return 'Needs approval';
-  // Only the idle case ("Waiting for input") gets a dedicated label. A finished
-  // turn (Stop, waitingAwaitingInput=false) falls through so the checkmark alone
-  // signals "done", same as the original behavior.
-  if (bubbleType === 'waiting' && waitingAwaitingInput) return WAITING_INPUT_ACTIVITY_TEXT;
-
-  const tools = agentTools[agentId];
-  if (tools && tools.length > 0) {
-    // Find the latest non-done tool
-    const activeTool = [...tools].reverse().find((t) => !t.done);
-    if (activeTool) {
-      if (activeTool.permissionWait) return 'Needs approval';
-      return activeTool.status;
-    }
-    // All tools done but agent still active (mid-turn) — keep showing last tool status
-    if (isActive) {
-      const lastTool = tools[tools.length - 1];
-      if (lastTool) return lastTool.status;
-    }
-  }
-
-  return isActive ? 'Active' : 'Idle';
 }
 
 function getFuelColor(ratio: number): string {
@@ -201,10 +168,10 @@ export function ToolOverlay({
     if (ch.waitingAwaitingInput) {
       // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
       // shows only the checkmark and falls through to the normal idle text.
-      activityText = WAITING_INPUT_ACTIVITY_TEXT;
+      activityText = ACTIVITY_LABEL.waitingForInput;
     } else if (isSub) {
       if (subHasPermission) {
-        activityText = 'Needs approval';
+        activityText = ACTIVITY_LABEL.needsApproval;
       } else {
         const sub = subagentCharacters.find((s) => s.id === id);
         const rows = sub ? subagentTools[sub.parentAgentId]?.[sub.parentToolId] : undefined;
@@ -215,13 +182,15 @@ export function ToolOverlay({
         activityText = activeRow?.status ?? (sub?.label || 'Subtask');
       }
     } else {
-      activityText = getActivityText(
-        id,
-        agentTools,
-        ch.isActive,
-        ch.bubbleType,
-        ch.waitingAwaitingInput ?? false,
-      );
+      // Sticky: mid-turn, keep the last finished tool's status on the label.
+      activityText = describeAgentActivity(
+        {
+          tools: agentTools[id],
+          isActive: ch.isActive,
+          needsApproval: ch.bubbleType === 'permission',
+        },
+        { sticky: true },
+      ).label;
     }
 
     // Determine dot color
@@ -272,12 +241,7 @@ export function ToolOverlay({
     ? subagentCharacters.find((entry) => entry.id === detail.id)
     : undefined;
   const parent = sub ? officeState.characters.get(sub.parentAgentId) : undefined;
-  const identity =
-    detail?.ch.nickname ||
-    detail?.ch.agentName ||
-    detail?.ch.sessionName ||
-    detail?.ch.folderName ||
-    (detail?.isSub ? 'Sub-agent' : 'Agent');
+  const identity = agentDisplayName(detail?.ch) || (detail?.isSub ? 'Sub-agent' : 'Agent');
   // A nickname takes the heading; the name it displaced stays as secondary text.
   const displacedName = detail?.ch.nickname
     ? detail.ch.agentName || detail.ch.sessionName
@@ -520,7 +484,7 @@ export function ToolOverlay({
             {parent && (
               <>
                 <dt>Parent</dt>
-                <dd>{parent.agentName || parent.sessionName || parent.folderName || 'Agent'}</dd>
+                <dd>{agentDisplayName(parent) || 'Agent'}</dd>
               </>
             )}
             {detail.ch.providerId && (
