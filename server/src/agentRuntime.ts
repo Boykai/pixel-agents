@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import type { ITerminalAdapter } from '../../core/src/terminalAdapter.js';
 import { resendAgentActivity } from './agentActivityResend.js';
@@ -336,6 +337,8 @@ export class AgentRuntime {
           this.unregisterAgent(agent.sessionId, provider.id);
           agent.sessionId = newSessionId;
           this.registerAgent(agent.sessionId, agent.id, provider.id);
+          // The nickname follows the agent into its new session.
+          this.store.rememberNickname(agent);
         }
       },
       onSessionResume: (transcriptPath) => {
@@ -627,7 +630,7 @@ export class AgentRuntime {
       leadAgentId: lead.id,
       spawnToolUseId: child.parentToolId,
     };
-    assignPaletteIfNeeded(teammate, this.store);
+    assignPaletteIfNeeded(teammate, this.store, lead);
     this.store.set(teammate.id, teammate);
     lead.isTeamLead = true;
     lead.teammateSpawnToolIds ??= new Set();
@@ -920,6 +923,7 @@ export class AgentRuntime {
         teamUsesTmux: p.teamUsesTmux,
         palette: p.palette,
         hueShift: p.hueShift,
+        ...(normalizeNickname(p.nickname) ? { nickname: normalizeNickname(p.nickname) } : {}),
       };
 
       if (!agent.hooksOnly) {

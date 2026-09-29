@@ -226,7 +226,11 @@ export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePa
         const usage = agentUsage[id];
         const ch = officeState.characters.get(id);
         const name =
-          ch?.agentName || ch?.sessionName || normalizeProjectName(ch?.folderName) || `Agent ${id}`;
+          ch?.nickname ||
+          ch?.agentName ||
+          ch?.sessionName ||
+          normalizeProjectName(ch?.folderName) ||
+          `Agent ${id}`;
         const counts = tokenCounts(usage);
         const hasRequests = usage.premiumRequests !== undefined || usage.nanoAiu !== undefined;
         return (

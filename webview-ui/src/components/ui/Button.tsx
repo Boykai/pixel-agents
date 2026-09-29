@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ComponentPropsWithRef } from 'react';
 
 const base = 'border-2 rounded-none cursor-pointer';
 
@@ -22,7 +22,8 @@ const variants = {
 type ButtonVariant = keyof typeof variants;
 type ButtonSize = keyof typeof sizes;
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+// ComponentPropsWithRef: React 19 passes `ref` as a prop, forwarded by the spread below.
+interface ButtonProps extends ComponentPropsWithRef<'button'> {
   variant?: ButtonVariant;
   size?: ButtonSize;
 }

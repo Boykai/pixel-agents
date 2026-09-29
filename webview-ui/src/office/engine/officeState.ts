@@ -859,6 +859,7 @@ export class OfficeState {
       observation?: 'known' | 'unknown';
       folderName?: string;
       sessionName?: string;
+      nickname?: string;
     },
   ): void {
     const ch = this.characters.get(id);
@@ -866,7 +867,30 @@ export class OfficeState {
     if (metadata.providerId !== undefined) ch.providerId = metadata.providerId;
     if (metadata.folderName !== undefined) ch.folderName = metadata.folderName;
     if (metadata.sessionName !== undefined) ch.sessionName = metadata.sessionName;
+    if (metadata.nickname !== undefined && !ch.isSubagent) {
+      // '' clears the nickname.
+      if (metadata.nickname) ch.nickname = metadata.nickname;
+      else delete ch.nickname;
+    }
     if (metadata.observation !== undefined) this.setAgentObservation(id, metadata.observation);
+  }
+
+  /** Dress an agent in a costume (palette + hue shift). Its sub-agents wear the same.
+   *  Returns false for an unknown agent or an unchanged look. */
+  setAgentAppearance(id: number, palette: number, hueShift: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || ch.isSubagent) return false;
+    if (ch.palette === palette && ch.hueShift === hueShift) return false;
+    ch.palette = palette;
+    ch.hueShift = hueShift;
+    for (const [subId, meta] of this.subagentMeta) {
+      if (meta.parentAgentId !== id) continue;
+      const sub = this.characters.get(subId);
+      if (!sub) continue;
+      sub.palette = palette;
+      sub.hueShift = hueShift;
+    }
+    return true;
   }
 
   /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */

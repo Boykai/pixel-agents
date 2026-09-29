@@ -262,6 +262,9 @@ export interface Character {
   sessionName?: string;
   /** Provider identity scopes tool classifications; absent on legacy Claude snapshots. */
   providerId?: string;
+  /** User-given display name. The primary label when set; the session name and
+   *  folder become secondary text. Never set on sub-agents. */
+  nickname?: string;
   /** Unknown observation freezes animation without implying a finished turn. */
   observation?: 'known' | 'unknown';
   activityStatus?: 'active' | 'done' | 'input';

@@ -294,6 +294,20 @@ export const TOOL_OVERLAY_VERTICAL_OFFSET = 32;
 export const AGENT_DETAILS_HIDE_DELAY_MS = 450;
 export const AGENT_LABEL_EDGE_INSET_PX = 56;
 
+// ── Costume panel (agent appearance) ────────────────────────
+/** Integer zoom of the character previews in the Costume panel. */
+export const COSTUME_PREVIEW_ZOOM = 2;
+/** Preview button size: a 16×32 frame at COSTUME_PREVIEW_ZOOM, 2 px padding, 2 px border. */
+export const COSTUME_PREVIEW_WIDTH_PX = 40;
+export const COSTUME_PREVIEW_HEIGHT_PX = 72;
+/** Hue slider step and upper bound in degrees; 360 would repeat 0. */
+export const COSTUME_HUE_STEP_DEG = 15;
+export const COSTUME_HUE_MAX_DEG = 345;
+/** Palette previews per row (the bundled six fit one row). */
+export const COSTUME_GRID_COLUMNS = 6;
+/** Quiet period before a costume change is saved (and relayed to other clients). */
+export const COSTUME_SAVE_DEBOUNCE_MS = 150;
+
 // ── Mood Bubbles ─────────────────────────────────────────────
 // Thresholds ported from hootbu/pixel-agents (d0843a9).
 /** How long a Mood bubble stays up; the clock pauses behind a priority bubble. */
