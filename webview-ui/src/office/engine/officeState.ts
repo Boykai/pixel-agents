@@ -12,6 +12,7 @@ import {
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   MAX_PET_ID_LENGTH,
+  MOOD_BUBBLE_DURATION_SEC,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
   WAITING_BUBBLE_DURATION_SEC,
@@ -30,6 +31,7 @@ import { getLoadedCharacterCount } from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
+  Mood,
   OfficeLayout,
   Pet,
   PlacedFurniture,
@@ -40,6 +42,7 @@ import type {
 import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
+import { advanceMoodBubble } from './moodTracker.js';
 import { createPet, updatePet } from './petEntity.js';
 import { anchorTile, closestFreeSeat } from './seatPlacement.js';
 
@@ -966,6 +969,36 @@ export class OfficeState {
     }
   }
 
+  // ── Mood bubbles ──────────────────────────────────────────────
+
+  private moodBubblesEnabled = true;
+
+  /** The "Mood bubbles" setting. Turning it off also drops every showing Mood. */
+  setMoodBubblesEnabled(enabled: boolean): void {
+    this.moodBubblesEnabled = enabled;
+    if (enabled) return;
+    for (const ch of this.characters.values()) {
+      ch.moodType = null;
+      ch.moodTimer = 0;
+    }
+  }
+
+  isMoodBubblesEnabled(): boolean {
+    return this.moodBubblesEnabled;
+  }
+
+  /** Show a transient Mood bubble; a newer Mood replaces the showing one.
+   *  Returns false when nothing was shown (setting off, character gone,
+   *  despawning or hidden). */
+  showMoodBubble(id: number, mood: Mood): boolean {
+    if (!this.moodBubblesEnabled) return false;
+    const ch = this.characters.get(id);
+    if (!ch || ch.matrixEffect === 'despawn' || !this.isCharacterVisible(id)) return false;
+    ch.moodType = mood;
+    ch.moodTimer = MOOD_BUBBLE_DURATION_SEC;
+    return true;
+  }
+
   /** Dismiss bubble on click — permission: instant, waiting: quick fade */
   dismissBubble(id: number): void {
     const ch = this.characters.get(id);
@@ -1212,6 +1245,7 @@ export class OfficeState {
           ch.bubbleTimer = 0;
         }
       }
+      advanceMoodBubble(ch, dt);
     }
     // Remove characters that finished despawn
     for (const id of toDelete) {

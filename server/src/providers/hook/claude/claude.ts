@@ -169,8 +169,22 @@ function normalizeHookEvent(
     }
 
     case 'PostToolUse':
-    case 'PostToolUseFailure':
       return { sessionId, event: { kind: 'toolEnd', toolId: 'current' } };
+
+    case 'PostToolUseFailure':
+      // Fires only for tools that started executing and then failed (validation
+      // rejections and permission denials never reach it). A failure inside a
+      // sub-agent carries `agent_id`; its tool_result reaches the transcript
+      // path, which attributes it to the Sub-agent's own character, so flagging
+      // it here too would double-count it on the parent.
+      return {
+        sessionId,
+        event: {
+          kind: 'toolEnd',
+          toolId: 'current',
+          ...(typeof raw.agent_id === 'string' ? {} : { isError: true }),
+        },
+      };
 
     case 'Stop':
       return { sessionId, event: { kind: 'turnEnd' } };

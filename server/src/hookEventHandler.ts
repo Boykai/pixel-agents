@@ -6,7 +6,7 @@ import { SESSION_END_GRACE_MS } from './constants.js';
 import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
-import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
+import { flushToolDones, notifyBackgroundAgentCompleted } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
@@ -79,6 +79,9 @@ export class HookEventHandler {
     private sessionRouter: SessionRouter,
     private watchAllSessionsRef?: { current: boolean },
     private backgroundCompleted = notifyBackgroundAgentCompleted,
+    /** The transcript parser's pending tool dones for an agent: sent before a
+     *  hook-driven turn end so the turn's failures precede it. */
+    private flushPendingToolDones = flushToolDones,
   ) {
     if (provider.protocolVersion !== HookEventHandler.SUPPORTED_PROTOCOL_VERSION) {
       console.warn(
@@ -396,10 +399,9 @@ export class HookEventHandler {
       case 'toolStart':
         return this.handlePreToolUse(normEvent, agent, agentId);
       case 'toolEnd':
-        // Both PostToolUse and PostToolUseFailure normalize to toolEnd. Distinguishing
-        // them inside handlers would require extra info; the existing behavior was
-        // identical for both (agentToolDone + clear currentHookToolId), so one branch suffices.
-        return this.handlePostToolUse(agent, agentId, normEvent.toolId);
+        // PostToolUse and PostToolUseFailure both normalize to toolEnd; the
+        // failure additionally carries isError (the tool-failure signal).
+        return this.handlePostToolUse(agent, agentId, normEvent.toolId, normEvent.isError === true);
       case 'subagentStart':
         return this.provider.team ? this.handleSubagentStart(event, agent, agentId) : undefined;
       case 'subagentEnd':
@@ -527,19 +529,33 @@ export class HookEventHandler {
   }
 
   /**
-   * Handle PostToolUse: no action needed. JSONL handles tool_result processing.
-   * Stop hook handles the idle transition. This is here for completeness and
-   * to serve as a confirmation event for pending external sessions.
+   * Handle PostToolUse / PostToolUseFailure: mark the hook-correlated tool done.
+   * JSONL handles tool_result processing; Stop handles the idle transition.
+   * Also serves as a confirmation event for pending external sessions.
+   *
+   * `isError` is forwarded as `agentToolDone.isError` exactly once per failed
+   * tool. Sub-agent spawn tools are excluded: JSONL owns their tool id and
+   * reports their failure itself. Correlation is by `currentHookToolId`, so
+   * with parallel tools a failure can land on the most recently started one.
    */
-  private handlePostToolUse(agent: AgentState, agentId: number, toolId: string): void {
+  private handlePostToolUse(
+    agent: AgentState,
+    agentId: number,
+    toolId: string,
+    isError = false,
+  ): void {
     const completedId = toolId === 'current' ? agent.currentHookToolId : toolId;
     if (completedId) {
       // Suppress tool display when lead has inline teammates (see handlePreToolUse)
       if (!hasInlineTeammates(agentId, this.agents)) {
+        const completedName = agent.currentHookToolName;
+        const failed =
+          isError && !(completedName && this.provider.subagentToolNames.has(completedName));
         this.agents.broadcast({
           type: 'agentToolDone',
           id: agentId,
           toolId: completedId,
+          ...(failed ? { isError: true } : {}),
         });
       }
       if (agent.currentHookToolId === completedId) {
@@ -549,9 +565,8 @@ export class HookEventHandler {
     }
   }
 
-  // NOTE: PostToolUseFailure used to have its own handler. The behavior was identical
-  // to PostToolUse (emit agentToolDone, clear currentHookToolId). Both now normalize to
-  // the 'toolEnd' AgentEvent kind and share handlePostToolUse.
+  // NOTE: PostToolUseFailure used to have its own handler. Both now normalize to
+  // the 'toolEnd' AgentEvent kind and share handlePostToolUse; only isError differs.
 
   /**
    * Handle SubagentStart: notify webview that a sub-agent is spawning.
@@ -790,6 +805,10 @@ export class HookEventHandler {
    * handler in transcriptParser.ts.
    */
   private markAgentWaiting(agent: AgentState, agentId: number, awaitingInput = false): void {
+    // Hook-mode spawn tools and Sub-agent tools report their dones from the
+    // transcript, TOOL_DONE_DELAY_MS late; any already read go out first so a
+    // failed tool (isError) is never reported after the turn it belongs to.
+    this.flushPendingToolDones(agent);
     cancelWaitingTimer(agentId, this.waitingTimers);
     cancelPermissionTimer(agentId, this.permissionTimers);
 

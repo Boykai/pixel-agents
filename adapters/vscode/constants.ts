@@ -23,6 +23,7 @@ export const GLOBAL_KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 export const GLOBAL_KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 export const GLOBAL_KEY_SHOW_AREAS = 'pixel-agents.showAreas';
 export const GLOBAL_KEY_ZOOM = 'pixel-agents.zoom';
+export const GLOBAL_KEY_MOOD_BUBBLES = 'pixel-agents.moodBubbles';
 
 /**
  * Folder→Area mappings live inside the shared ~/.pixel-agents/config.json

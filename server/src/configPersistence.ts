@@ -17,6 +17,7 @@ export interface AdapterSettings {
   /** Integer office zoom (ZOOM_MIN..ZOOM_MAX). Absent until the user zooms, so
    *  the webview keeps its devicePixelRatio-derived default. */
   zoom?: number;
+  moodBubbles: boolean;
 }
 
 /** All keys in AdapterSettings. Used by adapters to map `pixel-agents.foo` → `foo`.
@@ -33,6 +34,7 @@ export const ADAPTER_SETTING_KEYS = [
   'showAreas',
   'areaMappings',
   'zoom',
+  'moodBubbles',
 ] as const;
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
@@ -71,6 +73,7 @@ const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   hooksInfoShown: false,
   showAreas: false,
   areaMappings: {},
+  moodBubbles: true,
 };
 
 function getConfigFilePath(): string {
@@ -162,6 +165,8 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
       typeof obj.showAreas === 'boolean' ? obj.showAreas : DEFAULT_ADAPTER_SETTINGS.showAreas,
     areaMappings: parseAreaMappings(obj.areaMappings),
     ...(zoom !== undefined ? { zoom } : {}),
+    moodBubbles:
+      typeof obj.moodBubbles === 'boolean' ? obj.moodBubbles : DEFAULT_ADAPTER_SETTINGS.moodBubbles,
   };
 }
 

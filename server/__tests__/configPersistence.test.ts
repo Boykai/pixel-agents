@@ -361,4 +361,31 @@ describe('configPersistence: areas', () => {
       expect(onDisk.standalone.zoom).toBe(ZOOM_MAX);
     });
   });
+
+  describe('moodBubbles', () => {
+    it('defaults to on in both namespaces', () => {
+      const cfg = readConfig();
+      expect(cfg.vscode.moodBubbles).toBe(true);
+      expect(cfg.standalone.moodBubbles).toBe(true);
+    });
+
+    it('round-trips per namespace and falls back to on for a non-boolean', () => {
+      const configDir = path.join(tempHome, '.pixel-agents');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(configDir, 'config.json'),
+        JSON.stringify({ vscode: { moodBubbles: 'off' }, standalone: { moodBubbles: false } }),
+        'utf-8',
+      );
+
+      const cfg = readConfig();
+      expect(cfg.vscode.moodBubbles).toBe(true);
+      expect(cfg.standalone.moodBubbles).toBe(false);
+
+      cfg.vscode.moodBubbles = false;
+      writeConfig(cfg);
+      expect(readConfig().vscode.moodBubbles).toBe(false);
+      expect(readConfig().standalone.moodBubbles).toBe(false);
+    });
+  });
 });

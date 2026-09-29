@@ -79,12 +79,15 @@ describe('resendAgentActivity', () => {
     resendAgentActivity((msg) => sent.push(msg), store);
 
     expect(sent).toHaveLength(1);
+    // replay: a snapshot of a running tool, not a new start (Mood reactions must
+    // not count hydration as rapid tool starts).
     expect(sent[0]).toEqual({
       type: 'agentToolStart',
       id: 1,
       toolId: 'tool-1',
       status: 'Running',
       toolName: 'Bash',
+      replay: true,
     });
   });
 
@@ -140,7 +143,7 @@ describe('resendAgentActivity', () => {
     // Unnamed: runInBackground=true, no isTeammateSpawn. toolName is required —
     // without it the webview cannot recreate the Subtask after agentToolsClear.
     const unnamed = toolStarts.find((t) => t.toolId === 'bg-unnamed');
-    expect(unnamed).toMatchObject({ runInBackground: true, toolName: 'Agent' });
+    expect(unnamed).toMatchObject({ runInBackground: true, toolName: 'Agent', replay: true });
     expect(unnamed?.isTeammateSpawn).toBeUndefined();
 
     // Named: runInBackground=true, isTeammateSpawn=true, toolName present.
@@ -149,6 +152,7 @@ describe('resendAgentActivity', () => {
       runInBackground: true,
       isTeammateSpawn: true,
       toolName: 'Agent',
+      replay: true,
     });
   });
 

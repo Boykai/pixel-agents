@@ -60,7 +60,16 @@ export type AgentEvent =
        *  sub-agent characters for teammate spawns. */
       runInBackground?: boolean;
     }
-  | { kind: 'toolEnd'; toolId: string }
+  | {
+      kind: 'toolEnd';
+      toolId: string;
+      /** Tool failure signal: true when the tool finished in failure (Claude's
+       *  PostToolUseFailure hook). Absent means success or unknown. Providers
+       *  set it only for failures the hook path owns, so the runtime can
+       *  forward it once as `agentToolDone.isError` without double counting
+       *  failures the transcript path already reports (e.g. sub-agent tools). */
+      isError?: boolean;
+    }
   | {
       kind: 'turnEnd';
       /** True when the turn ended because the agent went idle waiting on the

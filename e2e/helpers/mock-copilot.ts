@@ -26,6 +26,15 @@ export class CopilotScenario {
     return this.append('tool.execution_complete', { toolCallId, success: true });
   }
 
+  /** A tool that ran and failed: the completion reports `success: false`. */
+  toolFailed(toolCallId: string, message = 'Command failed with exit code 1'): this {
+    return this.append('tool.execution_complete', {
+      toolCallId,
+      success: false,
+      error: { message },
+    });
+  }
+
   subagentStart(
     agentId: string,
     data: {
