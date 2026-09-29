@@ -234,7 +234,7 @@ For the normative model behind this (the process-boundary principle, append-only
 
 ### E2E test naming
 
-Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `spawn`, `lifecycle`, `cross-cutting`, `teams`, `matrix`, `standalone`. Example:
+Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `spawn`, `lifecycle`, `cross-cutting`, `teams`, `matrix`, `standalone`, `areas`, `carpet`, `pets`. Example:
 
 ```typescript
 test('rapid /clear then new tool within 500ms lands on the reassigned agent @area:lifecycle', ...);

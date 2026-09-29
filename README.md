@@ -41,12 +41,14 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **Activity panel** — the toolbar's **Activity** panel lists what every agent is doing right now, with its sub-agents and teammates nested underneath; click a row to select and follow that character. In VS Code, the status bar's **Agent** and **Activity** shortcuts launch an agent and open the same list as a live Quick Pick
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
 - **Signs and draw layers** — put pixel-text signs on the floor or walls, and move any furniture forward or backward in draw order
+- **Office pets** — pets wander, trail nearby characters, sit beside inactive agents, nap, and scurry away from active ones; click one to have the camera follow it
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
 - **Token usage** — the toolbar's **Usage** panel shows each agent's recorded usage and the office-wide totals: input/output/cache tokens for Claude Code, premium requests for GitHub Copilot (tokens only once a Copilot session reports them). Read straight from the transcripts, never estimated or priced
 - **Mood bubbles** — characters react to their own work: an error bubble when a tool fails, a happy one when a turn ends cleanly, a stressed one under rapid-fire or long-running tools (for Claude Code and GitHub Copilot; can be turned off in Settings)
 - **Sound notifications** — optional chimes when an agent finishes its turn or requests permission
 - **Sub-agents and Agent Teams** — see ephemeral sub-agents and persistent Claude teammates as separate characters, including team roles and lifecycle changes
 - **Persistent layouts** — your office design is saved and shared across VS Code windows
+- **Remembered zoom** — whole-step zoom keeps the pixel art crisp and is remembered separately for VS Code and the standalone browser; the VS Code panel keeps its state while hidden
 - **Shared layout and assets** — import/export layouts and load external character, pet, and furniture packs
 - **Areas** — paint named areas onto the office, map workspace folders to them, and new agents sit inside the areas mapped to their folder
 - **Diverse characters** — 6 diverse characters. These are based on the amazing work of [JIK-A-4, Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack).

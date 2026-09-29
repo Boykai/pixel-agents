@@ -26,20 +26,23 @@ authenticated and enabled before those sessions can be claimed as tracked.
 
 ## Implemented coverage
 
-| Capability                         | Copilot behavior                                                                                                                                          |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mixed offices                      | Claude and Copilot have independent session identities, discovery, tool classifications and consent in both surfaces.                                     |
-| Local discovery                    | New first-batch activity is detected even after an empty startup. Existing saved history is baselined rather than imported wholesale.                     |
-| Activity and requests              | Tool activity comes from transcripts; supported lifecycle/request hooks supplement it. Silence never establishes a Copilot permission wait.               |
-| Children                           | Unnamed work remains a Sub-agent; positively named background work becomes a Teammate. Child activity and completion are routed separately from the lead. |
-| Tool failures                      | A completion with `success: false` or a `tool.execution_failed` record is a tool failure on the lead or child that ran it; it shows the error Mood.       |
-| Recovery                           | Bounded tail reads hydrate current state without replaying historical notifications. Incomplete evidence produces Unknown.                                |
-| Labels                             | CLI-provided repository/workspace and session titles are used, including observed title changes. No guessed App IDs or metadata mapping files are used.   |
-| VS Code launch                     | The selected provider owns the command and expected transcript path. Copilot uses a fresh UUID with `--session-id` and requires its executable on PATH.   |
-| Context                            | An explicit occupancy/limit snapshot is supported when emitted. The observed App did not supply it; billing totals are not a substitute.                  |
-| Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated. |
-| Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.            |
-| App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                      |
+| Capability                         | Copilot behavior                                                                                                                                                      |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mixed offices                      | Claude and Copilot have independent session identities, discovery, tool classifications and consent in both surfaces.                                                 |
+| Local discovery                    | New first-batch activity is detected even after an empty startup. Existing saved history is baselined rather than imported wholesale.                                 |
+| Activity and requests              | Tool activity comes from transcripts; supported lifecycle/request hooks supplement it. Silence never establishes a Copilot permission wait.                           |
+| Children                           | Unnamed work remains a Sub-agent; positively named background work becomes a Teammate. Child activity and completion are routed separately from the lead.             |
+| Tool failures                      | A completion with `success: false` or a `tool.execution_failed` record is a tool failure on the lead or child that ran it; it shows the error Mood.                   |
+| Mood reactions                     | Derived in the office UI from protocol messages, as for Claude. Error needs a transcript tool failure (tool hooks aren't installed); recovery replays trigger none.   |
+| Recovery                           | Bounded tail reads hydrate current state without replaying historical notifications. Incomplete evidence produces Unknown.                                            |
+| Labels                             | CLI-provided repository/workspace and session titles are used, including observed title changes. No guessed App IDs or metadata mapping files are used.               |
+| VS Code launch                     | The selected provider owns the command and expected transcript path. Copilot uses a fresh UUID with `--session-id` and requires its executable on PATH.               |
+| Context                            | An explicit occupancy/limit snapshot is supported when emitted. The observed App did not supply it; billing totals are not a substitute.                              |
+| Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated.             |
+| Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.                        |
+| Nicknames and Costumes             | Any Copilot agent, observed App sessions included, can be renamed and given a Costume (Appearance). Its Sub-agents wear the Costume; a Teammate starts in its Lead's. |
+| Office features                    | Pets, Signs, Draw layers, zoom persistence and camera Follow depend only on the office and its Characters, so they work the same with Copilot agents.                 |
+| App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                                  |
 
 This is source-based capability coverage, not a claim that every installed App
 version emits every event. Existing CLI/App processes may need a user-initiated
@@ -52,7 +55,9 @@ name or focus alone cannot establish which transcript it owns.
 Any Copilot agent, including an observed App session, can be given a Nickname.
 It becomes the primary label, and the session title stays visible as secondary
 text. The nickname is remembered by provider and session UUID, so the agent gets
-it back when the same session is observed again.
+it back when the same session is observed again. A Costume is persisted with the
+agent, like a Claude agent's, and a nicknamed agent's Costume is also remembered
+under its nickname.
 
 ### Tool hooks are deliberately not installed
 

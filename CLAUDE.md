@@ -22,6 +22,7 @@ core/                                Protocol + interface definitions (zero runt
     activityLabel.ts                 Activity label precedence + agentDisplayName, shared by ToolOverlay, Activity panel, Quick Pick
     normalizeProjectPath.ts
     normalizeNickname.ts             Nickname trim + length cap (AGENT_NICKNAME_MAX_LENGTH), shared by server + webview
+    zoom.ts                          parseZoom: the persisted zoom, integer-checked and clamped to ZOOM_MIN..ZOOM_MAX
     constants.ts
 
 server/                              Lifecycle runtime + Fastify HTTP/WS server
@@ -32,7 +33,11 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
       claudeHookInstaller.ts         Consent-gated install/uninstall in ~/.claude/settings.json (abort on unparseable file or non-array hooks.<Event>; one-time .pixel-agents.backup, exclusive-create, no backup ⇒ no write — but skipped when the replaced content is entirely our own install's output, since backing up our own file masquerades as the user's original (`settingsHoldOnlyOurHooks`, compared against makeHookEntry — the WRITER — so a field added to what we write can't silently revive the bug; only `command`/`timeout` may differ, they vary across installs); every write failure THROWS; mode preserved, 0600 on create; re-read verify immediately before rename + retry; hook identity = `/.pixel-agents/hooks/claude-hook.js` suffix anchored at both ends of the command's first token, case-insensitive; `areHooksInstalled` = ANY of our commands on ANY event)
       consentCopy.ts                 Claude's first-run consent disclosure text (scope/data/undo), served through consentDisclosure()
       constants.ts                   Claude hook event names, script path
+      tokenUsage.ts                  extractTokenUsage: `delta` samples from assistant `message.usage`, keyed by message.id for dedupe
       hooks/claude-hook.ts           Hook script (CJS+shebang, bundled to dist/hooks/claude-hook.js)
+    providers/hook/copilot/          GitHub Copilot HookProvider (see docs/copilot-compatibility.md): copilot.ts, eventReducer.ts,
+                                     recovery.ts, copilotHookInstaller.ts, consentCopy.ts, constants.ts, hooks/copilot-hook.ts
+      tokenUsage.ts                  extractTokenUsage: cumulative `total` samples from session.usage_checkpoint / session.shutdown
     providers/hook/consentGate.ts    Provider-agnostic consent POLICY: when to ask (hooksConsentRequest per provider) and what an answer means (consentActionFor(choice, {installed, consent}) — see docs/adr/0001)
     providers/hook/consentExecutor.ts Provider-agnostic consent EXECUTION: applyConsentChoice(providerId, choice, ConsentEffects) runs the six actions in one order for both surfaces, and SERIALIZES answers per process across ALL providers
     providers/index.ts               Provider registry (claudeProvider + the hookProviders list the consent gate loops over)
@@ -50,6 +55,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     agentAppearance.ts               saveAgentSeats for both surfaces: persist seats, apply costume changes live (→ agentAppearance)
     configPersistence.ts             { vscode, standalone, externalAssetDirectories, hooksConsent: {providerId: granted|declined}, hooksEnabled: {providerId: boolean} }
     layoutPersistence.ts             ~/.pixel-agents/layout.json with atomic tmp+rename
+    tokenUsage.ts                    TokenUsageTracker (per-agent totals → agentUsage) + readTokenUsageHistory seeding
     fileWatcher.ts                   Hybrid fs.watch + 500ms polling, JSONL line buffering, /clear detection
     transcriptParser.ts              JSONL parsing for heuristic / file-fallback mode
     timerManager.ts                  Waiting / permission timers
@@ -57,7 +63,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     teamUtils.ts                     isInlineTeammateOf, getInlineTeammates, hasInlineTeammates
     types.ts                         ServerAgentState
     constants.ts                     All timing/scanning constants
-  __tests__/                         28 Vitest files
+  __tests__/                         43 Vitest files
   manual-hook-events.http            Manual hook testing helper (REST-Client format)
 
 adapters/vscode/                     VS Code surface — composes core + server
@@ -90,6 +96,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
       CostumePanel.tsx, Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
       ActivityPanel.tsx              Activity panel (toolbar "Activity"), rows from office/activityRows.ts
+      UsagePanel.tsx                 Usage panel (toolbar "Usage"): per-agent token usage + office-wide totals, from agentUsage
     hooks/
       useExtensionMessages.ts        Message handler — translates ServerMessage into OfficeState mutations
       useEditorActions.ts            Editor state + callbacks
@@ -345,6 +352,7 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
   layout.json              OfficeLayout (shared across surfaces)
   server.json              { port, pid, authToken }
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
+  hooks/copilot-hook.js    Bundled Copilot hook script (copied before Copilot hook entries are installed)
 ```
 
 `FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom`, `moodBubbles` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
@@ -419,6 +427,8 @@ Two lists of every shown agent with its activity label. Sub-agents sit one level
 **Rendering**: Game state in imperative `OfficeState` class (not React state). Pixel-perfect: zoom = integer device-pixels-per-sprite-pixel (1x–10x). No `ctx.scale(dpr)`. Default zoom = `Math.round(2 * devicePixelRatio)`, replaced by the persisted per-namespace `zoom` when `settingsLoaded` carries one; only a user zoom sends `setZoom` (debounced), never the mount-time default. The zoom label shows the tile size (`zoom × TILE_SIZE`, e.g. `32px`). Z-sort all entities by Y. Pan via middle-mouse drag (`panRef`). **Camera follow**: `cameraFollowId` (separate from `selectedAgentId`) smoothly centers camera on the followed agent; set on agent click, cleared on deselection or manual pan. `cameraFollowPetId` does the same for a Pet (`clickPet` toggles it with the heart bubble); the two are mutually exclusive, and the pet follow is also cleared on entering edit mode or when its pet leaves the layout.
 
 **UI styling**: Pixel art aesthetic — sharp corners (`borderRadius: 0`), solid backgrounds (`#1e1e2e`), `2px solid` borders, hard offset shadows (`2px 2px 0px #0a0a14`, no blur). CSS variables in `index.css` `:root` (`--pixel-bg`, `--pixel-border`, `--pixel-accent`, ...). Pixel font: FS Pixel Sans (`webview-ui/src/fonts/`), loaded via `@font-face`, applied globally.
+
+**Bottom toolbar clearance**: the BottomToolbar wraps onto more rows in a narrow window and publishes where it ends on the app root: `--bottom-toolbar-clearance` (its top edge) and `--bottom-toolbar-inline-clearance` (its right edge). A surface stacked above it (Activity panel, layout editor toolbar) uses `.above-bottom-toolbar` in `index.css`, never a fixed `bottom-76`. A bottom-right popup beside it (the version notice) uses `.beside-bottom-toolbar`: it rests 42px up and stacks above the toolbar only when a narrower window brings the two together. The narrow-window specs in `e2e/tests/standalone/activity-panel.spec.ts` and `rooms.spec.ts` guard both, so a new toolbar button must keep them passing.
 
 Custom ESLint rules (`eslint-rules/pixel-agents-rules.mjs`) enforce: `no-inline-colors` (hex/rgb/rgba/hsl/hsla literals only in `constants.ts`), `pixel-shadow` (must use `var(--pixel-shadow)` or `2px 2px 0px`), `pixel-font` (must reference FS Pixel Sans). All `error`-level — they block PRs.
 
@@ -519,12 +529,16 @@ Three tiers, each with its own framework.
 | `server.test.ts`               | HTTP lifecycle, auth, `/ws`, broadcast                                                                                                         |
 | `httpServerWs.test.ts`         | `/ws` gate: standalone same-origin, embedded Bearer                                                                                            |
 | `mockClaudeRunner.test.ts`     | E2E scenario runner sanity                                                                                                                     |
+| `tokenUsage.test.ts`           | TokenUsageTracker (per-message dedupe, cumulative totals, per-agent throttle, "since tracked"), history seeding, Claude + Copilot extraction   |
+| `nicknames.test.ts`            | Nickname book: normalization, session-keyed restore, name-keyed look/seat profiles, Teammate look resolution, `applySavedSeats`                |
+| `vscodeAgentNicknames.test.ts` | VS Code launch nickname: terminal name (indexed on a clash), persisted, restored with its terminal re-bound                                    |
+| `activityQuickPick.test.ts`    | Activity Quick Pick rows, `ActivityTracker` replay semantics, restored-agent hydration, pre-load notice, live rename                           |
 
 Run: `npm run test:server` (or `npm test` for all).
 
 ### Webview unit (Vitest, Node runner)
 
-`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, mood tracking, and Vite/browser wiring.
+`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring, plus the ported features: mood tracking and mood bubbles, signs and draw layers, pet camera follow, agent appearance, and the Activity panel rows and shared activity labels.
 
 Run: `npm run test:webview`.
 

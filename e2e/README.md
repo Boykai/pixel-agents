@@ -230,8 +230,8 @@ Surface B — every mock-claude terminal tab: the wrapper backgrounds a headerle
 ```
 
 Standalone recordings are deliberately raw browser artifacts. Their fixture has
-no VS Code terminal or narration surface, so the eight standalone videos are
-outside this narration contract.
+no VS Code terminal or narration surface, so the standalone videos are outside
+this narration contract.
 
 Usage: the `pixelAgents` fixture exposes a `narrator` on its payload — tests call
 `narrator.step('…')` before an action and `narrator.check('…')` after an
