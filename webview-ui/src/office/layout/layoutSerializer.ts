@@ -310,8 +310,7 @@ export function createDefaultLayout(): OfficeLayout {
   return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
 }
 
-/** Serialize layout to JSON string
- * @internal */
+/** Serialize layout to JSON string */
 export function serializeLayout(layout: OfficeLayout): string {
   return JSON.stringify(layout);
 }
@@ -347,8 +346,7 @@ function migrateFurnitureTypes(furniture: PlacedFurniture[]): PlacedFurniture[] 
   return migrated;
 }
 
-/** Deserialize layout from JSON string, migrating old tile types if needed
- * @internal */
+/** Deserialize layout from JSON string, migrating old tile types if needed */
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
