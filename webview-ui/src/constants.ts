@@ -293,6 +293,14 @@ export const ACTIVITY_PANEL_INDENT_PX = 16;
  *  when a narrow window wraps the toolbar onto more rows, and the surfaces
  *  stacked above the toolbar (see `.above-bottom-toolbar` in index.css) follow. */
 export const BOTTOM_TOOLBAR_CLEARANCE_VAR = '--bottom-toolbar-clearance';
+/** CSS custom property the BottomToolbar publishes on the app root: the
+ *  distance from the root's right edge to the toolbar's right edge. A surface
+ *  anchored beside the toolbar (see `.beside-bottom-toolbar` in index.css)
+ *  compares it with its own reach to tell whether the two would overlap. */
+export const BOTTOM_TOOLBAR_INLINE_CLEARANCE_VAR = '--bottom-toolbar-inline-clearance';
+/** CSS custom property a `.beside-bottom-toolbar` surface publishes on itself:
+ *  the distance from the app root's right edge to the surface's left edge. */
+export const BESIDE_BOTTOM_TOOLBAR_REACH_VAR = '--beside-bottom-toolbar-reach';
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
