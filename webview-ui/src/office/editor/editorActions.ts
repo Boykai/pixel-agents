@@ -121,10 +121,21 @@ export function toggleFurnitureState(layout: OfficeLayout, uid: string): OfficeL
   };
 }
 
+/** Two normalized Sign texts draw the same sprite (hex colors compare case-insensitively). */
+function sameSignText(a: SignText, b: SignText): boolean {
+  return (
+    a.value === b.value &&
+    a.size === b.size &&
+    a.scale === b.scale &&
+    a.color.toLowerCase() === b.color.toLowerCase()
+  );
+}
+
 /**
  * Replace a Sign's text (ported from hootbu/pixel-agents (MIT) 69c433f). No-op
- * unless the item is a Sign and the re-sized Sign still fits where it stands.
- * Returns new layout (immutable).
+ * unless the item is a Sign, the text actually changes, and the re-sized Sign
+ * still fits where it stands. Returns new layout (immutable), or the same
+ * layout when nothing changes.
  */
 export function updateFurnitureText(
   layout: OfficeLayout,
@@ -135,6 +146,8 @@ export function updateFurnitureText(
   if (!item || !isSignType(item.type)) return layout;
   const normalized = normalizeSignText(text);
   if (!normalized) return layout;
+  const current = normalizeSignText(item.text);
+  if (current && sameSignText(current, normalized)) return layout;
   if (!canPlaceFurniture(layout, item.type, item.col, item.row, uid, normalized)) return layout;
   return {
     ...layout,

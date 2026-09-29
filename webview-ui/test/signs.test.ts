@@ -315,6 +315,35 @@ test('updateFurnitureText is a no-op when the item, the text or the fit is wrong
   assert.equal(stillFits.furniture[0].text?.value, 'Hi there');
 });
 
+test('updateFurnitureText returns the same layout when the Sign would not change', () => {
+  const cyan = preset('Cyan');
+  assert.notEqual(cyan.toLowerCase(), cyan, 'the preset has letters to fold');
+  const layout = floorLayout();
+  layout.furniture = [
+    {
+      uid: 's',
+      type: SIGN_TYPE,
+      col: 1,
+      row: 2,
+      text: sign('Hello', { color: cyan.toLowerCase() }),
+    },
+  ];
+  // The Sign editor hands back what it opened with, its color upper-cased.
+  assert.equal(updateFurnitureText(layout, 's', sign('Hello', { color: cyan })), layout);
+  // A raw layout.json value that normalizes to the same Sign is unchanged too.
+  layout.furniture = [{ ...layout.furniture[0], text: sign('Hello', { color: cyan, scale: 1.2 }) }];
+  assert.equal(updateFurnitureText(layout, 's', sign('Hello', { color: cyan })), layout);
+
+  for (const changed of [
+    sign('Hello!', { color: cyan }),
+    sign('Hello', { color: preset('Pink') }),
+    sign('Hello', { color: cyan, size: '5x7' }),
+    sign('Hello', { color: cyan, scale: 2 }),
+  ]) {
+    assert.notEqual(updateFurnitureText(layout, 's', changed), layout, JSON.stringify(changed));
+  }
+});
+
 // ── layout.json round trip ───────────────────────────────────────
 
 test('layout.json round-trips Sign text and Draw layers exactly', () => {
