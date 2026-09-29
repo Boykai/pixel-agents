@@ -341,9 +341,9 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 ### `@area:standalone` (37 tests)
 
 - `e2e/standalone/activity-panel.spec.ts:64` — lists Copilot agents with nested sub-agents and live activity, selects on click, and names rows by nickname (Standalone / Activity panel)
-- `e2e/standalone/activity-panel.spec.ts:206` — keeps the toolbar and panel inside a narrow window after Settings (Standalone / Activity panel)
-- `e2e/standalone/activity-panel.spec.ts:255` — keeps the version notice clear of the toolbar buttons as the window narrows (Standalone / Activity panel)
-- `e2e/standalone/activity-panel.spec.ts:297` — lists Claude and Copilot agents side by side with a Claude sub-agent (Standalone / Activity panel with mixed providers)
+- `e2e/standalone/activity-panel.spec.ts:212` — keeps the toolbar and panel inside a narrow window after Settings (Standalone / Activity panel)
+- `e2e/standalone/activity-panel.spec.ts:261` — keeps the version notice clear of the toolbar buttons as the window narrows (Standalone / Activity panel)
+- `e2e/standalone/activity-panel.spec.ts:303` — lists Claude and Copilot agents side by side with a Claude sub-agent (Standalone / Activity panel with mixed providers)
 - `e2e/standalone/copilot.spec.ts:19` — Settings reports a refused Copilot hook install and clears the error after retry (Standalone / Copilot transcript observation)
 - `e2e/standalone/copilot.spec.ts:53` — compact labels reveal one readable hover inspector with keyboard and narrow-screen support (Standalone / Copilot transcript observation)
 - `e2e/standalone/copilot.spec.ts:137` — sub-agents inherit project labels while live activity remains in hover details (Standalone / Copilot transcript observation)

@@ -13,7 +13,7 @@ import {
 import { enterEditMode } from '../../helpers/editor';
 import { arrangeNextClaudeInvocation, claudeScenario } from '../../helpers/mock-claude';
 import { copilotScenario } from '../../helpers/mock-copilot';
-import { renameAgent } from '../../helpers/nicknames';
+import { openAgentDetails, renameAgent } from '../../helpers/nicknames';
 import { buildAssistantToolUseRecord } from '../../helpers/team';
 import { openSettingsModal, setSettings } from '../../helpers/webview';
 
@@ -187,6 +187,12 @@ test.describe('Standalone / Activity panel', () => {
       { kind: 'subagent', label: 'Research project labels', activity: 'Thinking…' },
       { kind: 'agent', label: 'Pick a fixture', activity: 'Waiting for input' },
     ]);
+    // So do the Sub-agent's details, in their Parent fact.
+    await subRow.click();
+    const subDetails = await openAgentDetails(page, -1);
+    await expect(
+      subDetails.locator('dt', { hasText: 'Parent' }).locator('xpath=following-sibling::dd[1]'),
+    ).toHaveText('Scout');
     await renameAgent(page, leadId, '');
     await expectActivityRows(page, [
       {
