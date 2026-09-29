@@ -110,11 +110,25 @@ test.describe('Standalone / nicknames and costumes', () => {
       await expect.poll(() => readCharacterLook(page, id)).toEqual(look);
       await expect.poll(() => readCharacterLook(second, id), { timeout: 15_000 }).toEqual(look);
 
-      await panel.getByRole('button', { name: 'Close', exact: true }).click();
+      // The panel's nickname field saves on Enter, and every client sees it.
+      // Escape first cancels an unsaved edit, and only then closes the panel.
+      const nicknameField = panel.getByRole('textbox');
+      await nicknameField.fill('Ivy');
+      await nicknameField.press('Enter');
+      await expect(getOverlayByAgentId(second, id)).toContainText('Ivy', { timeout: 15_000 });
+      await nicknameField.fill('Unsaved');
+      await nicknameField.press('Escape');
+      await expect(nicknameField).toHaveValue('Ivy');
+      await expect(panel).toBeVisible();
+      await nicknameField.press('Escape');
       await expect(panel).toHaveCount(0);
+      await expect(getOverlayByAgentId(page, id)).toContainText('Ivy');
+      await expect(getOverlayByAgentId(page, id)).not.toContainText('Unsaved');
+
       await second.reload();
       await waitForOffice(second);
       await expect.poll(() => readCharacterLook(second, id), { timeout: 15_000 }).toEqual(look);
+      await expect(getOverlayByAgentId(second, id)).toContainText('Ivy');
     } finally {
       await second.close();
     }

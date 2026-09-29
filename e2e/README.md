@@ -338,7 +338,7 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 - `e2e/standalone/multi-server-hooks.spec.ts:31` — extension and standalone both stay hook-driven without cross-contamination (Standalone / multi-server hooks)
 - `e2e/standalone/nicknames.spec.ts:55` — a renamed agent keeps its nickname across a reload until it is cleared (Standalone / nicknames and costumes)
 - `e2e/standalone/nicknames.spec.ts:84` — a costume change reaches a second client and outlives a reload (Standalone / nicknames and costumes)
-- `e2e/standalone/nicknames.spec.ts:127` — an observed Copilot session can be renamed, and keeps the nickname across a server restart (Standalone / Copilot nicknames)
+- `e2e/standalone/nicknames.spec.ts:141` — an observed Copilot session can be renamed, and keeps the nickname across a server restart (Standalone / Copilot nicknames)
 - `e2e/standalone/reset-default.spec.ts:42` — restores the bundled layout only after both confirmations, and Undo puts the office back (Standalone / Reset to Default)
 - `e2e/standalone/rooms.spec.ts:48` — preserves existing data through prepend expansion, atomic Undo/Redo, and saved Reset (Standalone / Generate Room)
 - `e2e/standalone/rooms.spec.ts:109` — saved rooms survive browser reload and export/import as ordinary layout data (Standalone / Generate Room)

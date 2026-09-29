@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { AGENT_NICKNAME_MAX_LENGTH } from '../../../core/src/constants.js';
 import { normalizeNickname } from '../../../core/src/normalizeNickname.js';
@@ -44,18 +44,28 @@ export function CostumePanel({
   const [selectedPalette, setSelectedPalette] = useState(currentPalette);
   const [hueShift, setHueShift] = useState(currentHueShift);
   const [nicknameDraft, setNicknameDraft] = useState(nickname);
+  // The last nickname this panel saved. Renames apply to the office state
+  // imperatively, so the `nickname` prop can lag behind them.
+  const [savedNickname, setSavedNickname] = useState(nickname);
+  const nicknameInputRef = useRef<HTMLInputElement>(null);
 
-  // Escape closes only this panel: capture phase, so the agent details'
-  // own Escape handler (bubble phase, same window) never sees it.
+  // Escape in the nickname field first cancels an unsaved edit, like Rename in
+  // the agent details; otherwise it closes only this panel. Capture phase, so
+  // the agent details' own Escape handler (bubble phase, same window) never sees it.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
+      const input = nicknameInputRef.current;
+      if (input && e.target === input && normalizeNickname(input.value) !== savedNickname) {
+        setNicknameDraft(savedNickname);
+        return;
+      }
       onClose();
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose]);
+  }, [onClose, savedNickname]);
 
   const handlePaletteClick = (palette: number) => {
     setSelectedPalette(palette);
@@ -69,8 +79,13 @@ export function CostumePanel({
     onSelect(selectedPalette, value);
   };
 
+  // Enter or leaving the field (closing with x included) saves the nickname.
   const commitNickname = () => {
-    if (normalizeNickname(nicknameDraft) !== nickname) onRename(nicknameDraft);
+    const next = normalizeNickname(nicknameDraft);
+    setNicknameDraft(next);
+    if (next === savedNickname) return;
+    setSavedNickname(next);
+    onRename(next);
   };
 
   const paletteCount = getLoadedCharacterCount();
@@ -91,6 +106,7 @@ export function CostumePanel({
       <label className="flex items-center gap-8 text-sm text-text-muted">
         Nickname
         <input
+          ref={nicknameInputRef}
           type="text"
           value={nicknameDraft}
           placeholder="Nickname (optional)"
