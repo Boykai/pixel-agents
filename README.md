@@ -340,12 +340,13 @@ npm install
 npm run build
 ```
 
-Press **F5** in VS Code to launch the Extension Development Host. To run the standalone bundle built from source:
+Press **F5** in VS Code to launch the Extension Development Host. To run the standalone bundle built from source, tracking both Claude Code and GitHub Copilot:
 
 ```bash
-node dist/cli.js
 node dist/cli.js --providers claude,copilot
 ```
+
+Without `--providers`, it tracks Claude Code only.
 
 Common checks:
 
