@@ -120,7 +120,7 @@ The panel opened from the toolbar's "Activity" button. It lists every agent with
 _Avoid_: task panel (the fork's name), agent list
 
 **Activity Quick Pick**:
-The VS Code version of the activity panel, opened from the status bar's "Activity" item or the "Pixel Agents: Show Activity" command. Its rows update while it is open. Picking a row focuses the agent's terminal. For a headless agent, it reveals the office with the character selected.
+The VS Code version of the activity panel, opened from the status bar's "Activity" item or the "Pixel Agents: Show Activity" command. Its rows update while it is open. Picking a row focuses the agent's terminal. For a headless agent, it reveals the office with the character selected. Agents are restored and sessions discovered when the office first loads in a window, so until then it also offers to open the office.
 _Avoid_: task picker, agent picker
 
 **Speech bubble**:

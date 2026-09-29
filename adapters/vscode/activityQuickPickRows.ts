@@ -304,6 +304,23 @@ function subagentRows(
   return rows;
 }
 
+/** A Quick Pick line that isn't an Agent. */
+export type ActivityQuickPickNotice = 'openOffice' | 'empty';
+
+/**
+ * The line to add after the rows, if any. Agent restore and session discovery
+ * start with the office's first load in a window, so until then only Agents
+ * launched from the shortcuts are known: offer to open the office instead of
+ * claiming there are no other Agents.
+ */
+export function activityQuickPickNotice(
+  rowCount: number,
+  discoveryStarted: boolean,
+): ActivityQuickPickNotice | undefined {
+  if (!discoveryStarted) return 'openOffice';
+  return rowCount === 0 ? 'empty' : undefined;
+}
+
 /** The Quick Pick item text for a row: indented label with a state icon, activity, detail. */
 export function activityQuickPickItem(row: ActivityQuickPickRow): {
   label: string;

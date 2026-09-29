@@ -101,6 +101,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
   // `webviewReady`; a Quick Pick reveal waits for that, then is sent once.
   private officeLoaded = false;
   private pendingReveal: { id: number; until: number } | undefined;
+  // Agent restore and session discovery start with the office's first load in this window.
+  private discoveryStartedOnce = false;
 
   // Shared agent lifecycle core (timer Maps, scanners, hook handler, dismissal tracker)
   private runtime: AgentRuntime;
@@ -424,6 +426,16 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
   /** The enabled providers, as the Activity Quick Pick names them and finds their spawn tools. */
   get activityProviders(): readonly ActivityProviderInfo[] {
     return this.providers;
+  }
+
+  /** Agent restore and session discovery have run, so the store holds every known Agent. */
+  get discoveryStarted(): boolean {
+    return this.discoveryStartedOnce;
+  }
+
+  /** Open the Pixel Agents panel; its first load starts restore and discovery. */
+  openOffice(): void {
+    void vscode.commands.executeCommand(`${VIEW_ID}.focus`);
   }
 
   /** Launch an agent in a new terminal: the office's + Agent and the New Agent command. */
@@ -786,6 +798,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
         this.runtime.startDiscovery(
           wsFolders?.map((folder) => folder.uri.fsPath) ?? [os.homedir()],
         );
+        this.discoveryStartedOnce = true;
 
         this.runtime.startStaleCheck();
 

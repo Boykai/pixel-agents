@@ -63,6 +63,10 @@ export const ACTIVITY_QUICK_PICK_TITLE = 'Pixel Agents: Activity';
 export const ACTIVITY_QUICK_PICK_PLACEHOLDER =
   'Pick an agent to focus its terminal, or to select it in the office';
 export const ACTIVITY_QUICK_PICK_EMPTY = '$(info) No active agents';
+/** Shown until the office first loads in the window, when restore and discovery start. */
+export const ACTIVITY_QUICK_PICK_OPEN_OFFICE = '$(eye) Open the office to find running agents';
+export const ACTIVITY_QUICK_PICK_OPEN_OFFICE_DETAIL =
+  'Restored agents and sessions started outside Pixel Agents appear once the panel loads';
 /** Coalesces a burst of store events into one Quick Pick refresh. */
 export const ACTIVITY_QUICK_PICK_REFRESH_MS = 100;
 /** Codicon per Activity state (core/src/activityLabel.ts ActivityState). */

@@ -403,6 +403,7 @@ Two lists of every shown agent with its activity label. Sub-agents sit one level
   - The tracker replays the store's broadcasts with the webview's semantics: a start records a tool once, a done tool is never revived, and `agentToolsClear` clears the list. It tracks Sub-agent tools per spawn, and background spawns survive the turn end. It subscribes in the provider constructor, so it sees every broadcast from activation on.
   - Sub-agent row existence still comes from `activeToolNames`, because spawn tools go through the transcript in both modes.
 - **Accepting a row** focuses the agent's terminal. A headless agent (a Copilot App session, an external session) has none, so accepting reveals the view and posts `agentSelected { reveal: true }`, which selects and follows the character. The reveal is held until the webview is ready, the office is loaded and the view is visible, and dropped after `AGENT_REVEAL_TIMEOUT_MS`.
+- **Before the office's first load** in a window, `restoreAgents` and `startDiscovery` (both in the `webviewReady` handler) haven't run, so the store holds only agents launched from the shortcuts. Until the provider's `discoveryStarted` flips, `activityQuickPickNotice` appends an "Open the office" line (accepting it focuses the view) instead of claiming there are no agents.
 - **Status bar**: `$(add) Agent` runs `pixel-agents.newAgent` (the same launch path as the panel's + Agent, honoring `pixel-agents.launchProvider`), and `$(checklist) Activity` runs `pixel-agents.showActivity`.
 
 ## Office UI

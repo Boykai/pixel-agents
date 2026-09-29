@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activityQuickPickItem,
+  activityQuickPickNotice,
   ActivityTracker,
   buildActivityQuickPickRows,
 } from '../../adapters/vscode/activityQuickPickRows.js';
@@ -541,5 +542,18 @@ describe('activityQuickPickItem', () => {
         detail: 'Claude Code · Headless',
       }).label,
     ).toBe('$(check) web');
+  });
+});
+
+describe('activityQuickPickNotice', () => {
+  it('offers the office until restore and discovery have run, rows or not', () => {
+    // Before the office's first load only shortcut-launched Agents are known.
+    expect(activityQuickPickNotice(0, false)).toBe('openOffice');
+    expect(activityQuickPickNotice(2, false)).toBe('openOffice');
+  });
+
+  it('says there are no Agents only once discovery has run', () => {
+    expect(activityQuickPickNotice(0, true)).toBe('empty');
+    expect(activityQuickPickNotice(1, true)).toBeUndefined();
   });
 });
