@@ -22,6 +22,7 @@ core/                                Protocol + interface definitions (zero runt
     activityLabel.ts                 Activity label precedence + agentDisplayName, shared by ToolOverlay, Activity panel, Quick Pick
     normalizeProjectPath.ts
     normalizeNickname.ts             Nickname trim + length cap (AGENT_NICKNAME_MAX_LENGTH), shared by server + webview
+    achievements.ts                  Achievement definitions (id, name, description, target) as an `as const` list, shared by server + webview
     constants.ts
 
 server/                              Lifecycle runtime + Fastify HTTP/WS server
@@ -38,6 +39,8 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     providers/index.ts               Provider registry (claudeProvider + the hookProviders list the consent gate loops over)
     agentRuntime.ts                  Lifecycle core: timers, scanners, HookEventHandler, SessionRouter, DismissalTracker
     agentStateStore.ts               EventEmitter-backed single source of truth (typed mutations + events)
+    agentActivity.ts                 AgentActivityFeed (store.activity): internal, non-protocol seam of live tool starts, tool failures and interaction boundaries
+    achievements.ts                  AchievementTracker: counts Achievements from the activity feed, agentAdded, live Token usage and own layout writes; ~/.pixel-agents/achievements.json
     sessionRouter.ts                 session_id → agent_id mapping, event buffering, pending external sessions
     dismissalTracker.ts              Unified dismissal state (replaces four legacy globals)
     hookEventHandler.ts              Dispatches normalized AgentEvent into runtime
@@ -90,6 +93,9 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
       CostumePanel.tsx, Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
       ActivityPanel.tsx              Activity panel (toolbar "Activity"), rows from office/activityRows.ts
+      AchievementGallery.tsx         Achievement gallery (Settings → "Achievements"), a ui/Modal
+      AchievementPopup.tsx           Achievement popup toast (top-right), fed by achievements.ts's AchievementPopupQueue
+    achievements.ts                  Gallery rows + popup queue (DOM-free, Node-runner tested)
     hooks/
       useExtensionMessages.ts        Message handler — translates ServerMessage into OfficeState mutations
       useEditorActions.ts            Editor state + callbacks
@@ -210,8 +216,8 @@ Adding a new CLI integration is one subdirectory under `server/src/providers/hoo
 
 `core/asyncapi.yaml` is the contract. Pinned to **3.0.0** because `@asyncapi/modelina@5.10.1` declares `supportedVersions: ['3.0.0']` only; bumping to 3.1.0 produces `export type Root = any`. Revisit when Modelina ships 3.1.0 support.
 
-- **35 ServerMessage variants** (server → client): agent lifecycle, agent activity, agent appearance (`agentAppearance`), sub-agent activity, team + context usage, token usage (`agentUsage`), assets, settings + workspace, diagnostics.
-- **25 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), identity (`setAgentNickname`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`, `setMoodBubbles`), discovery + assets, diagnostics.
+- **37 ServerMessage variants** (server → client): agent lifecycle, agent activity, agent appearance (`agentAppearance`), sub-agent activity, team + context usage, token usage (`agentUsage`), achievements (`achievementsLoaded`, `achievementUnlocked`), assets, settings + workspace, diagnostics.
+- **27 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), identity (`setAgentNickname`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`, `setMoodBubbles`, `setAchievementPopups`), achievements (`requestAchievements`), discovery + assets, diagnostics.
 
 Both unions use `oneOf` with `discriminator: type`. Every concrete message sets `additionalProperties: false`.
 
@@ -343,11 +349,12 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
   vscode-state.json        { agents, seats, nicknames? }
   standalone-state.json    { agents, seats, nicknames? }
   layout.json              OfficeLayout (shared across surfaces)
+  achievements.json        { version, achievements: { <id>: { unlocked?, unlockedAt?, slots? | max? | keys? } } } (machine-global, merged by every server process)
   server.json              { port, pid, authToken }
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
 ```
 
-`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom`, `moodBubbles` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
+`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown`, `zoom`, `moodBubbles`, `achievementPopups` (the hooks preference is per-provider and machine-global, at the config top level). `zoom` is the only numeric one and has no default: `parseZoom` (`core/src/zoom.ts`) drops a non-integer and clamps to `ZOOM_MIN`..`ZOOM_MAX` (`core/src/constants.ts`, shared with the webview). Running both surfaces in parallel never clobbers either.
 
 `migrateVsCodeState` (VS Code adapter only) walks each known legacy key once with **verify-before-clear** semantics: write to file, read back, only then clear the legacy key. While anything remains unmigrated, activation shows a non-blocking warning.
 
@@ -398,6 +405,17 @@ The Usage panel's numbers (CONTEXT.md "Token usage"). `AgentStateStore.tokenUsag
 - **Seeding** (`seedTokenUsage` in fileWatcher, once per watched file): `readTokenUsageHistory` reads the prefix before the live reader's offset — a 256 KiB tail first (a `total` there is enough), else a full scan up to 16 MiB, else nothing and the totals are flagged `sinceTracked`.
 - **Live observer** for features that react to new usage: `store.tokenUsage.onLiveUsage(listener)` reports only NEW positive increments — never seeded history, nor records re-read from before `liveFrom` (a resumed file). An ambiguous baseline under-reports rather than over-reports.
 - Copilot tokens exist only in `session.shutdown` `tokenDetails`, so a running Copilot session shows premium requests + nano AIU. A lead's inline sidechain records count; sub-agents' separate transcripts (the shadow store) don't.
+
+### Achievements (server/src/achievements.ts, server/src/agentActivity.ts)
+
+Ported from hootbu/pixel-agents `d0843a9` (CONTEXT.md "Achievement"). Definitions (ids, names, descriptions, targets) live once in `core/src/achievements.ts`. One `AchievementTracker` per server process: `AgentRuntime` creates it only when the composing surface passes `achievements: { namespace }` (both surfaces do; tests and embedders never touch the real home by accident), and `runtime.dispose()` flushes it.
+
+- **Counts activity, never broadcasts.** `resendAgentActivity` and the turn-end background re-sends replay `agentToolStart`/`agentStatus` on every connect, so broadcasts would double count. Sources: `store.activity` (the `AgentActivityFeed`, an internal non-protocol seam), the store's `agentAdded`, `store.tokenUsage.onLiveUsage`, and `layoutPersistence.onLayoutChange` (this process's own writes only; the watcher's reads of other windows' writes are origin `external` and never count).
+- **The feed** carries `toolStart` (with the tool input, which `agentToolStart` lacks), `toolFailure`, `interactionStart` and `interactionEnd`, emitted where each source is parsed: `hookEventHandler` (toolStart, failure, turnEnd), `transcriptParser` (tool_use, failed tool_result, user prompt, `turn_duration`, the text-idle end), the Copilot `eventReducer`'s `report`, and `subagentWatch`'s forward (tool work only, flagged `subagent`). Hook events use `live()`; transcript records use `transcript()`.
+- **Liveness: no counter advances from history.** `activity.markLiveFrom(id, liveFrom, file)` sets a per-agent byte watermark wherever `seedTokenUsage` runs (for every provider, with or without `extractTokenUsage`), and `readNewLines` calls `activity.reading(id, recordEnd)` before each line, so `transcript()` drops a record ending at or before the watermark. The watermark is `existingBytes` on a `/clear`/resume reassignment and the file size for `startFileWatching(…, existingIsHistory: true)` (late teammates, sidecar teammates, re-materialized Sub-agent watches). A promoted agent without its own transcript is judged by its lead's reader. Copilot recovery replays with `replay: true`, which reports nothing.
+- **Exactly once**: failures are emitted exactly where the tool-failure ownership rule flags `isError` (hooks own dones except spawn tools and leads with inline teammates). Marathon keeps a per-agent latch over `interactionStart`/`interactionEnd` using the record's own time, so a Stop hook, `turn_duration`, the text-idle timer and the Copilot settle count one interaction once. Night Owl (target 1) and Architect (a set) tolerate duplicates.
+- **Persistence** (`achievements.json`): three merge kinds. `counter` (token_millionaire, night_owl, bug_squasher, marathon) keeps one slot per surface namespace and progress is the largest slot, so two surfaces watching one session don't double count. `max` (first_agent, team_player). `set` (architect: sha256 of normalized edited paths from `HookProvider.editedFilePaths?`; decorator: furniture uids new against a baseline seeded from the layout at start, re-seeded without counting on import/reset). Every write re-reads and merges (unlock = OR, `unlockedAt` = min, all monotonic, clamped to the target), writes tmp + rename, and verifies once more after. Unlocks flush at once and broadcast `achievementUnlocked` once; everything else is debounced `ACHIEVEMENTS_SAVE_DEBOUNCE_MS`. A corrupt file is moved aside (`.corrupt-<ms>`), never fatal.
+- **Protocol**: `achievementsLoaded` (snapshot) at `webviewReady` in BOTH dispatchers and in reply to `requestAchievements`; `achievementUnlocked` through `store.broadcast`; `setAchievementPopups` + `settingsLoaded.achievementPopups` (per namespace, default on). The webview (`achievements.ts`, `AchievementPopup.tsx`, `AchievementGallery.tsx`) queues popups (`ACHIEVEMENT_POPUP_DURATION_MS` each) and records unlocks in the gallery whether popups are on or off.
 
 ### Activity panel and Activity Quick Pick
 
@@ -505,6 +523,8 @@ Three tiers, each with its own framework.
 | File                           | Coverage                                                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agentStateStore.test.ts`      | Mutations, EventEmitter events, snapshot                                                                                                       |
+| `agentActivity.test.ts`        | Activity feed: liveness watermark (/clear-resume, late teammate, re-materialized Sub-agent watch), emission per source                         |
+| `achievements.test.ts`         | Each Achievement for Claude (hooks + transcript) and Copilot, exactly-once, `achievements.json` merge across writers                           |
 | `hookEventHandler.test.ts`     | Routing, buffering, normalized dispatch, team gating                                                                                           |
 | `sessionRouter.test.ts`        | session_id mapping, pending sessions, buffer flush                                                                                             |
 | `fileWatcherDismissal.test.ts` | DismissalTracker integration                                                                                                                   |
