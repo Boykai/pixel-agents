@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/copilot';
+import { openAchievementGallery } from '../../helpers/achievements';
 import { enterEditMode, paintTile } from '../../helpers/editor';
 import { sendHookEvent, sessionStartStartup } from '../../helpers/hooks';
 import { copilotScenario } from '../../helpers/mock-copilot';
@@ -198,6 +199,44 @@ test.describe('Standalone / nicknames and costumes', () => {
     await page.keyboard.press('Escape');
     await expect(resetConfirm).toHaveCount(0);
     // The prompt took that press: the editor itself stays open.
+    await expect(resetButton).toBeVisible();
+  });
+
+  test('the Achievement gallery takes one Escape over Settings, the Costume panel and the reset confirmation @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    await setSettings(page, { alwaysShowLabels: true, watchAllSessions: true });
+    const id = await startClaudeAgent(page, standalone, 'standalone-escape-gallery', 'gallery.ts');
+
+    await enterEditMode(page.mainFrame());
+    const resetButton = page.getByRole('button', { name: 'Reset to Default', exact: true });
+    const resetConfirm = page.getByRole('alertdialog', {
+      name: 'Reset office to the default layout',
+    });
+    await resetButton.click();
+    await expect(resetConfirm).toBeVisible();
+    const panel = await openCostumePanel(page, id);
+    // The gallery listens from mount, so it listens before both surfaces
+    // opened above; the order must still come from the stacking.
+    const { settings, gallery } = await openAchievementGallery(page);
+    await expect.poll(() => isCostumePanelCovered(page)).toBe(true);
+
+    await page.keyboard.press('Escape');
+    await expect(gallery).toBeHidden();
+    await expect(settings).toBeVisible();
+    await expect(panel).toBeVisible();
+    await expect(resetConfirm).toBeVisible();
+
+    // Closed, the gallery no longer takes Escape: past Settings the surfaces
+    // close one per press, topmost first, as they do without it.
+    await settings.getByRole('button', { name: 'x', exact: true }).click();
+    await expect(settings).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(resetConfirm).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(resetConfirm).toHaveCount(0);
     await expect(resetButton).toBeVisible();
   });
 });
