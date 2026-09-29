@@ -591,10 +591,14 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
 
   // 7. Layout last (see step 3): flushes the webview's buffered existingAgents
   // into characters once seats are rebuilt.
-  const savedLayout = readLayoutFromFile();
+  const layout = readLayoutFromFile() ?? cache?.defaultLayout ?? null;
+  // The page saves back only what it is sent, so none of this furniture is
+  // newly placed. Another surface may have replaced the shared layout since
+  // this server last read it: standalone runs no layout watcher.
+  if (layout) runtime?.achievements?.seedLayout(layout);
   send({
     type: 'layoutLoaded',
-    layout: savedLayout ?? cache?.defaultLayout ?? null,
+    layout,
     defaultLayout: cache?.defaultLayout ?? null,
   });
 

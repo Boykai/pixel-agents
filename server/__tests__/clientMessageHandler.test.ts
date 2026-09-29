@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ZOOM_MAX, ZOOM_MIN } from '../../core/src/constants.js';
+import { AchievementTracker } from '../src/achievements.js';
 import type { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import {
@@ -281,6 +282,67 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
     it('answers with no progress when no tracker runs', () => {
       handleClientMessage({ type: 'requestAchievements' }, (m) => sent.push(m), ctx);
       expect(sent).toEqual([{ type: 'achievementsLoaded', achievements: [] }]);
+    });
+
+    describe('the Interior Decorator baseline', () => {
+      const office = (...uids: string[]) => ({
+        version: 1,
+        cols: 2,
+        rows: 2,
+        tiles: [],
+        furniture: uids.map((uid) => ({ uid, type: 'DESK', col: 0, row: 0 })),
+      });
+      // Furniture no tracker counted: a VS Code import, a hand edit, an older build.
+      const imported = Array.from({ length: 25 }, (_, i) => `imported-${i}`);
+
+      /** Another process writes the shared layout: no listener in this one sees it. */
+      function replaceLayoutElsewhere(layout: object): void {
+        const layoutFile = path.join(tempHome, '.pixel-agents', 'layout.json');
+        fs.mkdirSync(path.dirname(layoutFile), { recursive: true });
+        fs.writeFileSync(layoutFile, JSON.stringify(layout));
+      }
+
+      it.each([
+        { handshake: true, expected: { current: 1, unlocked: false } },
+        // Control: without the handshake's seed the same save counts every
+        // imported piece, so the case above proves the seed, not the fixture.
+        { handshake: false, expected: { current: 20, unlocked: true } },
+      ])(
+        'counts only what a page places after another surface replaced the layout (handshake: $handshake)',
+        ({ handshake, expected }) => {
+          replaceLayoutElsewhere(office('desk-1'));
+          const tracker = new AchievementTracker(store, () => undefined, {
+            namespace: 'standalone',
+            filePath: path.join(tempHome, 'achievements.json'),
+          });
+          try {
+            ctx.runtime = {
+              achievements: tracker,
+              watchAllSessions: { current: false },
+              getProviders: () => [claudeProvider],
+              setHooksEnabled: () => {},
+              restoreExternalAgents: () => {},
+            } as unknown as AgentRuntime;
+            replaceLayoutElsewhere(office(...imported));
+
+            if (handshake) {
+              handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+              expect(sent.find((m) => m.type === 'layoutLoaded')?.layout).toEqual(
+                office(...imported),
+              );
+            }
+            handleClientMessage(
+              { type: 'saveLayout', layout: office(...imported, 'lamp-1') },
+              (m) => sent.push(m),
+              ctx,
+            );
+
+            expect(tracker.snapshot().find((p) => p.id === 'decorator')).toMatchObject(expected);
+          } finally {
+            tracker.dispose();
+          }
+        },
+      );
     });
   });
 

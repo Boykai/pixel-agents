@@ -882,7 +882,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
             if (!assetsRoot) {
               console.log('[Extension] ⚠️  No assets directory found');
               if (this.webview) {
-                sendLayout(this.webview, this.defaultLayout);
+                sendLayout(this.webview, this.defaultLayout, this.seedSentLayout);
                 // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
                 sendCurrentAgentStatuses(this.store, this.webview);
                 this.startLayoutWatcher();
@@ -949,7 +949,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
           // Always send saved layout (or null for default)
           if (this.webview) {
             console.log('[Extension] Sending saved layout');
-            sendLayout(this.webview, this.defaultLayout);
+            sendLayout(this.webview, this.defaultLayout, this.seedSentLayout);
             // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
             sendCurrentAgentStatuses(this.store, this.webview);
             this.startLayoutWatcher();
@@ -1162,6 +1162,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
       console.error('[Extension] Error reloading pet sprites:', err);
     }
   }
+
+  /** The webview saves back only the layout it is sent, so none of its
+   *  furniture is newly placed. No watcher runs before the first handshake, so
+   *  another window may have replaced the shared layout unseen until then. */
+  private readonly seedSentLayout = (layout: Record<string, unknown>): void => {
+    this.runtime.achievements?.seedLayout(layout);
+  };
 
   private startLayoutWatcher(): void {
     if (this.layoutWatcher) return;

@@ -787,6 +787,36 @@ describe('Achievements: persistence', () => {
     });
   });
 
+  it("restores a newer build's record that another process dropped, and keeps its current value", () => {
+    const newer = { unlocked: true, unlockedAt: at(9), level: 2 };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        achievements: { future_x: newer, marathon: { slots: { vscode: 4 } } },
+      }),
+    );
+    const { store } = office();
+    const tracker = track(store);
+
+    // A writer that read the file before future_x existed renames its copy over it.
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ version: 1, achievements: { marathon: { slots: { vscode: 4 } } } }),
+    );
+    tracker.flush();
+    expect(stored()?.future_x).toEqual(newer);
+
+    // The build that defines it moves it on: the file's value wins, and is not rewritten.
+    const moved = JSON.stringify({
+      version: 1,
+      achievements: { future_x: { ...newer, level: 3 }, marathon: { slots: { vscode: 4 } } },
+    });
+    fs.writeFileSync(file, moved);
+    tracker.flush();
+    expect(fs.readFileSync(file, 'utf-8')).toBe(moved);
+  });
+
   it('keeps the earliest unlock time', () => {
     const { store, unlocks } = office();
     const tracker = track(store);

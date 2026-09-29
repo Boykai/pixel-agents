@@ -263,6 +263,8 @@ export class AchievementTracker {
   private readonly saveDelayMs: number;
   /** Progress as last read from, or written to, the file. */
   private recorded: StoredAchievements = {};
+  /** Records of ids this build does not define, as last read from the file. */
+  private recordedUnknown = new Map<string, unknown>();
   /** Counted here and not written yet. */
   private readonly pendingCounts = new Map<AchievementId, number>();
   private readonly pendingMax = new Map<AchievementId, number>();
@@ -298,7 +300,9 @@ export class AchievementTracker {
 
     this.guard('read progress', () => {
       const file = this.read();
-      if (file) this.recorded = this.merged(file);
+      if (!file) return;
+      this.recorded = this.merged(file);
+      this.recordedUnknown = this.mergedUnknown(file);
     });
     this.guard('read the layout', () => {
       const layout = (options.readLayout ?? readLayoutFromFile)();
@@ -328,7 +332,8 @@ export class AchievementTracker {
   }
 
   /** The furniture of `layout` was not placed by the user's editing: the
-   *  bundled default, which a reset restores without placing anything. */
+   *  bundled default, which a reset restores without placing anything, or a
+   *  layout sent to a client, which can only save back what it was given. */
   seedLayout(layout: Record<string, unknown>): void {
     this.onLayoutChange(layout, 'replace');
   }
@@ -350,6 +355,8 @@ export class AchievementTracker {
       return;
     }
     const next = this.withPending(this.merged(file));
+    // None of them is pending here, so they are kept as soon as they are read.
+    this.recordedUnknown = this.mergedUnknown(file);
     const unlockedAt = this.now();
     const unlocked: AchievementUnlocked[] = [];
     for (const definition of ACHIEVEMENTS) {
@@ -360,7 +367,7 @@ export class AchievementTracker {
         unlocked.push({ type: 'achievementUnlocked', id: definition.id, unlockedAt });
       }
     }
-    const text = serialize(next, file.unknown);
+    const text = serialize(next, this.recordedUnknown);
     // Against this build's own reading of the file, not its raw text: a file
     // another build wrote holds nothing new just because it is spelled
     // differently, and rewriting it would have the two builds take turns.
@@ -610,6 +617,18 @@ export class AchievementTracker {
       }
     }
     return mergeAll(file.achievements, this.recorded);
+  }
+
+  /** The file's records of ids this build does not define, plus those it read
+   *  before and another process has since dropped (a newer build's, lost to a
+   *  writer that read the file before they existed). This build cannot merge
+   *  what it does not define, so a record the file still holds is kept as is. */
+  private mergedUnknown(file: StoredFile): Map<string, unknown> {
+    const unknown = new Map(file.unknown);
+    for (const [id, record] of this.recordedUnknown) {
+      if (!unknown.has(id)) unknown.set(id, record);
+    }
+    return unknown;
   }
 
   /** `base` plus what this process counted and has not written yet. */
