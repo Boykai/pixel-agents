@@ -133,3 +133,6 @@ export const PALETTE_COUNT = 6;
  *  clientMessageHandler to guard saveAgentSeats payloads from a remote or
  *  hand-edited source corrupting the stored values with out-of-range values. */
 export const HUE_SHIFT_MAX_DEG = 360;
+/** Cap on remembered session nicknames and on nickname profiles, each. The
+ *  oldest entries are dropped first. */
+export const NICKNAME_BOOK_MAX_ENTRIES = 500;

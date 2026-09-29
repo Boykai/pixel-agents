@@ -16,6 +16,9 @@ declare global {
         waitingAwaitingInput?: boolean;
         isHeadless?: boolean;
         isGreeter?: boolean;
+        nickname?: string;
+        palette: number;
+        hueShift: number;
         moodType?: Mood | null;
       }>;
       /** Effective "Display headless as ghosts" setting the renderer is using. */
@@ -152,6 +155,9 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       waitingAwaitingInput: ch.waitingAwaitingInput,
       isHeadless: ch.isHeadless,
       isGreeter: ch.isGreeter,
+      nickname: ch.nickname,
+      palette: ch.palette,
+      hueShift: ch.hueShift,
       moodType: ch.moodType ?? null,
     }));
   };

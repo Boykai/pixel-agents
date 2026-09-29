@@ -50,6 +50,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **Shared layout and assets** — import/export layouts and load external character, pet, and furniture packs
 - **Areas** — paint named areas onto the office, map workspace folders to them, and new agents sit inside the areas mapped to their folder
 - **Diverse characters** — 6 diverse characters. These are based on the amazing work of [JIK-A-4, Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack).
+- **Nicknames and costumes** — name an agent in the VS Code **+ Agent** menu, or rename any agent (adopted Claude and GitHub Copilot sessions included) from its label. Give it a different character and hue in the **Costume** panel. The office remembers nicknames, and launching a new agent under a nickname you used before brings back that nickname's costume and seat.
 
 <p align="center">
   <img src="webview-ui/public/characters.png" alt="Pixel Agents characters" width="320" height="72" style="image-rendering: pixelated;">

@@ -83,16 +83,20 @@ export function describeAgentActivity(
 
 /** Identity fields every surface names an Agent by. */
 export interface AgentIdentity {
+  readonly nickname?: string;
   readonly agentName?: string;
   readonly sessionName?: string;
   readonly folderName?: string;
 }
 
 /**
- * The name an Agent is shown by: its Teammate name, else its session title,
- * else its workspace folder. Undefined when none is known, so each surface
- * picks its own fallback ("Agent", "Agent #3").
+ * The name an Agent is shown by: the Nickname the user gave it, else its
+ * Teammate name, else its session title, else its workspace folder. Undefined
+ * when none is known, so each surface picks its own fallback ("Agent",
+ * "Agent #3"). An empty nickname is a cleared one and falls through.
  */
 export function agentDisplayName(agent: AgentIdentity | undefined): string | undefined {
-  return agent?.agentName || agent?.sessionName || agent?.folderName || undefined;
+  return (
+    agent?.nickname || agent?.agentName || agent?.sessionName || agent?.folderName || undefined
+  );
 }

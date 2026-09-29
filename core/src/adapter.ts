@@ -10,7 +10,7 @@
  * interface -- it's already host-agnostic (plain fs I/O in layoutPersistence.ts).
  */
 
-import type { PersistedAgent } from './schemas.js';
+import type { NicknameBook, PersistedAgent } from './schemas.js';
 
 export interface StateAdapter {
   /** Writes must retain records and seats belonging to providers outside this scope. */
@@ -23,6 +23,11 @@ export interface StateAdapter {
 
   loadSeats(): Record<string, { palette?: number; hueShift?: number; seatId?: string }>;
   saveSeats(seats: Record<string, { palette?: number; hueShift?: number; seatId?: string }>): void;
+
+  // ── Nickname memory (optional; outlives the agents it names) ───────
+
+  loadNicknameBook?(): NicknameBook;
+  saveNicknameBook?(book: NicknameBook): void;
 
   // ── User-level settings (shared file, namespaced per adapter) ─────
 

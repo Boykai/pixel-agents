@@ -82,6 +82,7 @@ components:
         # Agent lifecycle
         - $ref: '#/components/schemas/AgentCreated'
         - $ref: '#/components/schemas/AgentMetadata'
+        - $ref: '#/components/schemas/AgentAppearance'
         - $ref: '#/components/schemas/AgentClosed'
         - $ref: '#/components/schemas/AgentSelected'
         - $ref: '#/components/schemas/ExistingAgents'
@@ -131,6 +132,7 @@ components:
         - $ref: '#/components/schemas/FocusAgent'
         - $ref: '#/components/schemas/CloseAgent'
         - $ref: '#/components/schemas/SaveAgentSeats'
+        - $ref: '#/components/schemas/SetAgentNickname'
         - $ref: '#/components/schemas/SaveLayout'
         - $ref: '#/components/schemas/SetSoundEnabled'
         - $ref: '#/components/schemas/SetLastSeenVersion'
@@ -220,6 +222,31 @@ components:
           type: string
         folderName:
           type: string
+        nickname:
+          type: string
+          description: |
+            User-chosen display name (see `setAgentNickname`). An empty string means
+            the nickname was cleared; absent means unchanged.
+
+    AgentAppearance:
+      description: |
+        An agent's character appearance (its "costume": palette + hue shift) changed.
+        Broadcast to every connected client after a `saveAgentSeats` changed it, so
+        other open views update live. Sub-agents follow their parent's appearance.
+      type: object
+      additionalProperties: false
+      required: [type, id, palette, hueShift]
+      properties:
+        type:
+          const: agentAppearance
+        id:
+          type: integer
+        palette:
+          type: integer
+          description: Character palette index.
+        hueShift:
+          type: integer
+          description: Hue shift in degrees (0-360).
 
     AgentCreated:
       description: A new agent has appeared in the office.
@@ -251,6 +278,16 @@ components:
         hueShift:
           type: integer
           description: Server-assigned hue shift in degrees (0-360).
+        nickname:
+          type: string
+          description: |
+            User-chosen display name, from the launch request, the persisted agent, or
+            the nickname remembered for this session.
+        seatId:
+          type: string
+          description: |
+            Preferred seat, e.g. the seat last used under this agent's nickname. The
+            client honors it only when that seat exists and is free.
 
     AgentClosed:
       description: An agent has been removed from the office.
@@ -319,6 +356,11 @@ components:
         sessionNames:
           type: object
           description: Map of agent ID (string) to human-readable session title.
+          additionalProperties:
+            type: string
+        nicknames:
+          type: object
+          description: Map of agent ID (string) to user-chosen nickname.
           additionalProperties:
             type: string
         externalAgents:
@@ -1011,6 +1053,11 @@ components:
         providerId:
           type: string
           description: Enabled provider to launch; omitted uses the configured default.
+        nickname:
+          type: string
+          description: |
+            Optional user-chosen display name. In VS Code it also names the terminal. A
+            nickname used before restores that nickname's appearance, and its seat when free.
 
     FocusAgent:
       description: Focus an agent's terminal.
@@ -1047,6 +1094,22 @@ components:
           description: Map of agent ID (string) to seat assignment.
           additionalProperties:
             $ref: '#/components/schemas/SeatAssignment'
+
+    SetAgentNickname:
+      description: |
+        Rename any agent (launched, adopted, or observed). The server trims and caps the
+        name, remembers it for the agent's session, and broadcasts `agentMetadata` with
+        the result. An empty string clears the nickname.
+      type: object
+      additionalProperties: false
+      required: [type, id, nickname]
+      properties:
+        type:
+          const: setAgentNickname
+        id:
+          type: integer
+        nickname:
+          type: string
 
     SaveLayout:
       description: Save the office layout to ~/.pixel-agents/layout.json.

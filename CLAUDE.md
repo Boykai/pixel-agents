@@ -21,6 +21,7 @@ core/                                Protocol + interface definitions (zero runt
     terminalAdapter.ts               TerminalAdapter (editor-driven terminal management)
     activityLabel.ts                 Activity label precedence + agentDisplayName, shared by ToolOverlay, Activity panel, Quick Pick
     normalizeProjectPath.ts
+    normalizeNickname.ts             Nickname trim + length cap (AGENT_NICKNAME_MAX_LENGTH), shared by server + webview
     constants.ts
 
 server/                              Lifecycle runtime + Fastify HTTP/WS server
@@ -45,6 +46,8 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     server.ts                        Top-level composition
     cli.ts                           npx pixel-agents entry (npm bin)
     fileStateAdapter.ts              Namespaced ~/.pixel-agents/ persistence
+    nicknames.ts                     Nickname book helpers: session-keyed nicknames (re-adoption) + name-keyed look/seat profiles
+    agentAppearance.ts               saveAgentSeats for both surfaces: persist seats, apply costume changes live (→ agentAppearance)
     configPersistence.ts             { vscode, standalone, externalAssetDirectories, hooksConsent: {providerId: granted|declined}, hooksEnabled: {providerId: boolean} }
     layoutPersistence.ts             ~/.pixel-agents/layout.json with atomic tmp+rename
     fileWatcher.ts                   Hybrid fs.watch + 500ms polling, JSONL line buffering, /clear detection
@@ -85,7 +88,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
     changelogData.ts                 Changelog modal content
     components/                      React UI (toolbars, modals, settings)
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
-      Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
+      CostumePanel.tsx, Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
       ActivityPanel.tsx              Activity panel (toolbar "Activity"), rows from office/activityRows.ts
     hooks/
       useExtensionMessages.ts        Message handler — translates ServerMessage into OfficeState mutations
@@ -207,8 +210,8 @@ Adding a new CLI integration is one subdirectory under `server/src/providers/hoo
 
 `core/asyncapi.yaml` is the contract. Pinned to **3.0.0** because `@asyncapi/modelina@5.10.1` declares `supportedVersions: ['3.0.0']` only; bumping to 3.1.0 produces `export type Root = any`. Revisit when Modelina ships 3.1.0 support.
 
-- **34 ServerMessage variants** (server → client): agent lifecycle, agent activity, sub-agent activity, team + context usage, assets, settings + workspace, diagnostics.
-- **24 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`, `setMoodBubbles`), discovery + assets, diagnostics.
+- **35 ServerMessage variants** (server → client): agent lifecycle, agent activity, agent appearance (`agentAppearance`), sub-agent activity, team + context usage, token usage (`agentUsage`), assets, settings + workspace, diagnostics.
+- **25 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), identity (`setAgentNickname`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`, `setMoodBubbles`), discovery + assets, diagnostics.
 
 Both unions use `oneOf` with `discriminator: type`. Every concrete message sets `additionalProperties: false`.
 
@@ -337,8 +340,8 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
 ```
 ~/.pixel-agents/
   config.json              { vscode, standalone, externalAssetDirectories, hooksConsent, hooksEnabled (both per-provider) }
-  vscode-state.json        { agents, seats }
-  standalone-state.json    { agents, seats }
+  vscode-state.json        { agents, seats, nicknames? }
+  standalone-state.json    { agents, seats, nicknames? }
   layout.json              OfficeLayout (shared across surfaces)
   server.json              { port, pid, authToken }
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
@@ -421,6 +424,8 @@ Custom ESLint rules (`eslint-rules/pixel-agents-rules.mjs`) enforce: `no-inline-
 **Characters**: FSM states — active (pathfind to seat, typing/reading animation by tool type), idle (wander randomly with BFS, return to seat after `wanderLimit` moves). 4-directional sprites, left = flipped right. Tool animations: typing (Write/Edit/Bash/Task) vs reading (Read/Grep/Glob/WebFetch). Sitting offset: characters shift down 6 px in TYPE state. Z-sort uses `ch.y + TILE_SIZE/2 + 0.5` so characters render in front of same-row furniture but behind lower-row furniture. **Chair z-sorting**: non-back chairs use `zY = (row+1)*TILE_SIZE` (capped to first row); back-facing chairs use `zY = (row+1)*TILE_SIZE + 1` so the chair back renders in front of the character. Chair tiles are blocked for all characters except their own assigned seat (per-character pathfinding via `withOwnSeatUnblocked`).
 
 **Diverse palette assignment**: `pickDiversePalette()` counts palettes of current non-sub-agent characters; picks randomly from least-used palette(s). First 6 agents each get a unique skin; beyond 6, skins repeat with a random hue shift (45–315°) via `adjustSprite()`. Character stores `palette` (0-5) + `hueShift` (degrees). Sprite cache keyed by `"palette:hueShift"`.
+
+**Nicknames & costumes**: `launchAgent.nickname?` names an agent at launch (VS Code uses it as the terminal name; the + Agent menu holding the field opens on keyboard focus as well as hover, and Escape hands focus back to + Agent), and `setAgentNickname {id, nickname}` renames any agent, adopted and observed Copilot sessions included (`''` clears; `normalizeNickname` trims and caps the length). The server keeps it on `PersistedAgent.nickname` and in the per-namespace **nickname book** (the `nicknames` section of `<namespace>-state.json`). The book has two indexes. `sessions` is keyed `<providerId>:<sessionId>[#<agentName>]`, so re-adoption restores the nickname. `profiles` is keyed by nickname (case-insensitive) and holds palette/hueShift/seatId: a new agent launched under a known nickname inherits that look, and the seat too when it is free. A Teammate is dressed server-side by `assignPaletteIfNeeded(agent, store, lead)` at every teammate creation site: its nickname's remembered look first, else its Lead's; the webview wears that server look for a nicknamed teammate and the parent character's otherwise. The nickname is broadcast via `agentCreated.nickname`, `agentMetadata.nickname` (`''` = cleared) and `existingAgents.nicknames`. ToolOverlay leads with the nickname and drops the project name to secondary text; a Teammate keeps its `agentName` role line. The Usage panel names an agent's row by its nickname too. The Costume panel (`CostumePanel.tsx`, opened from the agent details) previews each palette through the sprite cache and shifts hue in 15° steps. Its nickname field saves on Enter or blur, like Rename in the details; Escape cancels an unsaved edit before it closes the panel. Changes apply live, and sub-agents follow via `setAgentAppearance`. They save through the debounced `saveAgentSeats`, which the server relays to every other client as `agentAppearance {id, palette, hueShift}`.
 
 **Spawn/despawn effect**: Matrix-style digital rain animation (0.3 s). 16 vertical columns sweep top-to-bottom with staggered timing. Spawn: green rain reveals character pixels. Despawn: character pixels consumed by green rain trails. `matrixEffect` field on Character (`'spawn'`/`'despawn'`/`null`). Normal FSM is paused during effect. Restored agents (`existingAgents`) use `skipSpawnEffect: true` to appear instantly.
 

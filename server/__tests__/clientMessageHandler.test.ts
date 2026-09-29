@@ -546,9 +546,9 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
 
 describe('clientMessageHandler: saveAgentSeats palette sync', () => {
   let tempHome: string;
-  let originalHome: string | undefined;
   let store: AgentStateStore;
   let sent: Array<Record<string, unknown>>;
+  let broadcasts: Array<Record<string, unknown>>;
   let ctx: ClientMessageContext;
 
   function freshCtx(cache: AssetCache | null = null): ClientMessageContext {
@@ -557,21 +557,20 @@ describe('clientMessageHandler: saveAgentSeats palette sync', () => {
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cmh-seats-'));
-    originalHome = process.env.HOME;
-    process.env.HOME = tempHome;
+    // os.homedir() reads USERPROFILE on Windows and HOME elsewhere.
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('USERPROFILE', tempHome);
 
     store = new AgentStateStore();
     store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
     sent = [];
+    broadcasts = [];
+    store.on('broadcast', (message) => broadcasts.push(message));
     ctx = freshCtx();
   });
 
   afterEach(() => {
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
+    vi.unstubAllEnvs();
     store.dispose();
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -723,5 +722,154 @@ describe('clientMessageHandler: saveAgentSeats palette sync', () => {
       ctx,
     );
     expect(store.get(1)?.palette).toBe(7);
+  });
+
+  it('rebroadcasts an appearance change to every client and persists it', () => {
+    store.set(1, createTestAgent({ id: 1, palette: 0, hueShift: 0 }));
+    broadcasts = [];
+
+    handleClientMessage(
+      {
+        type: 'saveAgentSeats',
+        seats: { '1': { palette: 3, hueShift: 45, seatId: 'seat-a' } },
+      },
+      (m) => sent.push(m),
+      ctx,
+    );
+
+    // Through the store, which reaches every connected client (the sender too),
+    // never through the sender's own reply channel.
+    expect(broadcasts).toEqual([{ type: 'agentAppearance', id: 1, palette: 3, hueShift: 45 }]);
+    expect(sent).toEqual([]);
+    const reloaded = new FileStateAdapter({ namespace: 'standalone' });
+    expect(reloaded.loadAgents().find((agent) => agent.id === 1)).toMatchObject({
+      palette: 3,
+      hueShift: 45,
+    });
+    expect(reloaded.loadSeats()['1']).toEqual({ palette: 3, hueShift: 45, seatId: 'seat-a' });
+  });
+
+  it('does not rebroadcast a seat move that keeps the same costume', () => {
+    store.set(1, createTestAgent({ id: 1, palette: 2, hueShift: 30 }));
+    broadcasts = [];
+
+    handleClientMessage(
+      {
+        type: 'saveAgentSeats',
+        seats: { '1': { palette: 2, hueShift: 30, seatId: 'seat-b' } },
+      },
+      (m) => sent.push(m),
+      ctx,
+    );
+
+    expect(broadcasts).toEqual([]);
+    expect(new FileStateAdapter({ namespace: 'standalone' }).loadSeats()['1']?.seatId).toBe(
+      'seat-b',
+    );
+  });
+});
+
+describe('clientMessageHandler: nicknames', () => {
+  let tempHome: string;
+  let store: AgentStateStore;
+  let sent: Array<Record<string, unknown>>;
+  let broadcasts: Array<Record<string, unknown>>;
+  let ctx: ClientMessageContext;
+
+  function dispatch(message: Record<string, unknown>): void {
+    handleClientMessage(message, (m) => sent.push(m), ctx);
+  }
+
+  function existingAgentsMessage(): Record<string, unknown> | undefined {
+    sent = [];
+    dispatch({ type: 'webviewReady' });
+    return sent.find((m) => m.type === 'existingAgents');
+  }
+
+  beforeEach(() => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cmh-nick-'));
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('USERPROFILE', tempHome);
+    vi.stubEnv('COPILOT_HOME', path.join(tempHome, '.copilot'));
+
+    store = new AgentStateStore();
+    store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
+    sent = [];
+    broadcasts = [];
+    store.on('broadcast', (message) => broadcasts.push(message));
+    ctx = { store, cache: null };
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    store.dispose();
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('renames an agent for every client and remembers it for the session', () => {
+    store.set(1, createTestAgent({ id: 1, providerId: 'copilot', palette: 2, hueShift: 30 }));
+    broadcasts = [];
+
+    dispatch({ type: 'setAgentNickname', id: 1, nickname: '  Ada\tLovelace ' });
+
+    expect(store.get(1)?.nickname).toBe('Ada Lovelace');
+    expect(broadcasts).toEqual([{ type: 'agentMetadata', id: 1, nickname: 'Ada Lovelace' }]);
+    const reloaded = new FileStateAdapter({ namespace: 'standalone' });
+    expect(reloaded.loadAgents().find((agent) => agent.id === 1)?.nickname).toBe('Ada Lovelace');
+    const book = reloaded.loadNicknameBook();
+    expect(book.sessions).toEqual({ 'copilot:sess-1': 'Ada Lovelace' });
+    expect(book.profiles).toEqual([{ nickname: 'Ada Lovelace', palette: 2, hueShift: 30 }]);
+  });
+
+  it('clears the nickname with an empty string', () => {
+    store.set(1, createTestAgent({ id: 1, palette: 0, hueShift: 0 }));
+    dispatch({ type: 'setAgentNickname', id: 1, nickname: 'Ada' });
+    broadcasts = [];
+
+    dispatch({ type: 'setAgentNickname', id: 1, nickname: '' });
+
+    expect(store.get(1)?.nickname).toBeUndefined();
+    expect(broadcasts).toEqual([{ type: 'agentMetadata', id: 1, nickname: '' }]);
+    const reloaded = new FileStateAdapter({ namespace: 'standalone' });
+    expect(reloaded.loadAgents().find((agent) => agent.id === 1)?.nickname).toBeUndefined();
+    // The session forgets it; the nickname's look stays for the next agent that takes it.
+    expect(reloaded.loadNicknameBook().sessions).toEqual({});
+    expect(existingAgentsMessage()?.nicknames).toEqual({});
+  });
+
+  it('ignores a rename for a missing or unknown agent id', () => {
+    store.set(1, createTestAgent({ id: 1 }));
+    broadcasts = [];
+
+    dispatch({ type: 'setAgentNickname', id: '1', nickname: 'Ada' });
+    dispatch({ type: 'setAgentNickname', id: 99, nickname: 'Ada' });
+
+    expect(store.get(1)?.nickname).toBeUndefined();
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('webviewReady carries nicknames and offers a never-seated agent its remembered seat', () => {
+    store.set(1, createTestAgent({ id: 1, nickname: 'Ada', preferredSeatId: 'seat-z' }));
+    store.set(2, createTestAgent({ id: 2, sessionId: 'sess-2' }));
+
+    const existing = existingAgentsMessage() as {
+      nicknames: Record<string, string>;
+      agentMeta: Record<string, { seatId?: string }>;
+    };
+
+    expect(existing.nicknames).toEqual({ 1: 'Ada' });
+    expect(existing.agentMeta[1].seatId).toBe('seat-z');
+    expect(existing.agentMeta[2].seatId).toBeUndefined();
+  });
+
+  it('a saved seat wins over the seat remembered for the nickname', () => {
+    store.set(1, createTestAgent({ id: 1, nickname: 'Ada', preferredSeatId: 'seat-z' }));
+    new FileStateAdapter({ namespace: 'standalone' }).saveSeats({ '1': { seatId: 'seat-a' } });
+
+    const existing = existingAgentsMessage() as {
+      agentMeta: Record<string, { seatId?: string }>;
+    };
+
+    expect(existing.agentMeta[1].seatId).toBe('seat-a');
   });
 });

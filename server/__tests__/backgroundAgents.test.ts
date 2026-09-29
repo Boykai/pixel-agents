@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import type { NicknameBook } from '../../core/src/schemas.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import {
@@ -569,6 +570,46 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
       messages.some((m) => m.type === 'subagentClear' && m.parentToolId === SPAWN_TOOL_ID),
     ).toBe(true);
     expect(watch.isWatching(jsonlPath)).toBe(false);
+  });
+
+  it("dresses a teammate in its lead's costume", () => {
+    lead.palette = 2;
+    lead.hueShift = 30;
+    seedSidecar({ name: 'ghost-writer' });
+    spawnAndLaunch();
+
+    const teammate = [...agents.values()].find((a) => a.leadAgentId === 1);
+    expect(teammate?.palette).toBe(2);
+    expect(teammate?.hueShift).toBe(30);
+  });
+
+  it("dresses a re-adopted nicknamed teammate in its nickname's costume, not the lead's", () => {
+    // Remembered from an earlier run: this teammate was renamed "Casper" and re-dressed.
+    let book: NicknameBook = {
+      sessions: { [`claude:${LEAD_SESSION}#ghost-writer`]: 'Casper' },
+      profiles: [{ nickname: 'Casper', palette: 4, hueShift: 90 }],
+    };
+    agents.setAdapter({
+      loadAgents: () => [],
+      saveAgents: () => {},
+      loadSeats: () => ({}),
+      saveSeats: () => {},
+      loadNicknameBook: () => structuredClone(book),
+      saveNicknameBook: (next) => {
+        book = structuredClone(next);
+      },
+      getSetting: <T>(_key: string, defaultValue: T) => defaultValue,
+      setSetting: () => {},
+    });
+    lead.palette = 2;
+    lead.hueShift = 30;
+    seedSidecar({ name: 'ghost-writer' });
+    spawnAndLaunch();
+
+    const teammate = [...agents.values()].find((a) => a.leadAgentId === 1);
+    expect(teammate?.nickname).toBe('Casper');
+    expect(teammate?.palette).toBe(4);
+    expect(teammate?.hueShift).toBe(90);
   });
 
   it('does not create a second teammate when the sidecar path is spelled differently', () => {

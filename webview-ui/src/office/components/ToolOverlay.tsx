@@ -5,6 +5,8 @@ import {
   agentDisplayName,
   describeAgentActivity,
 } from '../../../../core/src/activityLabel.js';
+import { AGENT_NICKNAME_MAX_LENGTH } from '../../../../core/src/constants.js';
+import { normalizeNickname } from '../../../../core/src/normalizeNickname.js';
 import { normalizeProjectName } from '../../../../core/src/normalizeProjectName.js';
 import { Button } from '../../components/ui/Button.js';
 import {
@@ -43,6 +45,10 @@ interface ToolOverlayProps {
   panRef: React.RefObject<{ x: number; y: number }>;
   onCloseAgent: (id: number) => void;
   alwaysShowOverlay: boolean;
+  /** Rename an agent; '' clears its nickname. */
+  onRenameAgent?: (id: number, nickname: string) => void;
+  /** Open the Costume panel for an agent. */
+  onOpenCostume?: (id: number) => void;
 }
 
 function getFuelColor(ratio: number): string {
@@ -63,12 +69,16 @@ export function ToolOverlay({
   panRef,
   onCloseAgent,
   alwaysShowOverlay,
+  onRenameAgent,
+  onOpenCostume,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   const [pointerId, setPointerId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [recentHoverId, setRecentHoverId] = useState<number | null>(null);
   const [dismissedId, setDismissedId] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
   const hoverTarget = pointerId ?? hoveredId;
@@ -99,6 +109,12 @@ export function ToolOverlay({
     window.addEventListener('keydown', dismiss);
     return () => window.removeEventListener('keydown', dismiss);
   }, [detailId]);
+
+  // Details moving to another agent (or closing) abandons an unfinished rename.
+  const inspectedId = detailId !== dismissedId ? detailId : null;
+  useEffect(() => {
+    if (renamingId !== null && inspectedId !== renamingId) setRenamingId(null);
+  }, [renamingId, inspectedId]);
 
   useEffect(() => {
     let rafId = 0;
@@ -226,6 +242,24 @@ export function ToolOverlay({
     : undefined;
   const parent = sub ? officeState.characters.get(sub.parentAgentId) : undefined;
   const identity = agentDisplayName(detail?.ch) || (detail?.isSub ? 'Sub-agent' : 'Agent');
+  // A nickname takes the heading; the name it displaced stays as secondary text.
+  const displacedName = detail?.ch.nickname
+    ? detail.ch.agentName || detail.ch.sessionName
+    : undefined;
+  const canRename = !!detail && !detail.isSub && !!onRenameAgent;
+  const isRenaming = canRename && renamingId === detail.id;
+
+  const startRename = (id: number, current: string) => {
+    setRenameDraft(current);
+    setRenamingId(id);
+  };
+  const commitRename = () => {
+    if (renamingId === null) return;
+    const id = renamingId;
+    setRenamingId(null);
+    const current = officeState.characters.get(id)?.nickname ?? '';
+    if (normalizeNickname(renameDraft) !== current) onRenameAgent?.(id, renameDraft);
+  };
 
   return (
     <>
@@ -267,7 +301,7 @@ export function ToolOverlay({
                 <button
                   type="button"
                   className="agent-label-inspect"
-                  aria-label={`Inspect ${projectName}: ${ch.agentName || ch.sessionName || (isSub ? 'sub-agent' : 'agent')}`}
+                  aria-label={`Inspect ${projectName}: ${ch.nickname || ch.agentName || ch.sessionName || (isSub ? 'sub-agent' : 'agent')}`}
                   aria-expanded={isInspected}
                   aria-controls={isInspected ? 'agent-details' : undefined}
                   onMouseEnter={() => setPointerId(id)}
@@ -305,8 +339,13 @@ export function ToolOverlay({
                         fontStyle: isSub ? 'italic' : undefined,
                       }}
                     >
-                      {projectName}
+                      {ch.nickname || projectName}
                     </span>
+                    {ch.nickname && (
+                      <span className="overflow-hidden text-ellipsis block leading-none text-2xs text-text-muted">
+                        {projectName}
+                      </span>
+                    )}
                   </span>
                 </button>
                 {isSelected && !isSub && (
@@ -365,7 +404,38 @@ export function ToolOverlay({
           }}
         >
           <div className="flex items-start justify-between gap-12">
-            <h2 className="text-base leading-tight m-0 min-w-0 wrap-anywhere">{identity}</h2>
+            {isRenaming ? (
+              <input
+                type="text"
+                aria-label="Nickname"
+                placeholder="Nickname"
+                value={renameDraft}
+                maxLength={AGENT_NICKNAME_MAX_LENGTH}
+                autoFocus
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  // Typing must not reach the editor shortcuts or the details' Escape.
+                  e.stopPropagation();
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitRename();
+                  } else if (e.key === 'Escape') {
+                    setRenamingId(null);
+                  }
+                }}
+                className="flex-1 min-w-0 text-sm py-2 px-6 bg-bg-dark border-2 border-border rounded-none text-text"
+              />
+            ) : (
+              <div className="min-w-0">
+                <h2 className="text-base leading-tight m-0 min-w-0 wrap-anywhere">{identity}</h2>
+                {displacedName && (
+                  <p className="m-0 mt-2 text-xs leading-tight text-text-muted wrap-anywhere">
+                    {displacedName}
+                  </p>
+                )}
+              </div>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -434,6 +504,28 @@ export function ToolOverlay({
               </>
             )}
           </dl>
+          {!detail.isSub && (canRename || onOpenCostume) && (
+            <div className="flex gap-4 mt-12">
+              {canRename && !isRenaming && (
+                <Button
+                  size="sm"
+                  title="Give this agent a nickname"
+                  onClick={() => startRename(detail.id, detail.ch.nickname ?? '')}
+                >
+                  Rename
+                </Button>
+              )}
+              {onOpenCostume && (
+                <Button
+                  size="sm"
+                  title="Change this agent's costume"
+                  onClick={() => onOpenCostume(detail.id)}
+                >
+                  Costume
+                </Button>
+              )}
+            </div>
+          )}
         </section>
       )}
     </>
