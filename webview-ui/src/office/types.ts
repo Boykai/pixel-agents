@@ -282,7 +282,19 @@ export interface Character {
   maxContextTokens: number;
 }
 
-export const PetState = { IDLE: 'idle', WALK: 'walk', FOLLOW: 'follow' } as const;
+export const PetState = {
+  IDLE: 'idle',
+  WALK: 'walk',
+  FOLLOW: 'follow',
+  /** Walking to a free tile beside an inactive character, to SIT there. */
+  APPROACH: 'approach',
+  /** Resting beside the character it approached (idle frames). */
+  SIT: 'sit',
+  /** Asleep in place (idle frame held, "z" bubble). */
+  SLEEP: 'sleep',
+  /** Running away from a nearby active character (walk frames, faster). */
+  FLEE: 'flee',
+} as const;
 export type PetState = (typeof PetState)[keyof typeof PetState];
 
 /** Runtime pet (mutated by FSM tick). */
@@ -318,6 +330,10 @@ export interface Pet {
   followDuration: number;
   /** Random [5, 15] limit; FOLLOW exits when followDuration >= this. */
   followDurationLimit: number;
+  /** ID of the character an APPROACH is heading for, or null. */
+  approachTargetId: number | null;
+  /** Countdown for SIT / SLEEP; the pet returns to IDLE when it runs out. */
+  restTimer: number;
   /** Pet's heart-bubble overlay (set on click), or null. */
   bubbleType: 'heart' | null;
   /** Countdown timer for the heart bubble (mirrors character waiting bubble). */

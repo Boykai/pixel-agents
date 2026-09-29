@@ -2,6 +2,7 @@ import type { ColorValue } from './components/ui/types.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
+import type { PetState } from './office/types.js';
 
 declare global {
   interface Window {
@@ -75,12 +76,14 @@ declare global {
         id: string;
         name: string;
         petType: number;
-        state: 'idle' | 'walk' | 'follow';
+        state: PetState;
         x: number;
         y: number;
         bubbleType: 'heart' | null;
       }>;
       petClick?: (petId: string) => void;
+      /** What the camera follows: an agent (cameraFollowId) or a pet (cameraFollowPetId). */
+      getCameraFollow?: () => { agentId: number | null; petId: string | null };
       addAgentLog?: Array<{
         id: number;
         skipSpawnEffect: boolean | undefined;
@@ -170,19 +173,17 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
   };
 
   // Drive the same state a canvas click on a pet produces (toggle the heart
-  // bubble). Mirrors OfficeCanvas's pet-hit branch but takes a known petId
-  // instead of a hit-test result, so tests don't pixel-hunt the randomly
-  // spawned sprite — the same tradeoff selectAgent makes for characters.
+  // bubble and the camera follow) through OfficeCanvas's own OfficeState.clickPet,
+  // with a known petId instead of a hit-test result, so tests don't pixel-hunt
+  // the randomly spawned sprite — the same tradeoff selectAgent makes for characters.
   hooks.petClick = (petId) => {
+    officeStateRef.current?.clickPet(petId);
+  };
+
+  // Camera follow targets live only in OfficeState (never persisted, no DOM).
+  hooks.getCameraFollow = () => {
     const os = officeStateRef.current;
-    if (!os) return;
-    const pet = os.pets.find((p) => p.id === petId);
-    if (!pet) return;
-    if (pet.bubbleType) {
-      os.dismissPetBubble(petId);
-    } else {
-      os.showPetBubble(petId);
-    }
+    return { agentId: os?.cameraFollowId ?? null, petId: os?.cameraFollowPetId ?? null };
   };
 
   // ── Carpet + Areas read hooks (canvas-only state, read like getPets) ──

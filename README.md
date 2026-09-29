@@ -41,6 +41,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
 - **Signs and draw layers** — put pixel-text signs on the floor or walls, and move any furniture forward or backward in draw order
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
+- **Token usage** — the toolbar's **Usage** panel shows each agent's recorded usage and the office-wide totals: input/output/cache tokens for Claude Code, premium requests for GitHub Copilot (tokens only once a Copilot session reports them). Read straight from the transcripts, never estimated or priced
 - **Sound notifications** — optional chimes when an agent finishes its turn or requests permission
 - **Sub-agents and Agent Teams** — see ephemeral sub-agents and persistent Claude teammates as separate characters, including team roles and lifecycle changes
 - **Persistent layouts** — your office design is saved and shared across VS Code windows
@@ -161,7 +162,7 @@ Click **Layout** to edit the office:
 - Place, rotate, recolor, select, and remove furniture.
 - Add pixel-text **Signs** from the Decor tab (they can hang on walls), and use **Forward** / **Backward** to change a selected item's draw layer.
 - Paint auto-tiling carpets and customize their main and accent colors.
-- Add animated pets; click a pet in the office to interact with it.
+- Add animated pets. Pets wander, trail nearby characters, sit beside inactive agents, nap (look for the "z"), and scurry away from active ones. Click a pet in the office to give it a heart and have the camera follow it; click it again, pan, or click empty space to stop following.
 - Create named **Areas**, paint their tiles, and assign workspace folders to them.
 - Undo/redo changes, then import or export the complete layout as JSON.
 

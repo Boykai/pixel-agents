@@ -274,16 +274,17 @@ export function OfficeCanvas({
           }
         }
 
-        // Camera: smoothly center on the followed agent, or — while the greeter
+        // Camera: smoothly center on the followed agent or pet, or — while the greeter
         // is speaking the Intro — on the character+bubble center the IntroBubble
         // overlay feeds via greeterCameraTarget. An explicit follow (clicking an
-        // agent) outranks the greeter target; a manual pan cancels both.
+        // agent or a pet) outranks the greeter target; a manual pan cancels both.
         const followCh =
           officeState.cameraFollowId !== null &&
           officeState.isCharacterVisible(officeState.cameraFollowId)
             ? officeState.characters.get(officeState.cameraFollowId)
             : undefined;
-        const cameraFocus = followCh ?? officeState.greeterCameraTarget;
+        const cameraFocus =
+          followCh ?? officeState.getFollowedPet() ?? officeState.greeterCameraTarget;
         if (cameraFocus) {
           const layout = officeState.getLayout();
           const mapW = layout.cols * TILE_SIZE * zoom;
@@ -591,6 +592,7 @@ export function OfficeCanvas({
         e.preventDefault();
         // Break camera follow + greeter centering on manual pan
         officeState.cameraFollowId = null;
+        officeState.cameraFollowPetId = null;
         officeState.cancelGreeterCamera();
         isPanningRef.current = true;
         panStartRef.current = {
@@ -793,6 +795,8 @@ export function OfficeCanvas({
       if (hitId !== null) {
         // Dismiss any active bubble on click
         officeState.dismissBubble(hitId);
+        // Agent follow and pet follow are mutually exclusive
+        officeState.cameraFollowPetId = null;
         // Toggle selection: click same agent deselects, different agent selects
         if (officeState.selectedAgentId === hitId) {
           officeState.selectedAgentId = null;
@@ -805,15 +809,10 @@ export function OfficeCanvas({
         return;
       }
 
-      // Pet hit: toggle the heart bubble.
+      // Pet hit: toggle the heart bubble and the camera follow.
       const petId = officeState.getPetAt(pos.worldX, pos.worldY);
       if (petId !== null) {
-        const pet = officeState.pets.find((p) => p.id === petId);
-        if (pet?.bubbleType) {
-          officeState.dismissPetBubble(petId);
-        } else {
-          officeState.showPetBubble(petId);
-        }
+        officeState.clickPet(petId);
         return;
       }
 
@@ -853,6 +852,8 @@ export function OfficeCanvas({
         officeState.selectedAgentId = null;
         officeState.cameraFollowId = null;
       }
+      // Nothing hit: deselection also ends a pet follow
+      officeState.cameraFollowPetId = null;
     },
     [officeState, onClick, screenToWorld, screenToTile, isEditMode],
   );
@@ -914,6 +915,7 @@ export function OfficeCanvas({
         // Pan via trackpad two-finger scroll or mouse wheel
         const dpr = window.devicePixelRatio || 1;
         officeState.cameraFollowId = null;
+        officeState.cameraFollowPetId = null;
         officeState.cancelGreeterCamera();
         panRef.current = clampPan(
           panRef.current.x - e.deltaX * dpr,

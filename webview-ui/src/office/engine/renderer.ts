@@ -62,6 +62,7 @@ import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
   BUBBLE_HEART_SPRITE,
   BUBBLE_PERMISSION_SPRITE,
+  BUBBLE_PET_SLEEP_SPRITE,
   BUBBLE_WAITING_SPRITE,
   getCharacterSprites,
 } from '../sprites/spriteData.js';
@@ -75,7 +76,7 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, TILE_SIZE, TileType } from '../types.js';
+import { CharacterState, PetState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
@@ -910,13 +911,15 @@ function renderPetBubbles(
   zoom: number,
 ): void {
   for (const pet of pets) {
-    if (!pet.bubbleType) continue;
+    // A heart (click feedback) takes precedence over the steady "z" of a sleeping pet.
+    const sleeping = !pet.bubbleType && pet.state === PetState.SLEEP;
+    if (!pet.bubbleType && !sleeping) continue;
 
-    const sprite = BUBBLE_HEART_SPRITE;
+    const sprite = sleeping ? BUBBLE_PET_SLEEP_SPRITE : BUBBLE_HEART_SPRITE;
 
-    // Fade in the last BUBBLE_FADE_DURATION_SEC of the lifetime
+    // Fade in the last BUBBLE_FADE_DURATION_SEC of the lifetime (the "z" has none)
     let alpha = 1.0;
-    if (pet.bubbleTimer < BUBBLE_FADE_DURATION_SEC) {
+    if (!sleeping && pet.bubbleTimer < BUBBLE_FADE_DURATION_SEC) {
       alpha = Math.max(0, pet.bubbleTimer / BUBBLE_FADE_DURATION_SEC);
     }
 

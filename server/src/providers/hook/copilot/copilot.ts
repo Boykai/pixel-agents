@@ -23,6 +23,7 @@ import {
   uninstallHooks as uninstallCopilotHooks,
 } from './copilotHookInstaller.js';
 import { recoverCopilotTranscript } from './recovery.js';
+import { extractCopilotTokenUsage } from './tokenUsage.js';
 
 const COPILOT_TERMINAL_NAME_PREFIX = 'GitHub Copilot';
 const SESSION_FILE_NAME = 'events.jsonl';
@@ -305,6 +306,7 @@ export const copilotProvider: HookProvider = {
   subagentToolNames: new Set(['task', 'agent']),
   readingTools: new Set(['view', 'read', 'grep', 'rg', 'glob', 'web_fetch', 'fetch', 'web_search']),
   terminalNamePrefix: COPILOT_TERMINAL_NAME_PREFIX,
+  extractTokenUsage: extractCopilotTokenUsage,
 
   getSessionDirs,
   getAllSessionRoots,

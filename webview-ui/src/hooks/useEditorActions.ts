@@ -245,8 +245,10 @@ export function useEditorActions(
       const next = !prev;
       editorState.isEditMode = next;
       if (next) {
-        // Initialize wallColor from existing wall tiles so new walls match
         const os = getOfficeState();
+        // Editing takes the camera: stop following a pet
+        os.cameraFollowPetId = null;
+        // Initialize wallColor from existing wall tiles so new walls match
         const layout = os.getLayout();
         if (layout.tileColors) {
           for (let i = 0; i < layout.tiles.length; i++) {
@@ -322,6 +324,7 @@ export function useEditorActions(
         applyEdit(result.layout, result.shift);
         handleToolChange(EditTool.SELECT);
         os.cameraFollowId = null;
+        os.cameraFollowPetId = null;
         os.cancelGreeterCamera();
         setRoomFeedback({
           kind: 'success',
