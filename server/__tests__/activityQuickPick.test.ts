@@ -1,15 +1,58 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { showActivityQuickPick } from '../../adapters/vscode/activityQuickPick.js';
 import {
   activityQuickPickItem,
   activityQuickPickNotice,
   ActivityTracker,
   buildActivityQuickPickRows,
 } from '../../adapters/vscode/activityQuickPickRows.js';
+import { ACTIVITY_QUICK_PICK_REFRESH_MS } from '../../adapters/vscode/constants.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
 import type { AgentState } from '../src/types.js';
+
+// Just enough of vscode.window.createQuickPick to drive the live Activity Quick Pick.
+const vscodeMock = vi.hoisted(() => {
+  class FakeQuickPick {
+    title = '';
+    placeholder = '';
+    matchOnDescription = false;
+    matchOnDetail = false;
+    keepScrollPosition = false;
+    items: Array<{ label: string }> = [];
+    activeItems: Array<{ label: string }> = [];
+    selectedItems: Array<{ label: string }> = [];
+    visible = false;
+    private hideListener: (() => void) | undefined;
+    onDidAccept(): { dispose(): void } {
+      return { dispose() {} };
+    }
+    onDidHide(listener: () => void): { dispose(): void } {
+      this.hideListener = listener;
+      return { dispose() {} };
+    }
+    show(): void {
+      this.visible = true;
+    }
+    hide(): void {
+      this.visible = false;
+      this.hideListener?.();
+    }
+    dispose(): void {}
+  }
+  return { FakeQuickPick, opened: [] as FakeQuickPick[] };
+});
+vi.mock('vscode', () => ({
+  window: {
+    createQuickPick: () => {
+      const quickPick = new vscodeMock.FakeQuickPick();
+      vscodeMock.opened.push(quickPick);
+      return quickPick;
+    },
+  },
+}));
 
 const providers = [claudeProvider, copilotProvider];
 
@@ -156,6 +199,35 @@ describe('buildActivityQuickPickRows', () => {
         name: 'Agent #3',
         detail: 'GitHub Copilot CLI · Headless',
       },
+    ]);
+  });
+
+  it('names an Agent by its Nickname first, down to its Sub-agents’ rows', () => {
+    const { store, rows } = setup(
+      createTestAgent({
+        id: 1,
+        nickname: 'Ada',
+        agentName: 'researcher',
+        sessionName: 'Fix login',
+        ...tools({ spawn: ['Task', 'Subtask: Research'] }),
+      }),
+      createTestAgent({ id: 2, sessionName: 'Fix login', folderName: 'app' }),
+    );
+    const names = () => rows().map(({ name, detail }) => ({ name, detail }));
+
+    expect(names()).toEqual([
+      { name: 'Ada', detail: 'Claude Code · Headless' },
+      { name: 'Research', detail: 'Sub-agent of Ada' },
+      { name: 'Fix login', detail: 'Claude Code · Headless' },
+    ]);
+
+    // A rename takes effect at once, and a cleared ('') Nickname falls back.
+    store.setNickname(1, '');
+    store.setNickname(2, 'Scout');
+    expect(names()).toEqual([
+      { name: 'researcher', detail: 'Claude Code · Headless' },
+      { name: 'Research', detail: 'Sub-agent of researcher' },
+      { name: 'Scout', detail: 'Claude Code · Headless' },
     ]);
   });
 
@@ -555,5 +627,40 @@ describe('activityQuickPickNotice', () => {
   it('says there are no Agents only once discovery has run', () => {
     expect(activityQuickPickNotice(0, true)).toBe('empty');
     expect(activityQuickPickNotice(1, true)).toBeUndefined();
+  });
+});
+
+describe('showActivityQuickPick', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vscodeMock.opened.length = 0;
+  });
+
+  it('relabels an open row when its Agent is renamed, and stops listening once hidden', () => {
+    const { store, tracker } = setup(createTestAgent({ id: 1, sessionName: 'Fix login' }));
+    showActivityQuickPick({
+      store,
+      activityTracker: tracker,
+      activityProviders: providers,
+      discoveryStarted: true,
+      showAgent: () => {},
+      openOffice: () => {},
+    });
+    const [quickPick] = vscodeMock.opened;
+    const labels = () => quickPick.items.map((item) => item.label);
+    expect(quickPick.visible).toBe(true);
+    expect(labels()).toEqual([expect.stringMatching(/ Fix login$/)]);
+
+    store.setNickname(1, 'Ada');
+    vi.advanceTimersByTime(ACTIVITY_QUICK_PICK_REFRESH_MS);
+    expect(labels()).toEqual([expect.stringMatching(/ Ada$/)]);
+
+    quickPick.hide();
+    store.setNickname(1, 'Bea');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(labels()).toEqual([expect.stringMatching(/ Ada$/)]);
   });
 });

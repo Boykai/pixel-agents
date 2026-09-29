@@ -49,7 +49,7 @@ A named agent spawned by another agent — the name is what makes it a teammate.
 _Avoid_: inline teammate, tmux teammate, session teammate (former run-style distinctions; a teammate's run style is a property, not an identity)
 
 **Nickname**:
-A name the user gives an agent, either at launch or later by renaming any agent, adopted ones included. It becomes the character's primary label, and the session name moves to secondary text. The office remembers a nickname per session, so re-adopting that session brings it back. Launching a new agent under a nickname used before restores that nickname's Appearance, and its seat when that seat is free. Clearing the nickname restores the default label. Sub-agents never have one. A nickname is not a Teammate's name: the name is what makes a teammate, while a nickname is only what the user calls an agent. Giving an agent a nickname never makes it a teammate, and a teammate keeps its name beside the nickname.
+A name the user gives an agent, either at launch or later by renaming any agent, adopted ones included. It becomes the character's primary label, and the session name moves to secondary text. The Activity panel and Activity Quick Pick name the agent by it too. The office remembers a nickname per session, so re-adopting that session brings it back. Launching a new agent under a nickname used before restores that nickname's Appearance, and its seat when that seat is free. Clearing the nickname restores the default label. Sub-agents never have one. A nickname is not a Teammate's name: the name is what makes a teammate, while a nickname is only what the user calls an agent. Giving an agent a nickname never makes it a teammate, and a teammate keeps its name beside the nickname.
 _Avoid_: alias, display name, title (that's the session name), agent name (that's a teammate's name)
 
 **Appearance**:
@@ -124,11 +124,11 @@ The human-readable line describing what an agent is doing right now (e.g. "Readi
 _Avoid_: status text, tool status
 
 **Activity panel**:
-The panel opened from the toolbar's "Activity" button. It lists every agent with a status dot and its activity label, puts its sub-agents one level down, and nests its teammates under their lead. An active agent with no running tool reads "Thinking…". Clicking a row does what clicking the character does: selects and follows it, and focuses the agent's terminal.
+The panel opened from the toolbar's "Activity" button. It lists every agent with a status dot and its activity label, puts its sub-agents one level down, and nests its teammates under their lead. A row names its agent by its nickname when it has one. An active agent with no running tool reads "Thinking…". Clicking a row does what clicking the character does: selects and follows it, and focuses the agent's terminal.
 _Avoid_: task panel (the fork's name), agent list
 
 **Activity Quick Pick**:
-The VS Code version of the activity panel, opened from the status bar's "Activity" item or the "Pixel Agents: Show Activity" command. Its rows update while it is open. Picking a row focuses the agent's terminal. For a headless agent, it reveals the office with the character selected. Agents are restored and sessions discovered when the office first loads in a window, so until then it also offers to open the office.
+The VS Code version of the activity panel, opened from the status bar's "Activity" item or the "Pixel Agents: Show Activity" command. It names agents the way the panel does, and its rows update while it is open, renames included. Picking a row focuses the agent's terminal. For a headless agent, it reveals the office with the character selected. Agents are restored and sessions discovered when the office first loads in a window, so until then it also offers to open the office.
 _Avoid_: task picker, agent picker
 
 **Speech bubble**:

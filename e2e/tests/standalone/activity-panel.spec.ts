@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
@@ -12,13 +13,43 @@ import {
 import { enterEditMode } from '../../helpers/editor';
 import { arrangeNextClaudeInvocation, claudeScenario } from '../../helpers/mock-claude';
 import { copilotScenario } from '../../helpers/mock-copilot';
+import { renameAgent } from '../../helpers/nicknames';
 import { buildAssistantToolUseRecord } from '../../helpers/team';
-import { setSettings } from '../../helpers/webview';
+import { openSettingsModal, setSettings } from '../../helpers/webview';
+
+const NARROW_VIEWPORT = { width: 360, height: 640 };
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function expectInsideNarrowViewport(box: Box | null): asserts box is Box {
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(NARROW_VIEWPORT.width);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(NARROW_VIEWPORT.height);
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** scrollLeft/scrollTop of every box that could scroll the office sideways. */
+function readScrollOffsets(page: Page): Promise<number[]> {
+  return page.evaluate(() => {
+    const appRoot = document.querySelector('[data-testid="bottom-toolbar"]')?.parentElement;
+    return [
+      document.scrollingElement,
+      document.body,
+      document.getElementById('root'),
+      appRoot,
+    ].flatMap((el) => (el ? [el.scrollLeft, el.scrollTop] : [Number.NaN, Number.NaN]));
+  });
+}
 
 test.describe('Standalone / Activity panel', () => {
   test.use({ provider: 'copilot', seedHooksEnabled: false });
 
-  test('lists Copilot agents with nested sub-agents and live activity, and selects on click @area:standalone', async ({
+  test('lists Copilot agents with nested sub-agents and live activity, selects on click, and names rows by nickname @area:standalone', async ({
     page,
     copilot,
   }, testInfo) => {
@@ -135,9 +166,78 @@ test.describe('Standalone / Activity panel', () => {
     await expect(activityToggle).toBeEnabled();
     await expect(activityToggle).toHaveAttribute('aria-pressed', 'true');
 
+    // A row goes by the Agent's Nickname, as its Character does; clearing the
+    // Nickname brings the session title back.
+    const leadId = Number(await getActivityRows(page).first().getAttribute('data-agent-id'));
+    await renameAgent(page, leadId, 'Scout');
+    await expectActivityRows(page, [
+      { kind: 'agent', label: 'Scout', activity: 'Subtask: Research project labels' },
+      { kind: 'subagent', label: 'Research project labels', activity: 'Thinking…' },
+      { kind: 'agent', label: 'Pick a fixture', activity: 'Waiting for input' },
+    ]);
+    await renameAgent(page, leadId, '');
+    await expectActivityRows(page, [
+      {
+        kind: 'agent',
+        label: 'Port the activity panel',
+        activity: 'Subtask: Research project labels',
+      },
+      { kind: 'subagent', label: 'Research project labels', activity: 'Thinking…' },
+      { kind: 'agent', label: 'Pick a fixture', activity: 'Waiting for input' },
+    ]);
+
     await panel.getByRole('button', { name: 'Close activity' }).click();
     await expect(getActivityPanel(page)).toHaveCount(0);
     await expect(getActivityToggle(page)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('keeps the toolbar and panel inside a narrow window after Settings @area:standalone', async ({
+    page,
+    copilot,
+  }, testInfo) => {
+    await page.setViewportSize(NARROW_VIEWPORT);
+    const agent = await copilot('activity-narrow');
+    await agent.run(
+      copilotScenario()
+        .append('session.title_changed', { title: 'Fit a narrow window' })
+        .toolStart('read-1', 'view', { path: 'narrow.ts' }),
+    );
+    const panel = await openActivityPanel(page);
+    await expectActivityRows(page, [
+      { kind: 'agent', label: 'Fit a narrow window', activity: 'Reading narrow.ts' },
+    ]);
+
+    // The toolbar's buttons don't fit on one row here. An overflowing toolbar
+    // let clicking Settings scroll the whole office sideways; it wraps instead.
+    const modal = await openSettingsModal(page);
+    await modal.getByRole('button', { name: 'x', exact: true }).click();
+    await expect(modal).toBeHidden();
+    expect(await readScrollOffsets(page)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+
+    const toolbar = page.getByTestId('bottom-toolbar');
+    const buttons = await toolbar.getByRole('button').all();
+    // Layout, Activity, Usage and Settings at least.
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    for (const button of buttons) {
+      await button.focus();
+      expectInsideNarrowViewport(await button.boundingBox());
+    }
+    expect(await readScrollOffsets(page)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+
+    // The panel stacks above the wrapped toolbar, which stays clear of the
+    // version label in the other corner.
+    const toolbarBox = await toolbar.boundingBox();
+    expectInsideNarrowViewport(toolbarBox);
+    const panelBox = await panel.boundingBox();
+    expectInsideNarrowViewport(panelBox);
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(toolbarBox.y);
+    const versionLabelBox = await page.getByText(/^v\d+\.\d+$/).boundingBox();
+    expectInsideNarrowViewport(versionLabelBox);
+    expect(overlaps(toolbarBox, versionLabelBox)).toBe(false);
+    await testInfo.attach('activity-panel-narrow', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
   });
 });
 

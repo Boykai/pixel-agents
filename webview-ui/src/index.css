@@ -43,6 +43,13 @@
   /* Non-utility values */
   --vignette: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
   --btn-disabled-opacity: 0.35;
+
+  /* BottomToolbar clearance: distance from the app root's bottom edge to the
+     toolbar's top edge (bottom-10 + one 61px row). BottomToolbar republishes
+     it on the app root as a narrow window wraps it onto more rows. */
+  --bottom-toolbar-clearance: 71px;
+  /* Gap between the BottomToolbar and a surface stacked above it. */
+  --bottom-toolbar-stack-gap: 5px;
 }
 
 @theme inline {
@@ -104,6 +111,20 @@
   /* Panel with standard pixel-art border + shadow */
   .pixel-panel {
     @apply bg-bg border-2 border-border rounded-none shadow-pixel;
+  }
+
+  /* Stacked just above the BottomToolbar (Activity panel, layout editor
+     toolbar), so a toolbar wrapped onto more rows pushes it up. */
+  .above-bottom-toolbar {
+    bottom: calc(var(--bottom-toolbar-clearance) + var(--bottom-toolbar-stack-gap));
+  }
+
+  /* A panel's height stops short of the BottomToolbar, leaving 20px at the
+     top when the panel is stacked above it. */
+  .clear-of-bottom-toolbar {
+    max-height: calc(
+      100% - var(--bottom-toolbar-clearance) - var(--bottom-toolbar-stack-gap) - 20px
+    );
   }
 
   .agent-label {

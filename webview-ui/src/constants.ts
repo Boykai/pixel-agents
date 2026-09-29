@@ -287,6 +287,13 @@ export const ACTIVITY_PANEL_REFRESH_MS = 250;
 export const ACTIVITY_PANEL_ROW_PADDING_PX = 10;
 export const ACTIVITY_PANEL_INDENT_PX = 16;
 
+// ── Bottom Toolbar ──────────────────────────────────────────
+/** CSS custom property the BottomToolbar publishes on the app root: the
+ *  distance from the root's bottom edge to the toolbar's top edge. It grows
+ *  when a narrow window wraps the toolbar onto more rows, and the surfaces
+ *  stacked above the toolbar (see `.above-bottom-toolbar` in index.css) follow. */
+export const BOTTOM_TOOLBAR_CLEARANCE_VAR = '--bottom-toolbar-clearance';
+
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
 export const WAITING_BUBBLE_DURATION_SEC = 2.0;

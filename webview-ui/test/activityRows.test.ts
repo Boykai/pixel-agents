@@ -83,6 +83,19 @@ test('one row per Agent, in office order, with its Activity label', () => {
   assert.ok(rows.every((row) => row.focusId === row.id && row.kind === 'agent'));
 });
 
+test('a row goes by the Agent’s Nickname, and falls back once the Nickname is cleared', () => {
+  const os = new OfficeState(floorLayout());
+  os.addAgent(1, undefined, undefined, undefined, true, 'repo', undefined, 'Fix the CI');
+  const rows = () => lines(buildActivityRows(input(os)));
+
+  os.setAgentMetadata(1, { nickname: 'Ada' });
+  assert.deepEqual(rows(), ['Ada | Thinking…']);
+
+  // '' is how agentMetadata clears a Nickname.
+  os.setAgentMetadata(1, { nickname: '' });
+  assert.deepEqual(rows(), ['Fix the CI | Thinking…']);
+});
+
 test('Sub-agents nest under their Agent and report their own tools', () => {
   const os = new OfficeState(floorLayout());
   os.addAgent(1, undefined, undefined, undefined, true, 'repo');

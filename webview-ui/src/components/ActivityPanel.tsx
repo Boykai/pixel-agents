@@ -69,7 +69,7 @@ export function ActivityPanel({
     <section
       aria-label="Activity"
       data-testid="activity-panel"
-      className="absolute bottom-76 left-10 z-44 pixel-panel pixel-scrollbar w-320 max-w-[calc(100%-20px)] max-h-[calc(100%-96px)] overflow-y-auto pb-6"
+      className="absolute above-bottom-toolbar left-10 z-44 pixel-panel pixel-scrollbar w-320 max-w-[calc(100%-20px)] clear-of-bottom-toolbar overflow-y-auto pb-6"
     >
       <div className="flex items-center justify-between py-4 px-10 border-b border-border mb-4">
         <h2 className="m-0 text-lg leading-none font-normal text-accent-bright">Activity</h2>

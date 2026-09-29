@@ -93,14 +93,25 @@ test('waiting for input outranks everything else', () => {
   );
 });
 
-test('an Agent is named by its Teammate name, then session title, then folder', () => {
+test('an Agent is named by its Nickname, then Teammate name, then session title, then folder', () => {
+  assert.equal(
+    agentDisplayName({
+      nickname: 'Ada',
+      agentName: 'researcher',
+      sessionName: 'Fix CI',
+      folderName: 'repo',
+    }),
+    'Ada',
+  );
+  // A cleared ('') Nickname falls through to the next name.
+  assert.equal(agentDisplayName({ nickname: '', agentName: 'researcher' }), 'researcher');
   assert.equal(
     agentDisplayName({ agentName: 'researcher', sessionName: 'Fix CI', folderName: 'repo' }),
     'researcher',
   );
   assert.equal(agentDisplayName({ sessionName: 'Fix CI', folderName: 'repo' }), 'Fix CI');
   assert.equal(agentDisplayName({ folderName: 'repo' }), 'repo');
-  assert.equal(agentDisplayName({ agentName: '', sessionName: '' }), undefined);
+  assert.equal(agentDisplayName({ nickname: '', agentName: '', sessionName: '' }), undefined);
   assert.equal(agentDisplayName(undefined), undefined);
 });
 
