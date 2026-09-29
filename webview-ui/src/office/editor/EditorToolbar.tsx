@@ -10,6 +10,8 @@ import { VisualColorPicker } from '../../components/VisualColorPicker.js';
 import {
   AREA_DEFAULT_COLORS,
   CANVAS_FALLBACK_TILE_COLOR,
+  DRAW_LAYER_MAX,
+  DRAW_LAYER_MIN,
   EMPTY_SPRITE_THUMBNAIL_BG,
   PET_THUMB_SCALE_MARGIN,
   PET_THUMB_ZOOM,
@@ -22,6 +24,7 @@ import {
   buildDynamicCatalog,
   getActiveCategories,
   getCatalogByCategory,
+  isSignType,
 } from '../layout/furnitureCatalog.js';
 import {
   getCarpetJunctionSprite,
@@ -53,6 +56,13 @@ interface EditorToolbarProps {
   selectedFurnitureType: string;
   selectedFurnitureUid: string | null;
   selectedFurnitureColor: ColorValue | null;
+  /** Draw layer of the selected placed furniture (0 when it has none). */
+  selectedFurnitureZLayer: number;
+  /** A selected Sign edits its text instead of an HSBC color. */
+  selectedFurnitureIsSign: boolean;
+  onEditSign: (uid: string) => void;
+  onLayerForward: () => void;
+  onLayerBackward: () => void;
   floorColor: ColorValue;
   wallColor: ColorValue;
   selectedWallSet: number;
@@ -108,6 +118,11 @@ export function EditorToolbar({
   selectedFurnitureType,
   selectedFurnitureUid,
   selectedFurnitureColor,
+  selectedFurnitureZLayer,
+  selectedFurnitureIsSign,
+  onEditSign,
+  onLayerForward,
+  onLayerBackward,
   floorColor,
   wallColor,
   selectedWallSet,
@@ -746,13 +761,15 @@ export function EditorToolbar({
                   title={entry.label}
                   deps={[entry.type, entry.sprite, pickedFurnitureColor]}
                   draw={(ctx, w, h) => {
-                    const sprite = pickedFurnitureColor
-                      ? getColorizedSprite(
-                          `thumb-${entry.type}-${pickedFurnitureColor.h}-${pickedFurnitureColor.s}-${pickedFurnitureColor.b}-${pickedFurnitureColor.c}-${pickedFurnitureColor.colorize ?? ''}`,
-                          entry.sprite,
-                          pickedFurnitureColor,
-                        )
-                      : entry.sprite;
+                    // Signs pick their text color in the Sign editor, so the HSBC tint skips them.
+                    const sprite =
+                      pickedFurnitureColor && !isSignType(entry.type)
+                        ? getColorizedSprite(
+                            `thumb-${entry.type}-${pickedFurnitureColor.h}-${pickedFurnitureColor.s}-${pickedFurnitureColor.b}-${pickedFurnitureColor.c}-${pickedFurnitureColor.colorize ?? ''}`,
+                            entry.sprite,
+                            pickedFurnitureColor,
+                          )
+                        : entry.sprite;
                     const cached = getCachedSprite(sprite, 2);
                     const scale = Math.min(w / cached.width, h / cached.height) * 0.85;
                     const dw = cached.width * scale;
@@ -777,30 +794,69 @@ export function EditorToolbar({
         </div>
       )}
 
-      {/* Selected furniture color panel — shows when any placed furniture item is selected */}
+      {/* Selected furniture panel — shows when any placed furniture item is selected:
+          color (or, for a Sign, its text) and the Draw layer. */}
       {selectedFurnitureUid && (
         <div className="flex flex-col-reverse gap-4">
           <div className="flex gap-4 items-center">
-            <Button
-              variant={showFurnitureColor ? 'active' : 'default'}
-              size="sm"
-              onClick={() => setShowFurnitureColor((v) => !v)}
-              title="Adjust selected furniture color"
-            >
-              Color
-            </Button>
-            {selectedFurnitureColor && (
+            {selectedFurnitureIsSign ? (
               <Button
-                variant="ghost"
+                variant="default"
                 size="sm"
-                onClick={() => onSelectedFurnitureColorChange(null)}
-                title="Remove color (restore original)"
+                onClick={() => onEditSign(selectedFurnitureUid)}
+                title="Edit sign text"
               >
-                Clear
+                Edit sign
               </Button>
+            ) : (
+              <>
+                <Button
+                  variant={showFurnitureColor ? 'active' : 'default'}
+                  size="sm"
+                  onClick={() => setShowFurnitureColor((v) => !v)}
+                  title="Adjust selected furniture color"
+                >
+                  Color
+                </Button>
+                {selectedFurnitureColor && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onSelectedFurnitureColorChange(null)}
+                    title="Remove color (restore original)"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </>
             )}
+            <Button
+              variant={selectedFurnitureZLayer > DRAW_LAYER_MIN ? 'default' : 'disabled'}
+              size="sm"
+              disabled={selectedFurnitureZLayer <= DRAW_LAYER_MIN}
+              onClick={onLayerBackward}
+              title="Send backward"
+            >
+              Backward
+            </Button>
+            <span
+              className="text-sm text-text-muted"
+              title="Draw layer: higher layers draw in front of lower ones"
+            >
+              Layer {selectedFurnitureZLayer > 0 ? '+' : ''}
+              {selectedFurnitureZLayer}
+            </span>
+            <Button
+              variant={selectedFurnitureZLayer < DRAW_LAYER_MAX ? 'default' : 'disabled'}
+              size="sm"
+              disabled={selectedFurnitureZLayer >= DRAW_LAYER_MAX}
+              onClick={onLayerForward}
+              title="Bring forward"
+            >
+              Forward
+            </Button>
           </div>
-          {showFurnitureColor && (
+          {showFurnitureColor && !selectedFurnitureIsSign && (
             <ColorPicker
               value={effectiveColor}
               onChange={onSelectedFurnitureColorChange}

@@ -7,6 +7,7 @@ import {
   CARPET_DEFAULT_COLOR,
   LAYOUT_SAVE_DEBOUNCE_MS,
   ROOM_THEME_LABELS,
+  SIGN_TYPE,
   ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -29,23 +30,29 @@ import {
   removeFurniture,
   renameArea,
   rotateFurniture,
+  setFurnitureZLayer,
   toggleFurnitureState,
   updateAreaColor,
+  updateFurnitureText,
 } from '../office/editor/editorActions.js';
 import type { EditorSnapshot, EditorState, GridOffset } from '../office/editor/editorState.js';
 import type { RoomBounds, RoomGenerationResult } from '../office/editor/roomGeneration.js';
 import { generateRoom } from '../office/editor/roomGeneration.js';
 import type { OfficeState } from '../office/engine/officeState.js';
+import { normalizeZLayer } from '../office/layout/drawLayer.js';
 import {
-  getCatalogEntry,
+  getFurnitureEntry,
   getRotatedType,
   getToggledType,
+  isSignType,
 } from '../office/layout/furnitureCatalog.js';
+import { normalizeSignText } from '../office/sprites/textSpriteCache.js';
 import type {
   EditTool as EditToolType,
   OfficeLayout,
   PlacedFurniture,
   PlacedPet,
+  SignText,
   TileType as TileTypeVal,
 } from '../office/types.js';
 import { EditTool } from '../office/types.js';
@@ -113,6 +120,14 @@ interface EditorActions {
   handleRemoveArea: (label: string) => void;
   handleRenameArea: (oldLabel: string, newLabel: string) => void;
   handleAreaColorChange: (label: string, color: string) => void;
+  // Sign editor (dialog target lives on editorState) + draw layer
+  /** Whether a Sign with this text fits where the open Sign editor would put it. */
+  signFits: (text: SignText) => boolean;
+  handleSignConfirm: (text: SignText) => void;
+  handleSignCancel: () => void;
+  handleEditSign: (uid: string) => void;
+  handleLayerForward: () => void;
+  handleLayerBackward: () => void;
 }
 
 /** Default integer zoom (device pixels per sprite pixel) for a fresh session.
@@ -175,6 +190,7 @@ export function useEditorActions(
       editorState.clearSelection();
       editorState.clearGhost();
       editorState.clearDrag();
+      editorState.clearSignEditor();
       colorEditUidRef.current = null;
       wallColorEditActiveRef.current = false;
       lastSavedLayoutRef.current = editorState.snapshot(structuredClone(layout));
@@ -248,6 +264,7 @@ export function useEditorActions(
         editorState.clearSelection();
         editorState.clearGhost();
         editorState.clearDrag();
+        editorState.clearSignEditor();
         wallColorEditActiveRef.current = false;
         setRoomFeedback(null);
         setRoomToFrame(null);
@@ -264,6 +281,7 @@ export function useEditorActions(
       editorState.clearSelection();
       editorState.clearGhost();
       editorState.clearDrag();
+      editorState.clearSignEditor();
       colorEditUidRef.current = null;
       wallColorEditActiveRef.current = false;
       // Reset carpet stroke buffer whenever leaving the carpet paint flow so the
@@ -876,7 +894,7 @@ export function useEditorActions(
         if (type === '') {
           // No item selected — act like SELECT (find furniture hit)
           const hit = layout.furniture.find((f) => {
-            const entry = getCatalogEntry(f.type);
+            const entry = getFurnitureEntry(f);
             if (!entry) return false;
             return (
               col >= f.col &&
@@ -886,6 +904,16 @@ export function useEditorActions(
             );
           });
           editorState.selectedFurnitureUid = hit ? hit.uid : null;
+          setEditorTick((n) => n + 1);
+        } else if (isSignType(type)) {
+          // A Sign opens the Sign editor first and is placed when its text is
+          // confirmed (hootbu/pixel-agents 69c433f). The dialog takes the
+          // mouseup, so end the paint drag the canvas just started.
+          const placementRow = getWallPlacementRow(type, row);
+          if (!canPlaceFurniture(layout, type, col, placementRow)) return;
+          editorState.isDragging = false;
+          editorState.editingSignUid = null;
+          editorState.pendingSignPlacement = { col, row: placementRow };
           setEditorTick((n) => n + 1);
         } else {
           const placementRow = getWallPlacementRow(type, row);
@@ -903,7 +931,7 @@ export function useEditorActions(
       } else if (editorState.activeTool === EditTool.FURNITURE_PICK) {
         // Find furniture at clicked tile, copy its type and color for placement
         const hit = layout.furniture.find((f) => {
-          const entry = getCatalogEntry(f.type);
+          const entry = getFurnitureEntry(f);
           if (!entry) return false;
           return (
             col >= f.col &&
@@ -1011,7 +1039,7 @@ export function useEditorActions(
         setEditorTick((n) => n + 1);
       } else if (editorState.activeTool === EditTool.SELECT) {
         const hit = layout.furniture.find((f) => {
-          const entry = getCatalogEntry(f.type);
+          const entry = getFurnitureEntry(f);
           if (!entry) return false;
           return (
             col >= f.col &&
@@ -1077,6 +1105,89 @@ export function useEditorActions(
     [getOfficeState, editorState, applyEdit, saveLayout],
   );
 
+  // ── Sign editor (ported from hootbu/pixel-agents (MIT) 69c433f) ──────
+  const signFits = useCallback(
+    (text: SignText): boolean => {
+      const layout = getOfficeState().getLayout();
+      if (editorState.editingSignUid) {
+        const item = layout.furniture.find((f) => f.uid === editorState.editingSignUid);
+        return !!item && canPlaceFurniture(layout, item.type, item.col, item.row, item.uid, text);
+      }
+      const pending = editorState.pendingSignPlacement;
+      return (
+        !!pending && canPlaceFurniture(layout, SIGN_TYPE, pending.col, pending.row, undefined, text)
+      );
+    },
+    [getOfficeState, editorState],
+  );
+
+  const handleSignConfirm = useCallback(
+    (text: SignText) => {
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      let next = layout;
+      if (editorState.editingSignUid) {
+        next = updateFurnitureText(layout, editorState.editingSignUid, text);
+      } else if (editorState.pendingSignPlacement) {
+        const normalized = normalizeSignText(text);
+        if (normalized) {
+          const { col, row } = editorState.pendingSignPlacement;
+          const uid = `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          next = placeFurniture(layout, { uid, type: SIGN_TYPE, col, row, text: normalized });
+        }
+      }
+      editorState.clearSignEditor();
+      if (next !== layout) {
+        applyEdit(next);
+      } else {
+        setEditorTick((n) => n + 1);
+      }
+    },
+    [getOfficeState, editorState, applyEdit],
+  );
+
+  const handleSignCancel = useCallback(() => {
+    editorState.clearSignEditor();
+    setEditorTick((n) => n + 1);
+  }, [editorState]);
+
+  const handleEditSign = useCallback(
+    (uid: string) => {
+      const item = getOfficeState()
+        .getLayout()
+        .furniture.find((f) => f.uid === uid);
+      if (!item || !isSignType(item.type)) return;
+      editorState.clearDrag();
+      editorState.pendingSignPlacement = null;
+      editorState.editingSignUid = uid;
+      setEditorTick((n) => n + 1);
+    },
+    [getOfficeState, editorState],
+  );
+
+  // ── Draw layer: move the selected item one layer toward the front/back ──
+  const shiftSelectedDrawLayer = useCallback(
+    (delta: number) => {
+      const uid = editorState.selectedFurnitureUid;
+      if (!uid) return;
+      const os = getOfficeState();
+      const layout = os.getLayout();
+      const item = layout.furniture.find((f) => f.uid === uid);
+      if (!item) return;
+      const next = setFurnitureZLayer(layout, uid, normalizeZLayer(item.zLayer) + delta);
+      if (next !== layout) {
+        applyEdit(next);
+      }
+    },
+    [getOfficeState, editorState, applyEdit],
+  );
+
+  const handleLayerForward = useCallback(() => shiftSelectedDrawLayer(1), [shiftSelectedDrawLayer]);
+  const handleLayerBackward = useCallback(
+    () => shiftSelectedDrawLayer(-1),
+    [shiftSelectedDrawLayer],
+  );
+
   return {
     isEditMode,
     editorTick,
@@ -1129,5 +1240,11 @@ export function useEditorActions(
     handleRemoveArea,
     handleRenameArea,
     handleAreaColorChange,
+    signFits,
+    handleSignConfirm,
+    handleSignCancel,
+    handleEditSign,
+    handleLayerForward,
+    handleLayerBackward,
   };
 }

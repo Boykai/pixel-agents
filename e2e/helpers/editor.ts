@@ -11,6 +11,16 @@
 import type { Frame } from '@playwright/test';
 import { expect } from '@playwright/test';
 
+/** A placed furniture item as the layout holds it (Sign text + Draw layer included). */
+export interface PlacedFurnitureSnapshot {
+  uid: string;
+  type: string;
+  col: number;
+  row: number;
+  text?: { value: string; color: string; size: string; scale: number };
+  zLayer?: number;
+}
+
 /** The carpet/area observability surface installed under the isE2E guard. */
 export interface TestHooksWindow extends Window {
   __pixelAgentsTestHooks?: {
@@ -28,6 +38,7 @@ export interface TestHooksWindow extends Window {
     getAreaMappings?: () => Record<string, string[]>;
     getShowAreas?: () => boolean;
     getFurnitureCount?: () => number;
+    getFurniture?: () => PlacedFurnitureSnapshot[];
     getAgentSeats?: () => Array<{
       id: number;
       seatId: string | null;
@@ -73,6 +84,13 @@ export async function enterEditMode(frame: Frame): Promise<void> {
 export async function readFurnitureCount(frame: Frame): Promise<number> {
   return frame.evaluate(
     () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getFurnitureCount?.() ?? -1,
+  );
+}
+
+/** Read the layout's placed furniture (with Sign text and Draw layer) from the test hook. */
+export async function readFurniture(frame: Frame): Promise<PlacedFurnitureSnapshot[]> {
+  return frame.evaluate(
+    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getFurniture?.() ?? [],
   );
 }
 
