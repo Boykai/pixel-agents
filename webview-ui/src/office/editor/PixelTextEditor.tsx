@@ -130,8 +130,13 @@ export function PixelTextEditor({
 
   return (
     <div onKeyDown={handleKeyDown}>
-      <Modal isOpen onClose={onCancel} title={isEditing ? 'Edit Sign' : 'New Sign'}>
-        <div className="flex flex-col gap-10 px-10 pb-4 w-360 max-w-[90vw]">
+      <Modal
+        isOpen
+        onClose={onCancel}
+        title={isEditing ? 'Edit Sign' : 'New Sign'}
+        className="min-w-0! max-h-[calc(100dvh-32px)] overflow-y-auto"
+      >
+        <div className="flex flex-col gap-10 px-10 pb-4 w-360 max-w-[calc(100vw-48px)]">
           <label className="flex flex-col gap-4">
             <span className="text-sm text-text-muted">Text</span>
             <input
