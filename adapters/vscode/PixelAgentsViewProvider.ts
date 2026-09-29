@@ -59,6 +59,7 @@ import {
 import {
   CONFIG_KEY_AUTO_SHOW_PANEL,
   CONFIG_KEY_AUTO_SPAWN_AGENT,
+  GLOBAL_KEY_ACHIEVEMENT_POPUPS,
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
   GLOBAL_KEY_GHOST_HEADLESS_AGENTS,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
@@ -147,7 +148,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       this.sendOrBuffer(message);
     });
 
-    this.runtime = new AgentRuntime(this.store, this.providers);
+    this.runtime = new AgentRuntime(this.store, this.providers, {
+      achievements: { namespace: 'vscode' },
+    });
     this.runtime.setTerminalAdapter(new VscodeTerminalAdapter());
 
     // Map an external agent's cwd/projectDir to its WorkspaceFolder.name — the
@@ -479,7 +482,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         }
       } else if (message.type === 'saveLayout') {
         this.layoutWatcher?.markOwnWrite();
-        writeLayoutToFile(message.layout as Record<string, unknown>);
+        // The user's own editing: new furniture in it was placed (Achievements).
+        writeLayoutToFile(message.layout as Record<string, unknown>, 'edit');
       } else if (message.type === 'setSoundEnabled') {
         this.adapter.setSetting(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
       } else if (message.type === 'setLastSeenVersion') {
@@ -490,6 +494,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         this.adapter.setSetting(GLOBAL_KEY_GHOST_HEADLESS_AGENTS, message.enabled);
       } else if (message.type === 'setMoodBubbles') {
         this.adapter.setSetting(GLOBAL_KEY_MOOD_BUBBLES, message.enabled);
+      } else if (message.type === 'setAchievementPopups') {
+        this.adapter.setSetting(GLOBAL_KEY_ACHIEVEMENT_POPUPS, message.enabled === true);
+      } else if (message.type === 'requestAchievements') {
+        this.webview?.postMessage({
+          type: 'achievementsLoaded',
+          achievements: this.runtime.achievements?.snapshot() ?? [],
+        });
       } else if (message.type === 'setHooksEnabled') {
         // The provider id is echoed by the webview, never originated; an
         // unknown id names nothing to install into, so it is dropped like a
@@ -608,6 +619,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // Omitted until the user zooms, so the webview keeps its devicePixelRatio default.
         const zoom = parseZoom(this.adapter.getSetting<unknown>(GLOBAL_KEY_ZOOM, undefined));
         const moodBubbles = this.adapter.getSetting<boolean>(GLOBAL_KEY_MOOD_BUBBLES, true);
+        const achievementPopups = this.adapter.getSetting<boolean>(
+          GLOBAL_KEY_ACHIEVEMENT_POPUPS,
+          true,
+        );
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -624,6 +639,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           showAreas,
           ...(zoom !== undefined ? { zoom } : {}),
           moodBubbles,
+          achievementPopups,
+        });
+        // Achievement progress, so the gallery opens on current numbers.
+        this.webview?.postMessage({
+          type: 'achievementsLoaded',
+          achievements: this.runtime.achievements?.snapshot() ?? [],
         });
 
         // One status + at most one consent ask PER PROVIDER. Install state is distinct from the hooksEnabled
@@ -760,6 +781,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
 
             // Load bundled default layout
             this.defaultLayout = loadDefaultLayout(assetsRoot);
+            // Resetting the office to the default places none of its furniture.
+            if (this.defaultLayout) this.runtime.achievements?.seedLayout(this.defaultLayout);
 
             // Load character sprites (bundled + external)
             const charSprites = await this.loadAllCharacterSprites();

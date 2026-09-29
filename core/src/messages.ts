@@ -42,7 +42,9 @@ export type ServerMessage =
   | ExternalAssetDirectoriesUpdated
   | AreaMappingsLoaded
   | WorkspaceFolders
-  | AgentDiagnostics;
+  | AgentDiagnostics
+  | AchievementsLoaded
+  | AchievementUnlocked;
 
 export type ClientMessage =
   | WebviewReady
@@ -69,7 +71,9 @@ export type ClientMessage =
   | SetShowAreas
   | RequestDiagnostics
   | SetZoom
-  | SetMoodBubbles;
+  | SetMoodBubbles
+  | RequestAchievements
+  | SetAchievementPopups;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -348,6 +352,7 @@ export interface SettingsLoaded {
   showAreas: boolean;
   zoom?: number;
   moodBubbles: boolean;
+  achievementPopups: boolean;
 }
 
 export interface HooksStatus {
@@ -388,6 +393,24 @@ export interface WorkspaceFolder {
 export interface AgentDiagnostics {
   type: 'agentDiagnostics';
   agents: Record<string, any>[];
+}
+
+export interface AchievementsLoaded {
+  type: 'achievementsLoaded';
+  achievements: AchievementProgress[];
+}
+
+export interface AchievementProgress {
+  id: string;
+  current: number;
+  unlocked: boolean;
+  unlockedAt?: number;
+}
+
+export interface AchievementUnlocked {
+  type: 'achievementUnlocked';
+  id: string;
+  unlockedAt: number;
 }
 
 export interface WebviewReady {
@@ -432,6 +455,7 @@ export interface SetAgentNickname {
 export interface SaveLayout {
   type: 'saveLayout';
   layout: Record<string, any>;
+  imported?: boolean;
 }
 
 export interface SetSoundEnabled {
@@ -520,5 +544,14 @@ export interface SetZoom {
 
 export interface SetMoodBubbles {
   type: 'setMoodBubbles';
+  enabled: boolean;
+}
+
+export interface RequestAchievements {
+  type: 'requestAchievements';
+}
+
+export interface SetAchievementPopups {
+  type: 'setAchievementPopups';
   enabled: boolean;
 }

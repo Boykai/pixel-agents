@@ -18,6 +18,8 @@ export interface AdapterSettings {
    *  the webview keeps its devicePixelRatio-derived default. */
   zoom?: number;
   moodBubbles: boolean;
+  /** Announce each Achievement unlock with a popup. Unlocks are recorded either way. */
+  achievementPopups: boolean;
 }
 
 /** All keys in AdapterSettings. Used by adapters to map `pixel-agents.foo` → `foo`.
@@ -35,6 +37,7 @@ export const ADAPTER_SETTING_KEYS = [
   'areaMappings',
   'zoom',
   'moodBubbles',
+  'achievementPopups',
 ] as const;
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
@@ -74,6 +77,7 @@ const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   showAreas: false,
   areaMappings: {},
   moodBubbles: true,
+  achievementPopups: true,
 };
 
 function getConfigFilePath(): string {
@@ -167,6 +171,10 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
     ...(zoom !== undefined ? { zoom } : {}),
     moodBubbles:
       typeof obj.moodBubbles === 'boolean' ? obj.moodBubbles : DEFAULT_ADAPTER_SETTINGS.moodBubbles,
+    achievementPopups:
+      typeof obj.achievementPopups === 'boolean'
+        ? obj.achievementPopups
+        : DEFAULT_ADAPTER_SETTINGS.achievementPopups,
   };
 }
 

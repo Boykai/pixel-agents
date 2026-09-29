@@ -123,6 +123,19 @@ export const LAYOUT_FILE_POLL_INTERVAL_MS = 2000;
 export const LAYOUT_REVISION_KEY = 'layoutRevision';
 export const CONFIG_FILE_NAME = 'config.json';
 
+// ── Achievements ────────────────────────────────────────────
+/** Machine-global Achievement progress, beside layout.json in LAYOUT_FILE_DIR. */
+export const ACHIEVEMENTS_FILE_NAME = 'achievements.json';
+export const ACHIEVEMENTS_FILE_VERSION = 1;
+/** How long counted progress may wait before it is written. An unlock is
+ *  written at once, and dispose flushes whatever is pending. */
+export const ACHIEVEMENTS_SAVE_DEBOUNCE_MS = 2000;
+/** Night Owl: a tool started during this local hour (3 AM). */
+export const ACHIEVEMENT_NIGHT_OWL_HOUR = 3;
+/** Cap on remembered session directories whose working directory was read
+ *  to resolve a relative edited-file path. */
+export const ACHIEVEMENT_CWD_CACHE_MAX_ENTRIES = 64;
+
 // ── Avatar Customization ────────────────────────────────────
 /** Number of pre-colored bundled character palettes (char_0.png–char_5.png).
  *  Mirrors `PALETTE_COUNT` in webview-ui/src/constants.ts; kept separate
