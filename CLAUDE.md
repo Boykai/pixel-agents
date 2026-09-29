@@ -19,6 +19,7 @@ core/                                Protocol + interface definitions (zero runt
     transport.ts                     MessageTransport interface, TransportState
     adapter.ts                       StateAdapter, AssetCache, PersistedAgent, AgentSeat
     terminalAdapter.ts               TerminalAdapter (editor-driven terminal management)
+    activityLabel.ts                 Activity label precedence + agentDisplayName, shared by ToolOverlay, Activity panel, Quick Pick
     normalizeProjectPath.ts
     constants.ts
 
@@ -59,6 +60,8 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
 adapters/vscode/                     VS Code surface — composes core + server
   extension.ts                       activate() / deactivate()
   PixelAgentsViewProvider.ts         WebviewViewProvider, thin bridge to AgentRuntime
+  activityQuickPick.ts               Activity Quick Pick: a vscode.QuickPick rebuilt on AgentStateStore events
+  activityQuickPickRows.ts           Its pure row builder + ActivityTracker (replays the office's tool broadcasts)
   agentManager.ts                    Terminal lifecycle (claude --session-id <uuid>), restore, persist
   vscodeTerminalAdapter.ts           TerminalAdapter implementation
   uninstall.ts                       vscode:uninstall hook — removes hook entries + factory-resets hooks config after extension removal
@@ -83,6 +86,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
     components/                      React UI (toolbars, modals, settings)
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
       Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
+      ActivityPanel.tsx              Activity panel (toolbar "Activity"), rows from office/activityRows.ts
     hooks/
       useExtensionMessages.ts        Message handler — translates ServerMessage into OfficeState mutations
       useEditorActions.ts            Editor state + callbacks
@@ -92,6 +96,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
     office/
       types.ts                       OfficeLayout, Character, etc. + re-exports constants
       toolUtils.ts                   STATUS_TO_TOOL mapping, extractToolName (DOM-free; defaultZoom lives in useEditorActions)
+      activityRows.ts                Activity panel row model (DOM-free) + followCharacter (select + camera follow)
       projection.ts                  World→screen math shared by renderer + DOM overlays (mapOffset, overlayProjection)
       colorize.ts                    Colorize (grayscale→HSL) + Adjust (HSL shift)
       floorTiles.ts                  Floor sprite storage + colorized cache
@@ -382,6 +387,19 @@ The Usage panel's numbers (CONTEXT.md "Token usage"). `AgentStateStore.tokenUsag
 - **Seeding** (`seedTokenUsage` in fileWatcher, once per watched file): `readTokenUsageHistory` reads the prefix before the live reader's offset — a 256 KiB tail first (a `total` there is enough), else a full scan up to 16 MiB, else nothing and the totals are flagged `sinceTracked`.
 - **Live observer** for features that react to new usage: `store.tokenUsage.onLiveUsage(listener)` reports only NEW positive increments — never seeded history, nor records re-read from before `liveFrom` (a resumed file). An ambiguous baseline under-reports rather than over-reports.
 - Copilot tokens exist only in `session.shutdown` `tokenDetails`, so a running Copilot session shows premium requests + nano AIU. A lead's inline sidechain records count; sub-agents' separate transcripts (the shadow store) don't.
+
+### Activity panel and Activity Quick Pick
+
+Two lists of every shown agent with its activity label. Sub-agents sit one level down, and teammates nest under their lead (CONTEXT.md "Activity panel", "Activity Quick Pick").
+
+- **One precedence**, in `core/src/activityLabel.ts` (`describeAgentActivity`): waiting for input, then permission, then the newest running tool, then the turn state. `ToolOverlay` passes `sticky`, which keeps the last finished tool's status mid-turn. The two lists don't pass it, so an active agent with no running tool reads "Thinking…". `agentDisplayName` (teammate name, then session title, then folder) is the one naming source, and the seam for nicknames.
+- **Webview panel** (`ActivityPanel.tsx`, rows from `office/activityRows.ts`): built from `OfficeState` and the webview's `agentTools`/`subagentTools`, and redrawn on a `ACTIVITY_PANEL_REFRESH_MS` tick. A row click is `followCharacter` (select, camera follow, clear any pet follow) plus `focusAgent`, the same as clicking the character.
+- **VS Code Quick Pick** (`activityQuickPick.ts`, rows from `activityQuickPickRows.ts`): rebuilt from `AgentStateStore` after store events (debounced), and it skips refreshes that change no row.
+  - **Tool activity comes from `ActivityTracker`, not `AgentState`.** In hooks mode the office shows the hook events' tools (`hook-<ts>` ids through `agentToolStart`/`agentToolDone`). `activeToolStatuses` holds the transcript's `toolu_*` ids instead: it lags, it's deleted silently at the tool_result, and a hooks-only session never has any.
+  - The tracker replays the store's broadcasts with the webview's semantics: a start records a tool once, a done tool is never revived, and `agentToolsClear` clears the list. It tracks Sub-agent tools per spawn, and background spawns survive the turn end. It subscribes in the provider constructor, so it sees every broadcast from activation on.
+  - Sub-agent row existence still comes from `activeToolNames`, because spawn tools go through the transcript in both modes.
+- **Accepting a row** focuses the agent's terminal. A headless agent (a Copilot App session, an external session) has none, so accepting reveals the view and posts `agentSelected { reveal: true }`, which selects and follows the character. The reveal is held until the webview is ready, the office is loaded and the view is visible, and dropped after `AGENT_REVEAL_TIMEOUT_MS`.
+- **Status bar**: `$(add) Agent` runs `pixel-agents.newAgent` (the same launch path as the panel's + Agent, honoring `pixel-agents.launchProvider`), and `$(checklist) Activity` runs `pixel-agents.showActivity`.
 
 ## Office UI
 

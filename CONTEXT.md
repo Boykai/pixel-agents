@@ -115,6 +115,14 @@ The inactive form where the agent is blocked until the user approves a tool use.
 The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown in its hover/focus details. The compact label above the character shows the normalized project name instead.
 _Avoid_: status text, tool status
 
+**Activity panel**:
+The panel opened from the toolbar's "Activity" button. It lists every agent with a status dot and its activity label, puts its sub-agents one level down, and nests its teammates under their lead. An active agent with no running tool reads "Thinking…". Clicking a row does what clicking the character does: selects and follows it, and focuses the agent's terminal.
+_Avoid_: task panel (the fork's name), agent list
+
+**Activity Quick Pick**:
+The VS Code version of the activity panel, opened from the status bar's "Activity" item or the "Pixel Agents: Show Activity" command. Its rows update while it is open. Picking a row focuses the agent's terminal. For a headless agent, it reveals the office with the character selected.
+_Avoid_: task picker, agent picker
+
 **Speech bubble**:
 The indicator above a character announcing a form of inactivity: "…" for a permission request (stays until resolved), a checkmark for a finished turn (fades on its own).
 _Avoid_: bubble alone when ambiguous, notification

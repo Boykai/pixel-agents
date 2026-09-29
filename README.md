@@ -38,6 +38,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 
 - **One agent, one character** — tracked Claude Code and GitHub Copilot sessions get their own animated characters
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
+- **Activity panel** — the toolbar's **Activity** panel lists what every agent is doing right now, with its sub-agents and teammates nested underneath; click a row to select and follow that character. In VS Code, the status bar's **Agent** and **Activity** shortcuts launch an agent and open the same list as a live Quick Pick
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
 - **Token usage** — the toolbar's **Usage** panel shows each agent's recorded usage and the office-wide totals: input/output/cache tokens for Claude Code, premium requests for GitHub Copilot (tokens only once a Copilot session reports them). Read straight from the transcripts, never estimated or priced
