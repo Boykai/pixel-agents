@@ -119,7 +119,7 @@ export interface TokenUsageSample {
   outputTokens?: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
-  /** Billing units the CLI itself reports (GitHub Copilot); may be fractional. */
+  /** Premium requests as the CLI itself reports them (GitHub Copilot); may be fractional. */
   premiumRequests?: number;
   nanoAiu?: number;
 }

@@ -18,7 +18,7 @@ function tokenCount(value: unknown): number | undefined {
  * Token usage from one Claude Code transcript record.
  *
  * Only top-level `assistant` records count, main chain and sidechain alike:
- * a lead's sidechain records are its sub-agents' turns, spent by the same
+ * a lead's sidechain records are its sub-agents' turns, used by the same
  * session. Claude writes one record per content block and repeats the
  * message's usage on each, so every sample carries `message.id` for the
  * runtime's dedupe. All-zero usage is Claude's placeholder on synthetic

@@ -124,7 +124,7 @@ The small bar under an agent's activity label showing how full its context windo
 _Avoid_: fuel gauge, health bar, token gauge (tokens are the unit, context is the thing)
 
 **Token usage**:
-What an agent's session has spent so far, in the units its CLI records: input, output, cache-write and cache-read tokens for Claude Code; premium requests and nano AIU for GitHub Copilot, plus tokens only once a run has shut down and written them. A running total that only resets when `/clear` starts a new session — the opposite of the context gauge, which is a level. Never estimated or priced. A total the runtime could not read back to the session's start is labelled **since tracked**.
+What an agent's session has used so far, in the units its CLI records: input, output, cache-write and cache-read tokens for Claude Code; premium requests and nano AIU for GitHub Copilot. Copilot writes token counts only when a run shuts down, and its next checkpoint carries none, so its tokens show only from a shutdown until the next checkpoint. A running total, unlike the context gauge (a level); `/clear` starts a new session, which restarts it at zero. Never estimated or priced. A total the runtime could not read back to the session's start is labelled **since tracked**.
 _Avoid_: context usage (that is the context gauge), cost, spend, billing
 
 **Usage panel**:

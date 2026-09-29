@@ -536,16 +536,19 @@ components:
 
     AgentUsage:
       description: |
-        The agent's Token usage: what its CLI reported spending, accumulated
-        over the session. A running total, NOT the context window (see
-        agentContextUsage, which is a per-turn snapshot). Every numeric field
-        is optional and absent means "not reported by this CLI", never zero:
-        Claude Code reports tokens; GitHub Copilot reports premium requests and
-        nano AIU, plus tokens only when its transcript states them. A message
-        with no numeric fields clears the agent's usage (e.g. after /clear).
-        `sinceTracked` is true when the totals could not be seeded from the
-        whole session and cover only what was observed since tracking began.
-        Throttled; replayed in the webviewReady handshake.
+        The agent's Token usage: what its CLI reported using, accumulated over
+        the session. A running total, NOT the context window (see
+        agentContextUsage, which is a per-turn snapshot). Each message carries
+        the agent's complete current usage and replaces the previous one.
+        Every numeric field is optional and absent means "not reported", never
+        zero: Claude Code reports tokens; GitHub Copilot reports premium
+        requests and nano AIU, plus tokens only while its newest cumulative
+        total states them (a checkpoint after a shutdown drops them again).
+        Only a message carrying nothing but `type` and `id` clears the agent's
+        usage (e.g. after /clear); one with just `model` and/or `sinceTracked`
+        is kept. `sinceTracked` is true when the totals could not be seeded
+        from the whole session and cover only what was observed since
+        tracking began. Throttled; replayed in the webviewReady handshake.
       type: object
       additionalProperties: false
       required: [type, id]

@@ -844,8 +844,9 @@ export function useExtensionMessages(
         const id = msg.id as number;
         os.setAgentContext(id, msg.contextTokens as number, msg.maxContextTokens as number);
       } else if (msg.type === 'agentUsage') {
-        // Each message carries the agent's whole current totals. One with no
-        // figures and no model means the totals were reset (/clear).
+        // Each message carries the agent's whole current usage. One carrying
+        // only its id means the totals were reset (/clear); one with just a
+        // model or a since-tracked flag is kept.
         const usage = msg as AgentUsage;
         setAgentUsage((prev) => {
           const next = { ...prev };

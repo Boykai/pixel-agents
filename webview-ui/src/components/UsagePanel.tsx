@@ -114,7 +114,13 @@ function SinceTracked() {
   );
 }
 
-function BillingRows({ premiumRequests, nanoAiu }: { premiumRequests?: number; nanoAiu?: number }) {
+function PremiumRequestRows({
+  premiumRequests,
+  nanoAiu,
+}: {
+  premiumRequests?: number;
+  nanoAiu?: number;
+}) {
   return (
     <>
       {premiumRequests !== undefined && (
@@ -209,7 +215,7 @@ export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePa
               </div>
             </>
           )}
-          <BillingRows premiumRequests={grandPremiumRequests} nanoAiu={grandNanoAiu} />
+          <PremiumRequestRows premiumRequests={grandPremiumRequests} nanoAiu={grandNanoAiu} />
           {anySinceTracked && <SinceTracked />}
         </div>
       )}
@@ -222,7 +228,7 @@ export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePa
         const name =
           ch?.agentName || ch?.sessionName || normalizeProjectName(ch?.folderName) || `Agent ${id}`;
         const counts = tokenCounts(usage);
-        const hasBilling = usage.premiumRequests !== undefined || usage.nanoAiu !== undefined;
+        const hasRequests = usage.premiumRequests !== undefined || usage.nanoAiu !== undefined;
         return (
           <div key={id} className="py-4 px-12" data-testid="usage-agent-row" data-agent-id={id}>
             <div className="flex justify-between items-center gap-8">
@@ -253,12 +259,15 @@ export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePa
                 </div>
               </>
             )}
-            {hasBilling && (
+            {hasRequests && (
               <div className="pt-4">
-                <BillingRows premiumRequests={usage.premiumRequests} nanoAiu={usage.nanoAiu} />
+                <PremiumRequestRows
+                  premiumRequests={usage.premiumRequests}
+                  nanoAiu={usage.nanoAiu}
+                />
               </div>
             )}
-            {!counts && !hasBilling && !usage.sinceTracked && (
+            {!counts && !hasRequests && !usage.sinceTracked && (
               <div className="pt-2 text-sm text-text-muted">—</div>
             )}
             {usage.sinceTracked && <SinceTracked />}

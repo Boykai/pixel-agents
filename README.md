@@ -40,7 +40,7 @@ The architecture is agent-agnostic and editor-agnostic: a typed `HookProvider` i
 - **Live activity tracking** — characters animate based on what the agent is actually doing (writing, reading, running commands)
 - **Office layout editor** — design your office with floors, walls, and furniture using a built-in editor
 - **Speech bubbles** — visual indicators when an agent is waiting for input or awaiting permission
-- **Token usage** — the toolbar's **Usage** panel shows each agent's recorded spend and the office-wide totals: input/output/cache tokens for Claude Code, premium requests for GitHub Copilot (tokens only once a Copilot session reports them). Read straight from the transcripts, never estimated or priced
+- **Token usage** — the toolbar's **Usage** panel shows each agent's recorded usage and the office-wide totals: input/output/cache tokens for Claude Code, premium requests for GitHub Copilot (tokens only once a Copilot session reports them). Read straight from the transcripts, never estimated or priced
 - **Sound notifications** — optional chimes when an agent finishes its turn or requests permission
 - **Sub-agents and Agent Teams** — see ephemeral sub-agents and persistent Claude teammates as separate characters, including team roles and lifecycle changes
 - **Persistent layouts** — your office design is saved and shared across VS Code windows
