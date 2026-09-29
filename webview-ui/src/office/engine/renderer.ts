@@ -87,7 +87,7 @@ import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.j
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
 import { isMoodBubbleCovered } from './moodTracker.js';
-import { getPetSpriteData } from './petEntity.js';
+import { getPetSpriteData, petZSortY } from './petEntity.js';
 
 // ── Settings ────────────────────────────────────────────────────
 
@@ -485,12 +485,8 @@ export function renderScene(
     const drawX = Math.round(offsetX + pet.x * zoom - cached.width / 2);
     const drawY = Math.round(offsetY + pet.y * zoom - cached.height);
 
-    // Z-sort key: matches the chair/character "row boundary" formula.
-    // pet.y is the pixel center, so + TILE_SIZE/2 lifts us to the row's bottom edge.
-    const petZY = pet.y + TILE_SIZE / 2;
-
     drawables.push({
-      zY: petZY,
+      zY: petZSortY(pet),
       draw: (c) => {
         c.drawImage(cached, drawX, drawY);
       },

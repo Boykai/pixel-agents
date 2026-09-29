@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { AGENT_NICKNAME_MAX_LENGTH } from '../../../core/src/constants.js';
 import { normalizeNickname } from '../../../core/src/normalizeNickname.js';
-import { BOTTOM_TOOLBAR_CLEARANCE_VAR } from '../constants.js';
+import { BOTTOM_TOOLBAR_CLEARANCE_VAR, BOTTOM_TOOLBAR_INLINE_CLEARANCE_VAR } from '../constants.js';
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js';
 import type { ProviderSettings } from '../providerState.js';
 import { isBrowserRuntime } from '../runtime.js';
@@ -52,8 +52,9 @@ export function BottomToolbar({
   const pendingBypassRef = useRef(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
-  // Publish where the toolbar's top edge sits, so the surfaces stacked above
-  // it move up when a narrow window wraps it onto more rows.
+  // Publish where the toolbar's top and right edges sit, so the surfaces
+  // stacked above it move up when a narrow window wraps it onto more rows, and
+  // the ones beside it can tell when a narrower window brings them together.
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     const root = toolbar?.parentElement;
@@ -61,13 +62,19 @@ export function BottomToolbar({
     const publish = () => {
       const clearance = root.clientHeight - toolbar.offsetTop;
       root.style.setProperty(BOTTOM_TOOLBAR_CLEARANCE_VAR, `${clearance}px`);
+      const inlineClearance = root.clientWidth - (toolbar.offsetLeft + toolbar.offsetWidth);
+      root.style.setProperty(BOTTOM_TOOLBAR_INLINE_CLEARANCE_VAR, `${inlineClearance}px`);
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(toolbar);
+    // A single-row toolbar keeps its size while the window narrows, and the
+    // gap to its right edge shrinks all the same.
+    observer.observe(root);
     return () => {
       observer.disconnect();
       root.style.removeProperty(BOTTOM_TOOLBAR_CLEARANCE_VAR);
+      root.style.removeProperty(BOTTOM_TOOLBAR_INLINE_CLEARANCE_VAR);
     };
   }, []);
 

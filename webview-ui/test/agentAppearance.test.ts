@@ -60,6 +60,22 @@ test('a costume change dresses the agent and every one of its sub-agents', () =>
   assert.deepEqual(look(os, os.addSubagent(1, 'tool-c')), { palette: 3, hueShift: 45 });
 });
 
+test("another client's costume change dresses the agent's sub-agents here too", () => {
+  // A second client learns of the change through agentAppearance. Its basic
+  // Subtask (created on agentToolStart) and a watched background spawn
+  // (created lazily on subagentToolStart) both come from addSubagent.
+  const os = new OfficeState(floorLayout());
+  os.addAgent(1, 0, 0, undefined, true);
+  const subtask = os.addSubagent(1, 'task-tool');
+  const watchedSpawn = os.addSubagent(1, 'background-spawn');
+
+  reconcileAgentAppearance(os, [], 1, 4, 120);
+
+  assert.deepEqual(look(os, 1), { palette: 4, hueShift: 120 });
+  assert.deepEqual(look(os, subtask), { palette: 4, hueShift: 120 });
+  assert.deepEqual(look(os, watchedSpawn), { palette: 4, hueShift: 120 });
+});
+
 test('an unchanged costume, an unknown id, or a sub-agent id changes nothing', () => {
   const os = new OfficeState(floorLayout());
   os.addAgent(1, 2, 30, undefined, true);

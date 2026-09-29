@@ -152,7 +152,7 @@ What an agent's session has used so far, in the units its CLI records: input, ou
 _Avoid_: context usage (that is the context gauge), cost, spend, billing
 
 **Usage panel**:
-The panel opened from the toolbar's "Usage" button, listing every agent's token usage and the office-wide totals.
+The panel opened from the toolbar's "Usage" button, listing the token usage of every agent the office shows, and the totals across them.
 _Avoid_: dashboard, stats panel
 
 ## Achievements

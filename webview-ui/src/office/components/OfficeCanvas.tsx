@@ -33,6 +33,7 @@ import {
   isRotatable,
   isSignType,
 } from '../layout/furnitureCatalog.js';
+import { centeringPan } from '../projection.js';
 import { EditTool, TILE_SIZE } from '../types.js';
 import { computeNormalModeCursor } from './officeCanvasCursor.js';
 
@@ -286,11 +287,11 @@ export function OfficeCanvas({
         const cameraFocus =
           followCh ?? officeState.getFollowedPet() ?? officeState.greeterCameraTarget;
         if (cameraFocus) {
-          const layout = officeState.getLayout();
-          const mapW = layout.cols * TILE_SIZE * zoom;
-          const mapH = layout.rows * TILE_SIZE * zoom;
-          const targetX = mapW / 2 - cameraFocus.x * zoom;
-          const targetY = mapH / 2 - cameraFocus.y * zoom;
+          const { x: targetX, y: targetY } = centeringPan(
+            officeState.getLayout(),
+            cameraFocus,
+            zoom,
+          );
           const dx = targetX - panRef.current.x;
           const dy = targetY - panRef.current.y;
           if (

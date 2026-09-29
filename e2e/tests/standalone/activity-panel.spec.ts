@@ -13,7 +13,7 @@ import {
 import { enterEditMode } from '../../helpers/editor';
 import { arrangeNextClaudeInvocation, claudeScenario } from '../../helpers/mock-claude';
 import { copilotScenario } from '../../helpers/mock-copilot';
-import { renameAgent } from '../../helpers/nicknames';
+import { openAgentDetails, renameAgent } from '../../helpers/nicknames';
 import { buildAssistantToolUseRecord } from '../../helpers/team';
 import { openSettingsModal, setSettings } from '../../helpers/webview';
 
@@ -31,6 +31,18 @@ function expectInsideNarrowViewport(box: Box | null): asserts box is Box {
 
 function overlaps(a: Box, b: Box): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** The toolbar buttons the "Updated to vX" notice covers, by label. */
+async function toolbarButtonsUnderNotice(page: Page): Promise<string[]> {
+  const noticeBox = await page.getByTestId('whats-new-notice').boundingBox();
+  if (!noticeBox) return ['(no notice)'];
+  const covered: string[] = [];
+  for (const button of await page.getByTestId('bottom-toolbar').getByRole('button').all()) {
+    const box = await button.boundingBox();
+    if (!box || overlaps(noticeBox, box)) covered.push((await button.textContent()) ?? '');
+  }
+  return covered;
 }
 
 /** scrollLeft/scrollTop of every box that could scroll the office sideways. */
@@ -175,6 +187,12 @@ test.describe('Standalone / Activity panel', () => {
       { kind: 'subagent', label: 'Research project labels', activity: 'Thinking…' },
       { kind: 'agent', label: 'Pick a fixture', activity: 'Waiting for input' },
     ]);
+    // So do the Sub-agent's details, in their Parent fact.
+    await subRow.click();
+    const subDetails = await openAgentDetails(page, -1);
+    await expect(
+      subDetails.locator('dt', { hasText: 'Parent' }).locator('xpath=following-sibling::dd[1]'),
+    ).toHaveText('Scout');
     await renameAgent(page, leadId, '');
     await expectActivityRows(page, [
       {
@@ -235,6 +253,44 @@ test.describe('Standalone / Activity panel', () => {
     expectInsideNarrowViewport(versionLabelBox);
     expect(overlaps(toolbarBox, versionLabelBox)).toBe(false);
     await testInfo.attach('activity-panel-narrow', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+
+  test('keeps the version notice clear of the toolbar buttons as the window narrows @area:standalone', async ({
+    page,
+    standalone,
+  }, testInfo) => {
+    await standalone.drainMessages();
+    // A fresh HOME has never seen this version, so the notice shows for its
+    // first 20 s. It rests 42px up in the bottom-right corner, and has to
+    // stack above the toolbar wherever a narrower window brings the two
+    // together: a single-row toolbar at mid widths as well as a wrapped one.
+    const notice = page.getByTestId('whats-new-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('Updated to v');
+    const toolbarButtons = page.getByTestId('bottom-toolbar').getByRole('button');
+    // Layout, Activity, Usage and Settings at least.
+    expect(await toolbarButtons.count()).toBeGreaterThanOrEqual(4);
+
+    const { height } = page.viewportSize()!;
+    await expect
+      .poll(async () => {
+        const box = await notice.boundingBox();
+        return box && Math.round(height - (box.y + box.height));
+      })
+      .toBe(42);
+    expect(await toolbarButtonsUnderNotice(page)).toEqual([]);
+
+    for (const width of [720, 600, 480, NARROW_VIEWPORT.width]) {
+      await page.setViewportSize({ width, height: NARROW_VIEWPORT.height });
+      await expect
+        .poll(() => toolbarButtonsUnderNotice(page), { message: `notice at ${width}px wide` })
+        .toEqual([]);
+    }
+    expectInsideNarrowViewport(await notice.boundingBox());
+    await testInfo.attach('version-notice-narrow', {
       body: await page.screenshot(),
       contentType: 'image/png',
     });

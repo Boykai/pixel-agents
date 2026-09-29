@@ -25,6 +25,7 @@ import {
   SIGN_TYPE,
 } from '../src/constants.js';
 import { getWallPlacementRow } from '../src/office/editor/editorActions.js';
+import { petZSortY } from '../src/office/engine/petEntity.js';
 import { drawLayerDepth, normalizeZLayer } from '../src/office/layout/drawLayer.js';
 import { getCatalogEntry, getFurnitureEntry } from '../src/office/layout/furnitureCatalog.js';
 import {
@@ -59,6 +60,11 @@ function zOf(furniture: PlacedFurniture[], uid: string): number {
 function characterZY(row: number): number {
   const centerY = row * TILE_SIZE + TILE_SIZE / 2;
   return centerY + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
+}
+
+/** Pet sort key, as renderer.ts computes it for a Pet standing on `row`. */
+function petZY(row: number): number {
+  return petZSortY({ y: row * TILE_SIZE + TILE_SIZE / 2 });
 }
 
 /** The pre-4db21f3 rule (depth from sprite height, not footprint), kept verbatim for comparison. */
@@ -301,4 +307,29 @@ test('an item brought forward covers the row in front of it but not the Characte
   assert.ok(zY > zOf([pot, neighbour], 'n'), 'in front of furniture one row down');
   assert.ok(zY > characterZY(3), 'in front of a Character on its own row');
   assert.ok(zY < characterZY(4), 'behind a Character one row down');
+});
+
+test('Pets sort against Draw layers as Characters do, and behind a Character at their depth', () => {
+  const pot: PlacedFurniture = { uid: 'pot', type: 'POT', col: 2, row: 3, zLayer: 1 };
+  const neighbour: PlacedFurniture = { uid: 'n', type: 'POT', col: 2, row: 4 };
+  assert.ok(zOf([pot, neighbour], 'pot') > petZY(3), 'in front of a Pet on its own row');
+  // A Pet one row down stays in front, like a Character there (it used to sort at the
+  // bare row edge, so the tie-break drew the item over its head).
+  assert.ok(zOf([pot, neighbour], 'pot') < petZY(4), 'behind a Pet one row down');
+  assert.ok(zOf([pot, neighbour], 'n') < petZY(4), 'behind a Pet on its own row, unlayered');
+
+  // A desk brought forward onto a Pet's row stays behind it, and so does the coffee on it.
+  const desk: PlacedFurniture = { uid: 'desk', type: 'DESK_FRONT', col: 2, row: 2, zLayer: 1 };
+  const coffee: PlacedFurniture = { uid: 'coffee', type: 'COFFEE', col: 3, row: 3 };
+  assert.ok(zOf([desk, coffee], 'desk') < petZY(4));
+  assert.ok(zOf([desk, coffee], 'coffee') < petZY(4));
+
+  // Sent backward, an item goes behind a Pet on the row it moved onto.
+  const sentBack: PlacedFurniture = { uid: 'back', type: 'POT', col: 2, row: 4, zLayer: -1 };
+  assert.ok(zOf([sentBack], 'back') < petZY(3));
+  assert.ok(zOf([sentBack], 'back') > petZY(2));
+
+  for (let row = 0; row < 8; row++) {
+    assert.ok(petZY(row) < characterZY(row), `a Character on row ${row} is in front of a Pet`);
+  }
 });

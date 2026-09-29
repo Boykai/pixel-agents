@@ -49,10 +49,20 @@ test.describe('Standalone / Reset to Default', () => {
     expect(bundledDefault.furniture.length).toBeGreaterThan(0);
 
     const mine = buildSeedLayout({ cols: 12, rows: 12 });
-    mine.furniture = [{ uid: 'mine-1', type: 'POT', col: 2, row: 2 }];
+    // A Sign on a Draw layer goes through Reset and Undo like any other item.
+    const sign = {
+      uid: 'mine-sign',
+      type: 'PIXEL_TEXT',
+      col: 4,
+      row: 4,
+      zLayer: 1,
+      text: { value: 'Hello', color: '#FFFFFF', size: '3x5', scale: 1 },
+    };
+    mine.furniture = [{ uid: 'mine-1', type: 'POT', col: 2, row: 2 }, sign];
     await importLayout(page, mine);
     const imported = await exportLayout(page);
     expect(imported).not.toEqual(bundledDefault);
+    expect(imported.furniture).toContainEqual(expect.objectContaining(sign));
 
     await enterEditMode(page.mainFrame());
 

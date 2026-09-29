@@ -21,6 +21,7 @@ import {
   PET_WANDER_PAUSE_MAX_SEC,
   PET_WANDER_PAUSE_MIN_SEC,
   PET_WANDER_ROLL_MAX,
+  PET_Z_SORT_OFFSET,
 } from '../../constants.js';
 import { findPath, isWalkable } from '../layout/tileMap.js';
 import type { PetSpriteFrames } from '../sprites/petSpriteData.js';
@@ -565,6 +566,15 @@ export function updatePet(
       break;
     }
   }
+}
+
+/**
+ * The Pet's depth (zY) in the renderer's painter's order: the bottom edge of the row it
+ * stands on (pet.y is the tile center), PET_Z_SORT_OFFSET in. So, like a Character, it
+ * stays in front of anything a Draw layer brings forward onto its row.
+ */
+export function petZSortY(pet: Pick<Pet, 'y'>): number {
+  return pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET;
 }
 
 /**

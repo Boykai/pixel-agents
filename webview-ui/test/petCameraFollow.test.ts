@@ -3,7 +3,8 @@
  *
  * Covers clickPet toggling the follow together with the heart bubble, its
  * mutual exclusion with agent selection and agent follow, getFollowedPet, and
- * the follow ending when its pet leaves the layout. The canvas gestures that
+ * the follow ending when its pet leaves the layout, plus the centering both
+ * follows share (`centeringPan`) at every zoom level. The canvas gestures that
  * also end it (pans, empty-space clicks, entering the Layout editor) live in
  * OfficeCanvas / useEditorActions and are covered by e2e (pets.spec.ts).
  *
@@ -14,7 +15,9 @@ import assert from 'node:assert/strict';
 
 import { afterEach, beforeEach, test } from 'vitest';
 
+import { ZOOM_MAX, ZOOM_MIN } from '../src/constants.js';
 import { OfficeState } from '../src/office/engine/officeState.js';
+import { centeringPan, mapOffset } from '../src/office/projection.js';
 import { setPetTemplates } from '../src/office/sprites/petSpriteData.js';
 import type { OfficeLayout } from '../src/office/types.js';
 import { TileType } from '../src/office/types.js';
@@ -107,4 +110,32 @@ test('a layout rebuild without the followed pet ends the follow; one that keeps 
   assert.equal(os.cameraFollowPetId, 'rex');
   os.rebuildFromLayout(layoutWithPets('tom'));
   assert.equal(os.cameraFollowPetId, null);
+});
+
+test('a follow puts its Pet or Character at the canvas center at every zoom', () => {
+  const os = new OfficeState(layoutWithPets('rex'));
+  os.addAgent(1);
+  os.clickPet('rex');
+  const layout = os.getLayout();
+  const focuses = { pet: os.getFollowedPet()!, character: os.characters.get(1)! };
+  // An odd canvas size exercises the floor() in the map offset.
+  const canvas = { width: 1001, height: 677 };
+  for (const [name, focus] of Object.entries(focuses)) {
+    for (let zoom = ZOOM_MIN; zoom <= ZOOM_MAX; zoom++) {
+      const pan = centeringPan(layout, focus, zoom);
+      const { offsetX, offsetY } = mapOffset(
+        canvas.width,
+        canvas.height,
+        layout.cols,
+        layout.rows,
+        zoom,
+        pan.x,
+        pan.y,
+      );
+      const dx = offsetX + focus.x * zoom - canvas.width / 2;
+      const dy = offsetY + focus.y * zoom - canvas.height / 2;
+      assert.ok(Math.abs(dx) <= 1, `${name} is ${dx}px off center horizontally at zoom ${zoom}`);
+      assert.ok(Math.abs(dy) <= 1, `${name} is ${dy}px off center vertically at zoom ${zoom}`);
+    }
+  }
 });

@@ -53,6 +53,10 @@
   --bottom-toolbar-clearance: 71px;
   /* Gap between the BottomToolbar and a surface stacked above it. */
   --bottom-toolbar-stack-gap: 5px;
+  /* BottomToolbar inline clearance: distance from the app root's right edge
+     to the toolbar's right edge, republished by BottomToolbar. The default
+     leaves a surface beside the toolbar at rest while no toolbar is mounted. */
+  --bottom-toolbar-inline-clearance: 9999px;
 }
 
 @theme inline {
@@ -121,6 +125,29 @@
      toolbar), so a toolbar wrapped onto more rows pushes it up. */
   .above-bottom-toolbar {
     bottom: calc(var(--bottom-toolbar-clearance) + var(--bottom-toolbar-stack-gap));
+  }
+
+  /* Anchored at the bottom right, beside the BottomToolbar (the version
+     notice): rests 42px up while the toolbar ends a stack gap short of it, and
+     stacks above the toolbar once a narrower window brings the two together.
+     The surface publishes --beside-bottom-toolbar-reach, the distance from the
+     app root's right edge to its own left edge. The reach and the inline
+     clearance are whole pixels, so the x10000 turns any overlap into a step
+     past the stacked position. */
+  .beside-bottom-toolbar {
+    bottom: max(
+      42px,
+      min(
+        calc(var(--bottom-toolbar-clearance) + var(--bottom-toolbar-stack-gap)),
+        calc(
+          (
+              var(--beside-bottom-toolbar-reach, 0px) + var(--bottom-toolbar-stack-gap) -
+                var(--bottom-toolbar-inline-clearance)
+            ) *
+            10000
+        )
+      )
+    );
   }
 
   /* A panel's height stops short of the BottomToolbar, leaving 20px at the

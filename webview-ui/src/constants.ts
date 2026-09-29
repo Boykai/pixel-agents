@@ -39,6 +39,12 @@ export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
 export const CHARACTER_SITTING_OFFSET_PX = 6;
 export const CHARACTER_Z_SORT_OFFSET = 0.5;
 export const OUTLINE_Z_SORT_OFFSET = 0.001;
+/**
+ * How far into its row a Pet sorts. Like CHARACTER_Z_SORT_OFFSET it must pass what a
+ * Draw layer moves onto that row (DRAW_LAYER_TIE_BREAK, plus DRAW_LAYER_SURFACE_OFFSET
+ * for the items on a layered desk), yet it stays behind a Character at the same depth.
+ */
+export const PET_Z_SORT_OFFSET = 0.4375;
 export const SELECTED_OUTLINE_ALPHA = 1.0;
 export const HOVERED_OUTLINE_ALPHA = 0.5;
 /** Headless agents (adopted, no terminal to focus) render slightly translucent. */
@@ -293,6 +299,14 @@ export const ACTIVITY_PANEL_INDENT_PX = 16;
  *  when a narrow window wraps the toolbar onto more rows, and the surfaces
  *  stacked above the toolbar (see `.above-bottom-toolbar` in index.css) follow. */
 export const BOTTOM_TOOLBAR_CLEARANCE_VAR = '--bottom-toolbar-clearance';
+/** CSS custom property the BottomToolbar publishes on the app root: the
+ *  distance from the root's right edge to the toolbar's right edge. A surface
+ *  anchored beside the toolbar (see `.beside-bottom-toolbar` in index.css)
+ *  compares it with its own reach to tell whether the two would overlap. */
+export const BOTTOM_TOOLBAR_INLINE_CLEARANCE_VAR = '--bottom-toolbar-inline-clearance';
+/** CSS custom property a `.beside-bottom-toolbar` surface publishes on itself:
+ *  the distance from the app root's right edge to the surface's left edge. */
+export const BESIDE_BOTTOM_TOOLBAR_REACH_VAR = '--beside-bottom-toolbar-reach';
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
@@ -344,8 +358,10 @@ export const MOOD_TICK_INTERVAL_MS = 1_000;
 export const ACHIEVEMENT_POPUP_DURATION_MS = 4_000;
 /** The popup's fade-and-slide out; the next queued popup shows after it. */
 export const ACHIEVEMENT_POPUP_FADE_MS = 300;
-/** Above the side panels (Usage z-20, Activity z-44), below the modal stack
- *  (ui/Modal 50+), so a popup never covers a dialog the user is working in. */
+/** Above the side panels (Usage z-20, Activity z-44), below the Intro bubble
+ *  (INTRO_BUBBLE_Z_INDEX) and the modal stack (ui/Modal 50+), so a popup never
+ *  covers a dialog the user is working in. It is click-through, so where it
+ *  does overlap something, nothing under it loses a click. */
 export const ACHIEVEMENT_POPUP_Z_INDEX = 45;
 /** The gallery opens from Settings (ui/Modal default 50), so it stacks above it. */
 export const ACHIEVEMENT_GALLERY_Z_INDEX = 52;
@@ -357,8 +373,10 @@ export const GREETER_ID = -1_000_000_000;
 /** Stacking order for the Intro's bubble. Deliberately BELOW the modal stack
  *  (ui/Modal defaults to 50, ChangelogModal 51, the migration notice z-100): the
  *  Intro is diegetic furniture over the office, not a modal, so a modal opened
- *  on top of it must cover it rather than slide underneath. */
-export const INTRO_BUBBLE_Z_INDEX = 45;
+ *  on top of it must cover it rather than slide underneath. Above the
+ *  Achievement popup (45): First Agent can unlock mid-tour, and in a short or
+ *  narrow panel the two meet, so the consent step's disclosure stays readable. */
+export const INTRO_BUBBLE_Z_INDEX = 46;
 /** The greeter stands this many tiles in from the office's bottom-left corner
  *  (target tile (margin, rows-1-margin); nearest walkable tile if blocked). */
 export const GREETER_TILE_MARGIN = 3;
@@ -424,6 +442,10 @@ export const TOKEN_USAGE_CACHE_READ_COLOR = '#9a6adf';
 export const TOKEN_USAGE_BAR_BG = 'rgba(255, 255, 255, 0.06)';
 /** Breakdown-bar segments smaller than this share of the total (%) are not drawn. */
 export const TOKEN_USAGE_MIN_SEGMENT_PERCENT = 0.5;
+/** How often the open Usage panel re-reads OfficeState for its rows' names and
+ *  visibility: agentMetadata (a rename made in another client) and
+ *  agentObservation update OfficeState alone and re-render nothing. */
+export const USAGE_PANEL_REFRESH_MS = 500;
 
 // ── Agent Teams ─────────────────────────────────────────────
 export const TEAM_LEAD_COLOR = '#ffd700';

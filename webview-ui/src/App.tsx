@@ -364,6 +364,16 @@ function App() {
       ? officeState.characters.get(costumeAgentId)
       : undefined;
 
+  // Escape goes to the topmost surface that handles it, one surface per press.
+  // A modal covers the Costume panel, so the panel stands down under one; the
+  // reset confirmation (in the editor toolbar, lower still) yields to the Sign
+  // editor and to a Costume panel that takes the press.
+  const signEditorOpen = editor.isEditMode && editorState.isSignEditorOpen();
+  const costumeCovered =
+    isSettingsOpen || isChangelogOpen || isHooksInfoOpen || showMigrationNotice || signEditorOpen;
+  const resetEscapeSuppressed =
+    signEditorOpen || (costumeCharacter !== undefined && !costumeCovered);
+
   // Merged set of folders the Areas dropdown can map: real workspace folders plus
   // every distinct folder an agent has run in this session (deduped by name; name
   // is the areaMappings key / seat-bias identity, path is only the React list key).
@@ -518,6 +528,7 @@ function App() {
                   roomFeedback={editor.roomFeedback}
                   onResetToDefault={() => editor.handleResetToDefault(defaultLayout)}
                   canResetToDefault={defaultLayout !== null}
+                  resetEscapeSuppressed={resetEscapeSuppressed}
                   activeTool={editorState.activeTool}
                   selectedTileType={editorState.selectedTileType}
                   selectedFurnitureType={editorState.selectedFurnitureType}
@@ -618,6 +629,7 @@ function App() {
               onSelect={handleCostumeSelect}
               onRename={handleCostumeRename}
               onClose={handleCloseCostume}
+              escapeSuppressed={costumeCovered}
             />
           )}
         </>
