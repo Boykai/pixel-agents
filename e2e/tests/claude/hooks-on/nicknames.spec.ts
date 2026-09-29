@@ -22,9 +22,21 @@ test.describe('Hooks ON / nicknames', () => {
       claudeScenario('nicknamed launch').holdOpenFor(60_000).build(),
     );
 
-    narrator.step(`typing "${NICKNAME}" into the optional nickname field of the + Agent menu`);
-    await frame.locator('button', { hasText: '+ Agent' }).hover();
+    narrator.step('reaching the nickname field from the keyboard alone');
+    const agentButton = frame.locator('button', { hasText: '+ Agent' });
     const nicknameField = frame.getByRole('textbox', { name: 'Agent nickname' });
+    await agentButton.focus();
+    await expect(nicknameField).toBeVisible();
+    await agentButton.press('Tab');
+    await expect(nicknameField).toBeFocused();
+    narrator.check('focusing + Agent opens its menu, and Tab lands in the nickname field');
+    await nicknameField.press('Escape');
+    await expect(nicknameField).toBeHidden();
+    await expect(agentButton).toBeFocused();
+    narrator.check('Escape closes the menu and hands focus back to + Agent');
+
+    narrator.step(`typing "${NICKNAME}" into the optional nickname field of the + Agent menu`);
+    await agentButton.hover();
     await expect(nicknameField).toBeVisible();
     await nicknameField.fill(NICKNAME);
     // The "+ Agent" click takes the typed nickname with it.

@@ -1,3 +1,4 @@
+import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
 import { AGENT_NICKNAME_MAX_LENGTH } from '../../../core/src/constants.js';
@@ -42,6 +43,7 @@ export function BottomToolbar({
   const [isNicknameFocused, setIsNicknameFocused] = useState(false);
   const providerId = chosenProvider ?? launchProvider;
   const folderPickerRef = useRef<HTMLDivElement>(null);
+  const agentButtonRef = useRef<HTMLButtonElement>(null);
   const pendingBypassRef = useRef(false);
   // Close folder picker / bypass menu on outside click
   useEffect(() => {
@@ -88,7 +90,42 @@ export function BottomToolbar({
     }
   };
 
+  /**
+   * Hand focus back to + Agent before closing a menu that holds it, so a
+   * keyboard user keeps their place instead of dropping to the page.
+   */
+  const focusAgentButton = () => agentButtonRef.current?.focus();
+
+  // Keyboard users reach the menu by focus, as pointer users do by hover.
+  const handleAgentFocus = (e: ReactFocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) handleAgentHover();
+  };
+
+  // Focus moving on to another control closes the menus, like a click outside.
+  const handleAgentBlur = (e: ReactFocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) {
+      setIsFolderPickerOpen(false);
+      setIsBypassMenuOpen(false);
+    }
+  };
+
+  /** Escape: drop the menus and the typed nickname, back on + Agent. */
+  const dismissMenus = () => {
+    focusAgentButton();
+    setNickname('');
+    setIsFolderPickerOpen(false);
+    setIsBypassMenuOpen(false);
+  };
+
+  const handleAgentKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' && (isBypassMenuOpen || isFolderPickerOpen)) {
+      e.stopPropagation();
+      dismissMenus();
+    }
+  };
+
   const handleFolderSelect = (folder: WorkspaceFolder) => {
+    focusAgentButton();
     setIsFolderPickerOpen(false);
     const bypassPermissions = pendingBypassRef.current;
     pendingBypassRef.current = false;
@@ -102,6 +139,7 @@ export function BottomToolbar({
   };
 
   const handleBypassSelect = (bypassPermissions: boolean) => {
+    focusAgentButton();
     setIsBypassMenuOpen(false);
     if (hasMultipleFolders) {
       pendingBypassRef.current = bypassPermissions;
@@ -120,6 +158,9 @@ export function BottomToolbar({
           className="relative"
           onMouseEnter={handleAgentHover}
           onMouseLeave={handleAgentLeave}
+          onFocus={handleAgentFocus}
+          onBlur={handleAgentBlur}
+          onKeyDown={handleAgentKeyDown}
         >
           {providers.length > 1 && (
             <select
@@ -137,6 +178,7 @@ export function BottomToolbar({
             </select>
           )}
           <Button
+            ref={agentButtonRef}
             variant="accent"
             onClick={handleAgentClick}
             className={
@@ -162,10 +204,10 @@ export function BottomToolbar({
                 e.stopPropagation();
                 if (e.key === 'Enter') {
                   e.preventDefault();
+                  focusAgentButton();
                   handleAgentClick();
                 } else if (e.key === 'Escape') {
-                  setNickname('');
-                  setIsBypassMenuOpen(false);
+                  dismissMenus();
                 }
               }}
               className="block w-full mb-4 text-sm py-2 px-6 bg-bg-dark border-2 border-border rounded-none text-text"
