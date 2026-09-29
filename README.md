@@ -3,7 +3,9 @@
 This fork of [pixel-agents-hq/pixel-agents][base] (the **base**) imports most of the features of
 the community fork [hootbu/pixel-agents][hootbu] (**hootbu**) and adds GitHub Copilot support and
 room generation. The imported features were rebuilt on the base's current architecture, not copied
-over, so they also work in the standalone browser app and with GitHub Copilot agents.
+over. Those that involve agents cover GitHub Copilot agents too. All of them work in the standalone
+browser app as well, except the two that are part of VS Code itself: the status bar shortcuts and
+the retained panel. Standalone doesn't launch agents, so there you name an agent by renaming it.
 
 The comparison covers base [v1.4.1][base-v141], which this fork builds on; hootbu's `main` at
 [a6c4d85][hootbu-v130], hootbu's own release 1.3.0; and this fork's `main`. hootbu forked from the
@@ -200,7 +202,8 @@ To use Claude with `--dangerously-skip-permissions`, hover over **+ Agent** to f
 Pixel Agents also detects Claude sessions started outside the extension. Turn on **Settings → Watch All Sessions** to include sessions from other workspaces.
 
 For Copilot, set `pixel-agents.providers` to `["copilot"]` or `["claude", "copilot"]`.
-Set `pixel-agents.launchProvider` to choose which CLI **+ Agent** launches.
+Set `pixel-agents.launchProvider` to choose which CLI **+ Agent** and the status bar's **Agent**
+shortcut launch.
 Copilot launches require the `copilot` executable on PATH; observing existing
 local App sessions does not. Claude's permission-bypass option is not applied to Copilot.
 
