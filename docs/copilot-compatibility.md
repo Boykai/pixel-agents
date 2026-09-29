@@ -100,8 +100,10 @@ These distinctions are essential to avoid false status and missing characters:
   child identity. Display names and agent types are not unique identities.
 - `tool.execution_complete` with `success: false`, and `tool.execution_failed`,
   report a tool that ran and failed: the tool-failure signal behind the error
-  Mood. A completion without an explicit `success: false` is a success. Tool
-  hooks are not installed (see above), so failures come only from transcripts.
+  Mood. A completion without an explicit `success: false` does not carry the
+  failure signal; its outcome is a success or unknown, never a confirmed
+  success. Tool hooks are not installed (see above), so failures come only from
+  transcripts.
 - `session.usage_checkpoint` contains spend/checkpoint information, not a current
   context-window percentage. Do not sum it into a context gauge.
 - `session.usage_checkpoint` and `session.shutdown` carry whole-session totals
