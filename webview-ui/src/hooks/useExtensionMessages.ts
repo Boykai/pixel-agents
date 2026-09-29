@@ -257,7 +257,16 @@ export function useExtensionMessages(
     const achievementQueue = new AchievementPopupQueue({
       durationMs: ACHIEVEMENT_POPUP_DURATION_MS,
       fadeMs: ACHIEVEMENT_POPUP_FADE_MS,
-      onChange: setAchievementPopup,
+      onChange: (popup) => {
+        if (isE2E && popup && !popup.leaving && typeof window !== 'undefined') {
+          if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
+          if (!window.__pixelAgentsTestHooks.achievementPopupLog) {
+            window.__pixelAgentsTestHooks.achievementPopupLog = [];
+          }
+          window.__pixelAgentsTestHooks.achievementPopupLog.push({ id: popup.id, at: Date.now() });
+        }
+        setAchievementPopup(popup);
+      },
     });
     achievementQueueRef.current = achievementQueue;
 
