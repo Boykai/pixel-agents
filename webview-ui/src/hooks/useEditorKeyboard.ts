@@ -18,6 +18,9 @@ export function useEditorKeyboard(
   useEffect(() => {
     if (!isEditMode) return;
     const handler = (e: KeyboardEvent) => {
+      // The Sign editor dialog owns the keyboard while it is open (typing "r"
+      // or Backspace into a Sign must not rotate or delete the selection).
+      if (editorState.isSignEditorOpen()) return;
       if (e.key === 'Escape') {
         // Multi-stage Esc: deselect item → close tool → deselect placed → close editor
         if (editorState.activeTool === EditTool.FURNITURE_PICK) {

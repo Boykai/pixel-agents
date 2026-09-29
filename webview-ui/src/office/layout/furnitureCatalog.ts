@@ -1,4 +1,11 @@
-import type { FurnitureCatalogEntry, SpriteData } from '../types.js';
+import { SIGN_LABEL, SIGN_TYPE } from '../../constants.js';
+import {
+  getTextFootprint,
+  getTextSprite,
+  normalizeSignText,
+  SIGN_ICON_SPRITE,
+} from '../sprites/textSpriteCache.js';
+import type { FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
 
 export interface LoadedAssetData {
   catalog: Array<{
@@ -276,6 +283,11 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     if (asset.state === 'on') onStateIds.add(asset.id);
   }
 
+  // The Sign is built in, not an asset: add it to every catalog (unless an asset claims its id).
+  if (!allEntries.some((e) => e.type === SIGN_TYPE)) {
+    allEntries.push(createSignCatalogEntry());
+  }
+
   // Store full internal catalog (all variants — for getCatalogEntry lookups)
   internalCatalog = allEntries;
 
@@ -340,6 +352,54 @@ export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string 
   { id: 'wall', label: 'Wall' },
   { id: 'misc', label: 'Misc' },
 ];
+
+// ── Signs ────────────────────────────────────────────────────────
+// Ported from hootbu/pixel-agents (MIT) dd427e1 (getEffectiveCatalogEntry).
+
+/** The built-in Sign entry. Its 1×1 icon stands in until the Sign has text. */
+function createSignCatalogEntry(): CatalogEntryWithCategory {
+  return {
+    type: SIGN_TYPE,
+    label: SIGN_LABEL,
+    footprintW: 1,
+    footprintH: 1,
+    sprite: SIGN_ICON_SPRITE,
+    isDesk: false,
+    category: 'decor',
+  };
+}
+
+export function isSignType(type: string): boolean {
+  return type === SIGN_TYPE;
+}
+
+/**
+ * The catalog entry as placed: a Sign with text gets its text sprite and a
+ * footprint derived from that sprite; everything else is the plain entry.
+ */
+export function getEffectiveCatalogEntry(
+  type: string,
+  text?: unknown,
+): CatalogEntryWithCategory | undefined {
+  const entry = getCatalogEntry(type);
+  if (!entry || !isSignType(type)) return entry;
+  const sign = normalizeSignText(text);
+  if (!sign) return entry;
+  const footprint = getTextFootprint(sign);
+  return {
+    ...entry,
+    sprite: getTextSprite(sign),
+    footprintW: footprint.w,
+    footprintH: footprint.h,
+  };
+}
+
+/** Effective catalog entry of a placed item — use this wherever its sprite or footprint matters. */
+export function getFurnitureEntry(
+  item: Pick<PlacedFurniture, 'type' | 'text'>,
+): CatalogEntryWithCategory | undefined {
+  return getEffectiveCatalogEntry(item.type, item.text);
+}
 
 // ── Rotation helpers ─────────────────────────────────────────────
 

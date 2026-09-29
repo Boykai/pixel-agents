@@ -22,6 +22,10 @@ import {
   CHARACTER_SITTING_OFFSET_PX,
   CHARACTER_Z_SORT_OFFSET,
   DELETE_BUTTON_BG,
+  DRAW_LAYER_MAX,
+  DRAW_LAYER_MIN,
+  EDIT_BUTTON_BG,
+  EDITOR_BUTTON_DISABLED_ALPHA,
   FALLBACK_FLOOR_COLOR,
   GHOST_BORDER_HOVER_FILL,
   GHOST_BORDER_HOVER_STROKE,
@@ -33,6 +37,8 @@ import {
   GRID_LINE_COLOR,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
+  LAYER_BUTTON_BG,
+  LAYER_BUTTON_GAP_PX,
   OUTLINE_Z_SORT_OFFSET,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
@@ -764,6 +770,97 @@ function renderRotateButton(
   return { cx, cy, radius };
 }
 
+// Ported from hootbu/pixel-agents (MIT) 69c433f — edit (Sign) + draw-layer buttons.
+function renderEditButton(
+  ctx: CanvasRenderingContext2D,
+  col: number,
+  row: number,
+  _w: number,
+  h: number,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+): EditButtonBounds {
+  const s = TILE_SIZE * zoom;
+  // Position at bottom-left corner of the selected Sign
+  const radius = Math.max(BUTTON_MIN_RADIUS, zoom * BUTTON_RADIUS_ZOOM_FACTOR);
+  const cx = offsetX + col * s - 1;
+  const cy = offsetY + (row + h) * s + 1;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = EDIT_BUTTON_BG;
+  ctx.fill();
+
+  // Pencil icon (simplified): diagonal shaft + a small base tick
+  ctx.strokeStyle = BUTTON_ICON_COLOR;
+  ctx.lineWidth = Math.max(BUTTON_LINE_WIDTH_MIN, zoom * BUTTON_LINE_WIDTH_ZOOM_FACTOR);
+  ctx.lineCap = 'round';
+  const iconSize = radius * BUTTON_ICON_SIZE_FACTOR;
+  ctx.beginPath();
+  ctx.moveTo(cx - iconSize, cy + iconSize);
+  ctx.lineTo(cx + iconSize, cy - iconSize);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - iconSize, cy + iconSize);
+  ctx.lineTo(cx - iconSize * 0.4, cy + iconSize * 0.4);
+  ctx.stroke();
+  ctx.restore();
+
+  return { cx, cy, radius };
+}
+
+/**
+ * Bring-forward (up arrow, on the bottom-right corner) or send-backward (down
+ * arrow, stacked below it). Dimmed when the item is already at that end of the
+ * Draw layer range.
+ */
+function renderLayerButton(
+  ctx: CanvasRenderingContext2D,
+  col: number,
+  row: number,
+  w: number,
+  h: number,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+  direction: 'forward' | 'backward',
+  enabled: boolean,
+): LayerButtonBounds {
+  const s = TILE_SIZE * zoom;
+  const radius = Math.max(BUTTON_MIN_RADIUS, zoom * BUTTON_RADIUS_ZOOM_FACTOR);
+  const cx = offsetX + (col + w) * s + 1;
+  const cornerY = offsetY + (row + h) * s + 1;
+  const cy = direction === 'forward' ? cornerY : cornerY + radius * 2 + LAYER_BUTTON_GAP_PX;
+
+  ctx.save();
+  if (!enabled) ctx.globalAlpha = EDITOR_BUTTON_DISABLED_ALPHA;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = LAYER_BUTTON_BG;
+  ctx.fill();
+
+  ctx.strokeStyle = BUTTON_ICON_COLOR;
+  ctx.lineWidth = Math.max(BUTTON_LINE_WIDTH_MIN, zoom * BUTTON_LINE_WIDTH_ZOOM_FACTOR);
+  ctx.lineCap = 'round';
+  const iconSize = radius * BUTTON_ICON_SIZE_FACTOR;
+  // Arrow tip offset: up for forward, down for backward
+  const tip = direction === 'forward' ? -iconSize : iconSize;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - tip);
+  ctx.lineTo(cx, cy + tip);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - iconSize * 0.7, cy + tip * 0.3);
+  ctx.lineTo(cx, cy + tip);
+  ctx.lineTo(cx + iconSize * 0.7, cy + tip * 0.3);
+  ctx.stroke();
+  ctx.restore();
+
+  return { cx, cy, radius };
+}
+
 // ── Speech bubbles ──────────────────────────────────────────────
 
 function renderBubbles(
@@ -851,6 +948,8 @@ export interface ButtonBounds {
 
 export type DeleteButtonBounds = ButtonBounds;
 export type RotateButtonBounds = ButtonBounds;
+export type EditButtonBounds = ButtonBounds;
+export type LayerButtonBounds = ButtonBounds;
 
 export interface EditorRenderState {
   showGrid: boolean;
@@ -865,10 +964,19 @@ export interface EditorRenderState {
   selectedH: number;
   hasSelection: boolean;
   isRotatable: boolean;
+  /** Whether the selected item is a Sign (shows the edit button) */
+  isSign: boolean;
+  /** Draw layer of the selected item (0 = default depth) */
+  selectedZLayer: number;
   /** Updated each frame by renderDeleteButton */
   deleteButtonBounds: DeleteButtonBounds | null;
   /** Updated each frame by renderRotateButton */
   rotateButtonBounds: RotateButtonBounds | null;
+  /** Updated each frame by renderEditButton (Signs only) */
+  editButtonBounds: EditButtonBounds | null;
+  /** Updated each frame by renderLayerButton */
+  layerForwardButtonBounds: LayerButtonBounds | null;
+  layerBackwardButtonBounds: LayerButtonBounds | null;
   /** Whether to show ghost border (expansion tiles outside grid) */
   showGhostBorder: boolean;
   /** Hovered ghost border tile col (-1 to cols) */
@@ -1041,9 +1149,48 @@ export function renderFrame(
       } else {
         editor.rotateButtonBounds = null;
       }
+      editor.editButtonBounds = editor.isSign
+        ? renderEditButton(
+            ctx,
+            editor.selectedCol,
+            editor.selectedRow,
+            editor.selectedW,
+            editor.selectedH,
+            offsetX,
+            offsetY,
+            zoom,
+          )
+        : null;
+      editor.layerForwardButtonBounds = renderLayerButton(
+        ctx,
+        editor.selectedCol,
+        editor.selectedRow,
+        editor.selectedW,
+        editor.selectedH,
+        offsetX,
+        offsetY,
+        zoom,
+        'forward',
+        editor.selectedZLayer < DRAW_LAYER_MAX,
+      );
+      editor.layerBackwardButtonBounds = renderLayerButton(
+        ctx,
+        editor.selectedCol,
+        editor.selectedRow,
+        editor.selectedW,
+        editor.selectedH,
+        offsetX,
+        offsetY,
+        zoom,
+        'backward',
+        editor.selectedZLayer > DRAW_LAYER_MIN,
+      );
     } else {
       editor.deleteButtonBounds = null;
       editor.rotateButtonBounds = null;
+      editor.editButtonBounds = null;
+      editor.layerForwardButtonBounds = null;
+      editor.layerBackwardButtonBounds = null;
     }
   }
 
