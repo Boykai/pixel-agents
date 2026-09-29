@@ -49,7 +49,7 @@ import { copyProviderHookScript } from '../../server/src/providers/index.js';
 import { PixelAgentsServer } from '../../server/src/server.js';
 import type { ActivitySource } from './activityQuickPick.js';
 import type { ActivityProviderInfo } from './activityQuickPickRows.js';
-import { SubagentActivityTracker } from './activityQuickPickRows.js';
+import { ActivityTracker } from './activityQuickPickRows.js';
 import {
   getProjectDirPath,
   launchNewTerminal,
@@ -84,8 +84,8 @@ const MAX_PENDING_BROADCASTS = 1_000;
 export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, ActivitySource {
   store = new AgentStateStore();
   webviewView: vscode.WebviewView | undefined;
-  /** Sub-agent activity for the Activity Quick Pick, replayed from the store's broadcasts. */
-  readonly subagentActivity = new SubagentActivityTracker(
+  /** The activity the office shows, replayed from the store's broadcasts for the Activity Quick Pick. */
+  readonly activityTracker = new ActivityTracker(
     (agentId) => this.store.get(agentId)?.backgroundAgentToolIds,
   );
 
@@ -151,11 +151,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
       });
     });
     this.store.on('agentRemoved', (id) => {
-      this.subagentActivity.forget(id);
+      this.activityTracker.forget(id);
       this.sendOrBuffer({ type: 'agentClosed', id });
     });
     this.store.on('broadcast', (message) => {
-      this.subagentActivity.observe(message);
+      this.activityTracker.observe(message);
       this.sendOrBuffer(message);
     });
 

@@ -4,7 +4,7 @@ import type { AgentStateStore } from '../../server/src/agentStateStore.js';
 import type {
   ActivityProviderInfo,
   ActivityQuickPickRow,
-  SubagentActivityTracker,
+  ActivityTracker,
 } from './activityQuickPickRows.js';
 import { activityQuickPickItem, buildActivityQuickPickRows } from './activityQuickPickRows.js';
 import {
@@ -17,7 +17,8 @@ import {
 /** What the Activity Quick Pick reads and drives (PixelAgentsViewProvider). */
 export interface ActivitySource {
   readonly store: AgentStateStore;
-  readonly subagentActivity: SubagentActivityTracker;
+  /** Fed every store broadcast from activation on, before any Quick Pick listens. */
+  readonly activityTracker: ActivityTracker;
   readonly activityProviders: readonly ActivityProviderInfo[];
   /** Focus the Agent's terminal, or select its Character when it has none. */
   showAgent(agentId: number): void;
@@ -41,13 +42,18 @@ export function showActivityQuickPick(source: ActivitySource): void {
   quickPick.matchOnDetail = true;
   quickPick.keepScrollPosition = true;
 
+  let shownRows: string | undefined;
   const refresh = (): void => {
-    const activeKey = quickPick.activeItems[0]?.row?.key;
     const rows = buildActivityQuickPickRows(
       source.store,
-      source.subagentActivity,
+      source.activityTracker,
       source.activityProviders,
     );
+    // Most broadcasts (context and token usage among them) change no row; leave the list be.
+    const signature = JSON.stringify(rows);
+    if (signature === shownRows) return;
+    shownRows = signature;
+    const activeKey = quickPick.activeItems[0]?.row?.key;
     const items: ActivityPickItem[] =
       rows.length > 0
         ? rows.map((row) => ({ ...activityQuickPickItem(row), row }))

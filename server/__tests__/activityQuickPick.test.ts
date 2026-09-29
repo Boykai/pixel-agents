@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activityQuickPickItem,
+  ActivityTracker,
   buildActivityQuickPickRows,
-  SubagentActivityTracker,
 } from '../../adapters/vscode/activityQuickPickRows.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
@@ -53,32 +53,31 @@ function tools(entries: Record<string, [string, string]>): Partial<AgentState> {
   };
 }
 
+/** A tool start as the store broadcasts it to the office. */
+function toolStart(id: number, toolId: string, status: string) {
+  return { type: 'agentToolStart', id, toolId, status };
+}
+
 function setup(...agents: AgentState[]) {
   const store = new AgentStateStore();
   for (const agent of agents) store.set(agent.id, agent);
-  const tracker = new SubagentActivityTracker((id) => store.get(id)?.backgroundAgentToolIds);
+  const tracker = new ActivityTracker((id) => store.get(id)?.backgroundAgentToolIds);
   const rows = () => buildActivityQuickPickRows(store, tracker, providers);
   return { store, tracker, rows };
 }
 
 describe('buildActivityQuickPickRows', () => {
   it('describes each Agent with the shared Activity label precedence', () => {
-    const { rows } = setup(
+    const { tracker, rows } = setup(
       createTestAgent({ id: 1, folderName: 'thinking' }),
       createTestAgent({ id: 2, folderName: 'idle', isWaiting: true }),
       createTestAgent({ id: 3, folderName: 'asking', isWaiting: true, awaitingInput: true }),
-      createTestAgent({
-        id: 4,
-        folderName: 'approval',
-        permissionSent: true,
-        ...tools({ t1: ['Bash', 'Running: npm test'] }),
-      }),
-      createTestAgent({
-        id: 5,
-        folderName: 'working',
-        ...tools({ t1: ['Read', 'Reading a.ts'], t2: ['Edit', 'Editing b.ts'] }),
-      }),
+      createTestAgent({ id: 4, folderName: 'approval', permissionSent: true }),
+      createTestAgent({ id: 5, folderName: 'working' }),
     );
+    tracker.observe(toolStart(4, 't1', 'Running: npm test'));
+    tracker.observe(toolStart(5, 't1', 'Reading a.ts'));
+    tracker.observe(toolStart(5, 't2', 'Editing b.ts'));
 
     expect(rows().map(({ name, activity, state }) => ({ name, activity, state }))).toEqual([
       { name: 'thinking', activity: 'Thinking…', state: 'active' },
@@ -87,6 +86,26 @@ describe('buildActivityQuickPickRows', () => {
       { name: 'approval', activity: 'Needs approval', state: 'permission' },
       { name: 'working', activity: 'Editing b.ts', state: 'active' },
     ]);
+  });
+
+  it('shows the tools the office shows, which hooks deliver before the transcript does', () => {
+    const agent = createTestAgent({ id: 1, folderName: 'app', hookDelivered: true });
+    const { tracker, rows } = setup(agent);
+    const activity = () => rows()[0].activity;
+
+    // A hook started the tool; the transcript hasn't recorded it yet.
+    tracker.observe(toolStart(1, 'hook-1', 'Running: npm test'));
+    expect(activity()).toBe('Running: npm test');
+
+    // The transcript caught up under its own tool id, then the hook ended the tool.
+    Object.assign(agent, tools({ toolu_1: ['Bash', 'Running: npm test'] }));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'hook-1' });
+    expect(activity()).toBe('Thinking…');
+
+    // Turn end.
+    agent.isWaiting = true;
+    tracker.observe({ type: 'agentToolsClear', id: 1 });
+    expect(activity()).toBe('Idle');
   });
 
   it('names an Agent like the office does, and says where it runs', () => {
@@ -317,11 +336,8 @@ describe('buildActivityQuickPickRows', () => {
       createTestAgent({ id: 2, agentName: 'tester', leadAgentId: 1, spawnToolUseId: 'promoted' }),
     );
 
-    // The promoted spawn is its Teammate's row, not the Lead's activity or a Sub-agent.
-    expect(rows().map(({ key, activity }) => ({ key, activity }))).toEqual([
-      { key: 'agent:1', activity: 'Subtask: reviewer' },
-      { key: 'agent:2', activity: 'Thinking…' },
-    ]);
+    // The promoted spawn is its Teammate's row, and the named one will be.
+    expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'agent:2']);
 
     // Once the Teammate is gone, the spawn is an ordinary Sub-agent again.
     store.delete(2);
@@ -338,6 +354,8 @@ describe('buildActivityQuickPickRows', () => {
         ...tools({ bg: ['Agent', 'Subtask: Audit'], fg: ['Agent', 'Subtask: Plan'] }),
       }),
     );
+    tracker.observe(toolStart(1, 'bg', 'Subtask: Audit'));
+    tracker.observe(toolStart(1, 'fg', 'Subtask: Plan'));
 
     expect(rows().map(({ key }) => key)).toEqual(['agent:1', 'subagent:1:fg']);
 
@@ -366,7 +384,7 @@ describe('buildActivityQuickPickRows', () => {
         ...tools({ spawn: ['task', 'Subtask: Research'] }),
       }),
     );
-    const tracker = new SubagentActivityTracker(() => undefined);
+    const tracker = new ActivityTracker(() => undefined);
 
     expect(
       buildActivityQuickPickRows(store, tracker, [claudeProvider]).map(({ key, detail }) => ({
@@ -377,7 +395,7 @@ describe('buildActivityQuickPickRows', () => {
   });
 });
 
-describe('SubagentActivityTracker', () => {
+describe('ActivityTracker', () => {
   const start = (id: number, parentToolId: string, toolId: string, status: string) => ({
     type: 'subagentToolStart',
     id,
@@ -386,58 +404,83 @@ describe('SubagentActivityTracker', () => {
     status,
   });
 
+  it('follows an Agent’s own tools until its turn ends', () => {
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'read', 'Reading a.ts'));
+    tracker.observe(toolStart(1, 'edit', 'Editing b.ts'));
+    tracker.observe(toolStart(2, 'bash', 'Running: npm test'));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'read' });
+
+    expect(tracker.agentTools(1)).toEqual([
+      { status: 'Reading a.ts', done: true },
+      { status: 'Editing b.ts', done: false },
+    ]);
+
+    tracker.observe({ type: 'agentToolsClear', id: 1 });
+    expect(tracker.agentTools(1)).toEqual([]);
+    expect(tracker.agentTools(2)).toEqual([{ status: 'Running: npm test', done: false }]);
+  });
+
   it('keeps a finished tool finished when its start is re-sent', () => {
-    const tracker = new SubagentActivityTracker(() => undefined);
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'spawn', 'Subtask: Research'));
+    tracker.observe({ type: 'agentToolDone', id: 1, toolId: 'spawn' });
+    tracker.observe(toolStart(1, 'spawn', 'Subtask: Research'));
     tracker.observe(start(1, 'spawn', 'read', 'Reading a.ts'));
     tracker.observe({ type: 'subagentToolDone', id: 1, parentToolId: 'spawn', toolId: 'read' });
     tracker.observe(start(1, 'spawn', 'read', 'Reading a.ts'));
 
-    expect(tracker.describe(1, 'spawn')).toEqual({ label: 'Thinking…', state: 'active' });
+    expect(tracker.agentTools(1)).toEqual([{ status: 'Subtask: Research', done: true }]);
+    expect(tracker.describeSubagent(1, 'spawn')).toEqual({ label: 'Thinking…', state: 'active' });
   });
 
   it('clears every spawn’s approval when the parent’s approval clears', () => {
-    const tracker = new SubagentActivityTracker(() => undefined);
+    const tracker = new ActivityTracker(() => undefined);
     tracker.observe({ type: 'subagentToolPermission', id: 1, parentToolId: 'a' });
     tracker.observe({ type: 'subagentToolPermission', id: 1, parentToolId: 'b' });
     tracker.observe({ type: 'agentToolPermissionClear', id: 1 });
 
-    expect(tracker.describe(1, 'a').state).toBe('active');
-    expect(tracker.describe(1, 'b').state).toBe('active');
+    expect(tracker.describeSubagent(1, 'a').state).toBe('active');
+    expect(tracker.describeSubagent(1, 'b').state).toBe('active');
   });
 
   it('keeps only background spawns past the parent’s turn end', () => {
-    const tracker = new SubagentActivityTracker((id) => (id === 1 ? new Set(['bg']) : undefined));
+    const tracker = new ActivityTracker((id) => (id === 1 ? new Set(['bg']) : undefined));
     tracker.observe(start(1, 'bg', 't1', 'Reading a.ts'));
     tracker.observe(start(1, 'fg', 't2', 'Reading b.ts'));
     tracker.observe(start(2, 'fg', 't3', 'Reading c.ts'));
     tracker.observe({ type: 'agentToolsClear', id: 1 });
     tracker.observe({ type: 'agentToolsClear', id: 2 });
 
-    expect(tracker.has(1, 'bg')).toBe(true);
-    expect(tracker.has(1, 'fg')).toBe(false);
-    expect(tracker.has(2, 'fg')).toBe(false);
+    expect(tracker.hasSubagentActivity(1, 'bg')).toBe(true);
+    expect(tracker.hasSubagentActivity(1, 'fg')).toBe(false);
+    expect(tracker.hasSubagentActivity(2, 'fg')).toBe(false);
   });
 
   it('drops a finished spawn and a departed Agent', () => {
-    const tracker = new SubagentActivityTracker(() => undefined);
+    const tracker = new ActivityTracker(() => undefined);
+    tracker.observe(toolStart(1, 'a', 'Subtask: Research'));
     tracker.observe(start(1, 'a', 't1', 'Reading a.ts'));
     tracker.observe(start(1, 'b', 't2', 'Reading b.ts'));
     tracker.observe({ type: 'subagentClear', id: 1, parentToolId: 'a' });
 
-    expect(tracker.has(1, 'a')).toBe(false);
-    expect(tracker.has(1, 'b')).toBe(true);
+    expect(tracker.hasSubagentActivity(1, 'a')).toBe(false);
+    expect(tracker.hasSubagentActivity(1, 'b')).toBe(true);
 
     tracker.forget(1);
-    expect(tracker.has(1, 'b')).toBe(false);
+    expect(tracker.hasSubagentActivity(1, 'b')).toBe(false);
+    expect(tracker.agentTools(1)).toEqual([]);
   });
 
   it('ignores messages it cannot place', () => {
-    const tracker = new SubagentActivityTracker(() => undefined);
+    const tracker = new ActivityTracker(() => undefined);
     tracker.observe({ type: 'subagentToolStart', id: '1', parentToolId: 'a', toolId: 't' });
     tracker.observe({ type: 'subagentToolStart', id: 1, toolId: 't', status: 'x' });
-    tracker.observe({ type: 'agentToolStart', id: 1, toolId: 't', status: 'x' });
+    tracker.observe({ type: 'agentToolStart', id: '1', toolId: 't', status: 'x' });
+    tracker.observe({ type: 'agentToolStart', id: 1, status: 'x' });
 
-    expect(tracker.has(1, 'a')).toBe(false);
+    expect(tracker.hasSubagentActivity(1, 'a')).toBe(false);
+    expect(tracker.agentTools(1)).toEqual([]);
   });
 });
 

@@ -1,12 +1,13 @@
 /**
- * The VS Code Activity Quick Pick's rows, built from the server's AgentStateStore.
+ * The VS Code Activity Quick Pick's rows, built from the server's AgentStateStore
+ * and the activity it broadcasts.
  *
  * Pure (no `vscode` at runtime) so the server test runner can pin it. The rows
  * mirror the webview Activity panel: every shown Agent, its Sub-agents one level
  * down, and its Teammates nested under it as their Lead, each with an Activity
  * label from the shared precedence in core/src/activityLabel.ts.
  */
-import type { ActivityState, AgentActivity } from '../../core/src/activityLabel.js';
+import type { ActivityState, ActivityTool, AgentActivity } from '../../core/src/activityLabel.js';
 import {
   agentDisplayName,
   describeAgentActivity,
@@ -23,25 +24,36 @@ import {
   ACTIVITY_QUICK_PICK_STATE_ICONS,
 } from './constants.js';
 
-interface SubagentToolActivity {
+interface ToolActivity {
   readonly status: string;
   done: boolean;
 }
 
 interface SpawnActivity {
   /** Sub-tools in start order; finished ones stay, marked done (as in the webview). */
-  readonly tools: Map<string, SubagentToolActivity>;
+  readonly tools: Map<string, ToolActivity>;
   needsApproval: boolean;
 }
 
+/** Record a tool start once; a re-sent start never revives a finished tool (as in the webview). */
+function startTool(tools: Map<string, ToolActivity>, toolId: string, status: unknown): void {
+  if (!tools.has(toolId)) tools.set(toolId, { status: String(status ?? ''), done: false });
+}
+
 /**
- * Live Sub-agent activity, keyed by spawning Agent and spawn tool id.
+ * The tool activity the office shows, per Agent: its own tools, and each of its
+ * spawns' Sub-agent tools.
  *
- * AgentState records only sub-tool NAMES; the status text a row shows ("Reading
- * foo.ts") exists only in the `subagentToolStart` broadcasts, so this replays
- * the store's broadcast stream the same way the webview's message handler does.
+ * AgentState can't give the rows this. It keeps an Agent's tools as its
+ * transcript records them, while with hooks the office shows the hook events'
+ * tools, which start and end sooner and need no transcript record at all. And
+ * it records Sub-agent tools by name only, without the status text a row shows
+ * ("Reading foo.ts"). So this replays the store's broadcast stream the same way
+ * the webview's message handler does.
  */
-export class SubagentActivityTracker {
+export class ActivityTracker {
+  /** Each Agent's own tools in start order; finished ones stay, marked done, until its turn ends. */
+  private readonly tools = new Map<number, Map<string, ToolActivity>>();
   private readonly spawns = new Map<number, Map<string, SpawnActivity>>();
 
   /** @param backgroundSpawns an Agent's live background spawn tool ids, which survive its turn end. */
@@ -54,12 +66,22 @@ export class SubagentActivityTracker {
     if (typeof id !== 'number') return;
     const spawnId = typeof parentToolId === 'string' ? parentToolId : undefined;
     switch (message.type) {
+      case 'agentToolStart': {
+        if (typeof toolId !== 'string') return;
+        let tools = this.tools.get(id);
+        if (!tools) this.tools.set(id, (tools = new Map()));
+        startTool(tools, toolId, message.status);
+        return;
+      }
+      case 'agentToolDone': {
+        if (typeof toolId !== 'string') return;
+        const tool = this.tools.get(id)?.get(toolId);
+        if (tool) tool.done = true;
+        return;
+      }
       case 'subagentToolStart': {
         if (spawnId === undefined || typeof toolId !== 'string') return;
-        const spawn = this.spawn(id, spawnId);
-        if (!spawn.tools.has(toolId)) {
-          spawn.tools.set(toolId, { status: String(message.status ?? ''), done: false });
-        }
+        startTool(this.spawn(id, spawnId).tools, toolId, message.status);
         return;
       }
       case 'subagentToolDone': {
@@ -86,6 +108,7 @@ export class SubagentActivityTracker {
         if (spawnId !== undefined) this.dropSpawn(id, spawnId);
         return;
       case 'agentToolsClear': {
+        this.tools.delete(id);
         // The parent's turn ended: only background spawns outlive it.
         const spawns = this.spawns.get(id);
         if (!spawns) return;
@@ -101,15 +124,21 @@ export class SubagentActivityTracker {
 
   /** Drop everything known about an Agent that left the office. */
   forget(agentId: number): void {
+    this.tools.delete(agentId);
     this.spawns.delete(agentId);
   }
 
+  /** An Agent's own tools in start order, as its Character shows them. */
+  agentTools(agentId: number): ActivityTool[] {
+    return [...(this.tools.get(agentId)?.values() ?? [])];
+  }
+
   /** Has this spawn reported any Sub-agent activity? */
-  has(agentId: number, spawnToolId: string): boolean {
+  hasSubagentActivity(agentId: number, spawnToolId: string): boolean {
     return this.spawns.get(agentId)?.has(spawnToolId) === true;
   }
 
-  describe(agentId: number, spawnToolId: string): AgentActivity {
+  describeSubagent(agentId: number, spawnToolId: string): AgentActivity {
     const spawn = this.spawns.get(agentId)?.get(spawnToolId);
     // A Sub-agent exists only while its spawn runs, so between tools it is thinking.
     return describeAgentActivity({
@@ -163,7 +192,7 @@ export type ActivityProviderInfo = Pick<HookProvider, 'id' | 'displayName' | 'su
  */
 export function buildActivityQuickPickRows(
   store: AgentStateStore,
-  subagents: SubagentActivityTracker,
+  activity: ActivityTracker,
   providers: readonly ActivityProviderInfo[],
 ): ActivityQuickPickRow[] {
   const shown = [...store.values()].filter((agent) => agent.observation !== 'unknown');
@@ -187,8 +216,8 @@ export function buildActivityQuickPickRows(
     if (emitted.has(agent.id)) return;
     emitted.add(agent.id);
     const provider = providers.find((p) => p.id === (agent.providerId ?? 'claude'));
-    rows.push(agentRow(agent, depth, provider, store));
-    rows.push(...subagentRows(agent, depth + 1, provider, store, subagents));
+    rows.push(agentRow(agent, depth, provider, activity));
+    rows.push(...subagentRows(agent, depth + 1, provider, store, activity));
     for (const teammate of teammatesByLead.get(agent.id) ?? []) emit(teammate, depth + 1);
   };
   for (const agent of roots) emit(agent, 0);
@@ -205,15 +234,10 @@ function agentRow(
   agent: AgentState,
   depth: number,
   provider: ActivityProviderInfo | undefined,
-  store: AgentStateStore,
+  tracker: ActivityTracker,
 ): ActivityQuickPickRow {
-  // A spawn that became its own Teammate is that Teammate's row. The office drops
-  // it from the Lead at turn end, while the store keeps it until the Teammate ends.
-  const tools = [...agent.activeToolStatuses]
-    .filter(([toolId]) => !hasPromotedBackgroundAgent(agent.id, toolId, store))
-    .map(([, status]) => ({ status }));
   const activity = describeAgentActivity({
-    tools,
+    tools: tracker.agentTools(agent.id),
     isActive: !agent.isWaiting,
     needsApproval: agent.permissionSent,
     waitingForInput: agent.isWaiting && agent.awaitingInput === true,
@@ -250,7 +274,7 @@ function subagentRows(
   depth: number,
   provider: ActivityProviderInfo | undefined,
   store: AgentStateStore,
-  subagents: SubagentActivityTracker,
+  tracker: ActivityTracker,
 ): ActivityQuickPickRow[] {
   if (!provider) return [];
   const rows: ActivityQuickPickRow[] = [];
@@ -261,11 +285,11 @@ function subagentRows(
     if (
       agent.teamName &&
       agent.backgroundAgentToolIds.has(toolId) &&
-      !subagents.has(agent.id, toolId)
+      !tracker.hasSubagentActivity(agent.id, toolId)
     ) {
       continue;
     }
-    const activity = subagents.describe(agent.id, toolId);
+    const activity = tracker.describeSubagent(agent.id, toolId);
     rows.push({
       key: `subagent:${agent.id}:${toolId}`,
       agentId: agent.id,
