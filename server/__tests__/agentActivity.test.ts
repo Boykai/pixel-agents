@@ -606,6 +606,57 @@ describe('Agent activity emission', () => {
     });
   });
 
+  describe.each(['array', 'string'] as const)(
+    'Claude transcript: a text-only record (%s content) that goes quiet',
+    (content) => {
+      const text = (ms: number, extra: Record<string, unknown> = {}) =>
+        line({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: content === 'array' ? [{ type: 'text', text: 'hmm' }] : 'hmm',
+          },
+          timestamp: iso(ms),
+          ...extra,
+        });
+
+      function quietAfter(record: string) {
+        const o = restoreClaude(claudeProvider, prompt('before the restart', sec(-60)));
+        // Records with usage set this; sidechain records after it are Sub-agents'.
+        o.agent().sawMainChainUsage = true;
+        // Every tool of the turn is done, so a text-only record arms the text-idle timer.
+        o.append(
+          prompt('go', sec(1)) +
+            toolUse('toolu_grep', 'Grep', { pattern: 'x' }, sec(2)) +
+            toolResult('toolu_grep', sec(3)) +
+            record,
+        );
+        clock = sec(20);
+        vi.advanceTimersByTime(TEXT_IDLE_DELAY_MS);
+        return o;
+      }
+
+      it("ends the lead's interaction when the record is the lead's", () => {
+        const o = quietAfter(text(sec(4)));
+
+        expect(o.events.map(brief)).toEqual([
+          '1 interactionStart',
+          '1 toolStart Grep',
+          '1 interactionEnd',
+        ]);
+        expect(o.events.at(-1)).toMatchObject({ at: sec(20), recordedAt: sec(4) });
+      });
+
+      // Regression: it ended the lead's interaction mid-turn, so the lead's next
+      // tool opened a second one and Marathon counted the turn twice.
+      it("leaves it open when the record is a Sub-agent's", () => {
+        const o = quietAfter(text(sec(4), { isSidechain: true }));
+
+        expect(o.events.map(brief)).toEqual(['1 interactionStart', '1 toolStart Grep']);
+      });
+    },
+  );
+
   it('Copilot hooks: a prompt starts an interaction, and agentStop settles it Done', () => {
     const o = restoreCopilot(
       copilot('session.start', { selectedModel: 'gpt-5' }, sec(-60)) +

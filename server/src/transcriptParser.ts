@@ -168,14 +168,15 @@ export function createTranscriptParser() {
   }
 
   /** A text-only turn is Done when the text-idle timer fires: that completes
-   *  an interaction, unless the record that armed the timer was history. */
+   *  an interaction, unless the record that armed the timer was history or a
+   *  Sub-agent's (its lead is still at work, like its prompts and turn ends). */
   function textIdleDone(
     agent: AgentState,
     agents: AgentStateStore,
-    recordedAt: unknown,
+    record: { isSidechain?: unknown; timestamp?: unknown },
   ): ((agent: AgentState) => void) | undefined {
-    if (agents.activity.isReplaying(agent)) return undefined;
-    return (done) => agents.activity.live(done, { kind: 'interactionEnd' }, recordedAt);
+    if (agents.activity.isReplaying(agent) || isSubagentRecord(agent, record)) return undefined;
+    return (done) => agents.activity.live(done, { kind: 'interactionEnd' }, record.timestamp);
   }
 
   /** A sidechain record is one of the agent's Sub-agents at work (older Claude
@@ -378,7 +379,7 @@ export function createTranscriptParser() {
               TEXT_IDLE_DELAY_MS,
               agents,
               waitingTimers,
-              textIdleDone(agent, agents, record.timestamp),
+              textIdleDone(agent, agents, record),
             );
           }
         }
@@ -390,7 +391,7 @@ export function createTranscriptParser() {
             TEXT_IDLE_DELAY_MS,
             agents,
             waitingTimers,
-            textIdleDone(agent, agents, record.timestamp),
+            textIdleDone(agent, agents, record),
           );
         }
       } else if (record.type === 'assistant' && assistantContent === undefined) {

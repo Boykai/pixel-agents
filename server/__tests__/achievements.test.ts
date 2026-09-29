@@ -1105,6 +1105,34 @@ describe('Achievements through the runtime', () => {
     expect(counts(o.tracker)).toMatchObject({ architect: 1, bug_squasher: 1, marathon: 1 });
   });
 
+  it("Claude, hooks off: a Sub-agent's quiet text does not split its lead's interaction", () => {
+    const o = claudeSession();
+    // Records with usage set this; sidechain records after it are Sub-agents'.
+    o.store.get(1)!.sawMainChainUsage = true;
+    const edit = { file_path: path.join(dir, 'src', 'a.ts'), old_string: 'a', new_string: 'b' };
+
+    o.append(
+      prompt('fix it', at(12)) +
+        toolUse('toolu_grep', 'Grep', { pattern: 'x' }, at(12, 0, 1)) +
+        toolOk('toolu_grep', at(12, 0, 2)) +
+        line({
+          type: 'assistant',
+          isSidechain: true,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'looking around' }] },
+          timestamp: iso(at(12, 0, 3)),
+        }),
+    );
+    clock = at(12, 0, 10);
+    vi.advanceTimersByTime(TEXT_IDLE_DELAY_MS);
+    o.append(
+      toolUse('toolu_edit', 'Edit', edit, at(12, 0, 11)) +
+        toolOk('toolu_edit', at(12, 0, 12)) +
+        turnDuration(at(12, 0, 13)),
+    );
+
+    expect(counts(o.tracker)).toMatchObject({ architect: 1, marathon: 1 });
+  });
+
   describe('a transcript read from its start counts only what is written after', () => {
     const editOf = (name: string) => ({
       file_path: path.join(dir, 'src', name),
