@@ -380,8 +380,9 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
   });
 
   it('reports a failed sub tool exactly once even when its turn ends first', () => {
-    // turn_duration is read in the same poll as the failed tool_result, so the
-    // turn-end batch flushes the tool before its deferred failure arrives.
+    // turn_duration is read in the same poll as the failed tool_result. The
+    // turn end sends the deferred failure first, so the turn-end batch no
+    // longer holds the tool and never reports it a second time, unflagged.
     vi.useFakeTimers();
     seedSidecar({
       transcriptLines: [subToolUseLine(), subToolFailedResultLine(), subTurnDurationLine()],
@@ -389,9 +390,16 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     spawnAndLaunch();
     vi.advanceTimersByTime(400);
 
-    const failures = messages.filter((m) => m.type === 'subagentToolDone' && m.isError === true);
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatchObject({ id: 1, parentToolId: SPAWN_TOOL_ID, toolId: SUB_TOOL_ID });
+    const dones = messages.filter((m) => m.type === 'subagentToolDone' && m.toolId === SUB_TOOL_ID);
+    expect(dones).toEqual([
+      {
+        type: 'subagentToolDone',
+        id: 1,
+        parentToolId: SPAWN_TOOL_ID,
+        toolId: SUB_TOOL_ID,
+        isError: true,
+      },
+    ]);
   });
 
   it('re-sends a watched spawn tool with toolName + runInBackground at turn end', () => {

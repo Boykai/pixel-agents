@@ -6,7 +6,7 @@ import { SESSION_END_GRACE_MS } from './constants.js';
 import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
-import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
+import { flushToolDones, notifyBackgroundAgentCompleted } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
@@ -79,6 +79,9 @@ export class HookEventHandler {
     private sessionRouter: SessionRouter,
     private watchAllSessionsRef?: { current: boolean },
     private backgroundCompleted = notifyBackgroundAgentCompleted,
+    /** The transcript parser's pending tool dones for an agent: sent before a
+     *  hook-driven turn end so the turn's failures precede it. */
+    private flushPendingToolDones = flushToolDones,
   ) {
     if (provider.protocolVersion !== HookEventHandler.SUPPORTED_PROTOCOL_VERSION) {
       console.warn(
@@ -802,6 +805,10 @@ export class HookEventHandler {
    * handler in transcriptParser.ts.
    */
   private markAgentWaiting(agent: AgentState, agentId: number, awaitingInput = false): void {
+    // Hook-mode spawn tools and Sub-agent tools report their dones from the
+    // transcript, TOOL_DONE_DELAY_MS late; any already read go out first so a
+    // failed tool (isError) is never reported after the turn it belongs to.
+    this.flushPendingToolDones(agent);
     cancelWaitingTimer(agentId, this.waitingTimers);
     cancelPermissionTimer(agentId, this.permissionTimers);
 
