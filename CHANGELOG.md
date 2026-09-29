@@ -2,7 +2,7 @@
 
 ## Unreleased (Boykai fork)
 
-Changes in [Boykai/pixel-agents](https://github.com/Boykai/pixel-agents) on top of v1.4.1. The [README](README.md#boykaipixel-agents-feature-comparison) compares this fork with the base and with [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents), whose features it ports.
+Changes in [Boykai/pixel-agents](https://github.com/Boykai/pixel-agents) on top of v1.4.1. The [README](README.md#boykaipixel-agents-feature-comparison) compares this fork with the base and with [hootbu/pixel-agents](https://github.com/hootbu/pixel-agents), including which of hootbu's features it ports and which it leaves out.
 
 ### Features
 

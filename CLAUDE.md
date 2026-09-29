@@ -2,7 +2,7 @@
 
 Pixel art office where AI agents (Claude Code and GitHub Copilot sessions today, any tool tomorrow) become animated characters. Ships as a **VS Code extension** and an **`npx pixel-agents` standalone CLI** from the same source tree.
 
-This is the **Boykai/pixel-agents** fork of `pixel-agents-hq/pixel-agents`: it adds the GitHub Copilot provider, Generate Room, Reset to Default and the agent details panel, and ports hootbu/pixel-agents' features onto the base's architecture. `README.md` opens with the feature comparison between the base, hootbu and this fork; keep it current when a feature lands.
+This is the **Boykai/pixel-agents** fork of `pixel-agents-hq/pixel-agents`: it adds the GitHub Copilot provider, Generate Room, Reset to Default and the agent details panel, and ports most of hootbu/pixel-agents' features onto the base's architecture. `README.md` opens with the feature comparison between the base, hootbu and this fork; keep it current when a feature lands.
 
 `CONTEXT.md` is the canonical glossary — read it for what terms like Agent, Sub-agent, Teammate, Lead, Adopt, or Headless agent mean here, and use its vocabulary in code, comments, and docs.
 

@@ -1,8 +1,8 @@
 # Boykai/pixel-agents: feature comparison
 
-This fork of [pixel-agents-hq/pixel-agents][base] (the **base**) imports the features of the
-community fork [hootbu/pixel-agents][hootbu] (**hootbu**) and adds GitHub Copilot support and room
-generation. The imported features were rebuilt on the base's current architecture, not copied
+This fork of [pixel-agents-hq/pixel-agents][base] (the **base**) imports most of the features of
+the community fork [hootbu/pixel-agents][hootbu] (**hootbu**) and adds GitHub Copilot support and
+room generation. The imported features were rebuilt on the base's current architecture, not copied
 over, so they also work in the standalone browser app and with GitHub Copilot agents.
 
 The comparison covers base [v1.4.1][base-v141], which this fork builds on; hootbu's `main` at
@@ -70,8 +70,8 @@ hootbu forked before these base features landed. This fork inherits all of them:
 ## Using this fork
 
 This fork doesn't publish packages. The Marketplace, Open VSX and npm links further down install the
-base's releases, which have none of the features above. Build this fork from source instead, with
-Node.js 20 or later:
+base's releases, which have none of the features this fork imports or adds. Build this fork from
+source instead, with Node.js 20 or later:
 
 ```bash
 git clone https://github.com/Boykai/pixel-agents.git
