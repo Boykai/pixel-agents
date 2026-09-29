@@ -51,6 +51,8 @@ interface EditorToolbarProps {
   onResetToDefault: () => void;
   /** False when no default layout shipped with this build — the action is then impossible. */
   canResetToDefault: boolean;
+  /** A surface above the reset confirmation takes Escape (the Sign editor, the Costume panel). */
+  resetEscapeSuppressed?: boolean;
   activeTool: EditTool;
   selectedTileType: TileTypeVal;
   selectedFurnitureType: string;
@@ -113,6 +115,7 @@ export function EditorToolbar({
   roomFeedback,
   onResetToDefault,
   canResetToDefault,
+  resetEscapeSuppressed = false,
   activeTool,
   selectedTileType,
   selectedFurnitureType,
@@ -166,16 +169,19 @@ export function EditorToolbar({
   const [resetStep, setResetStep] = useState<0 | 1 | 2>(0);
 
   // Escape backs out of the reset confirmation without touching the layout.
+  // One press closes one surface: stopImmediatePropagation keeps it from the
+  // Costume panel's capture listener on the same window, and the prompt stands
+  // down while a surface above it (Sign editor, Costume panel) takes Escape.
   useEffect(() => {
-    if (resetStep === 0) return;
+    if (resetStep === 0 || resetEscapeSuppressed) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       setResetStep(0);
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [resetStep]);
+  }, [resetStep, resetEscapeSuppressed]);
 
   // A build with no bundled default can't offer the action; close any open prompt.
   useEffect(() => {

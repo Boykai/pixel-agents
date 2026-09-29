@@ -49,6 +49,22 @@ export async function openCostumePanel(surface: Surface, agentId: number): Promi
   return panel;
 }
 
+/** Whether a modal's backdrop lies over the Costume panel's center, dimming it,
+ *  rather than the panel painting above the backdrop. */
+export async function isCostumePanelCovered(surface: Surface): Promise<boolean> {
+  return surface.evaluate(() => {
+    const panel = document.querySelector('[data-testid="costume-panel"]');
+    if (!panel) return false;
+    const box = panel.getBoundingClientRect();
+    const hits = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    for (const el of hits) {
+      if (panel.contains(el)) return false;
+      if (el.matches('div.fixed.inset-0')) return true;
+    }
+    return false;
+  });
+}
+
 /** A character's worn costume, read through the e2e hooks (canvas-only state). */
 export async function readCharacterLook(
   surface: Surface,

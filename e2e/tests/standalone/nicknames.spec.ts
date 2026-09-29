@@ -3,9 +3,11 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/copilot';
+import { enterEditMode, paintTile } from '../../helpers/editor';
 import { sendHookEvent, sessionStartStartup } from '../../helpers/hooks';
 import { copilotScenario } from '../../helpers/mock-copilot';
 import {
+  isCostumePanelCovered,
   openAgentDetails,
   openCostumePanel,
   readCharacterLook,
@@ -20,7 +22,7 @@ import {
   readAgentOverlayIds,
 } from '../../helpers/office';
 import type { StandaloneSession } from '../../helpers/standalone';
-import { setSettings } from '../../helpers/webview';
+import { openSettingsModal, setSettings } from '../../helpers/webview';
 
 /** A Claude session driven through the standalone hook endpoint (POSTing hooks
  *  is the standalone surface's process boundary; see e2e/README.md). */
@@ -132,6 +134,71 @@ test.describe('Standalone / nicknames and costumes', () => {
     } finally {
       await second.close();
     }
+  });
+
+  test('a modal over the Costume panel covers it and keeps Escape from closing it @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    await setSettings(page, { alwaysShowLabels: true, watchAllSessions: true });
+    const id = await startClaudeAgent(page, standalone, 'standalone-costume-modal', 'panel.ts');
+    const panel = await openCostumePanel(page, id);
+
+    const settings = await openSettingsModal(page);
+    await expect.poll(() => isCostumePanelCovered(page)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeVisible();
+    await settings.getByRole('button', { name: 'x', exact: true }).click();
+    await expect(settings).toBeHidden();
+    await expect(panel).toBeVisible();
+
+    // Uncovered, the panel takes Escape again.
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+  });
+
+  test('Escape closes one surface per press, topmost first: Sign editor, Costume panel, reset confirmation @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    await setSettings(page, { alwaysShowLabels: true, watchAllSessions: true });
+    const id = await startClaudeAgent(page, standalone, 'standalone-escape-order', 'order.ts');
+    const frame = page.mainFrame();
+
+    await enterEditMode(frame);
+    const resetButton = page.getByRole('button', { name: 'Reset to Default', exact: true });
+    const resetConfirm = page.getByRole('alertdialog', {
+      name: 'Reset office to the default layout',
+    });
+    await resetButton.click();
+    await expect(resetConfirm).toBeVisible();
+    await page.getByTitle('Place furniture', { exact: true }).click();
+    await page.getByRole('button', { name: 'Decor', exact: true }).click();
+    await page.getByTitle('Sign', { exact: true }).click();
+    // Opened after the prompt, the panel listens after it too: the order below
+    // must come from the stacking, not from which surface listened first.
+    const panel = await openCostumePanel(page, id);
+
+    // A Sign on an open floor tile of the bundled default layout opens the Sign
+    // editor over both.
+    const signText = page.getByLabel('Sign text', { exact: true });
+    await paintTile(frame, 12, 17);
+    await expect(signText).toBeFocused();
+    await expect.poll(() => isCostumePanelCovered(page)).toBe(true);
+
+    await page.keyboard.press('Escape');
+    await expect(signText).toBeHidden();
+    await expect(panel).toBeVisible();
+    await expect(resetConfirm).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(resetConfirm).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(resetConfirm).toHaveCount(0);
+    // The prompt took that press: the editor itself stays open.
+    await expect(resetButton).toBeVisible();
   });
 });
 

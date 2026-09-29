@@ -26,6 +26,8 @@ interface CostumePanelProps {
   /** '' clears the nickname. */
   onRename: (nickname: string) => void;
   onClose: () => void;
+  /** A modal covers the panel: Escape belongs to it (or to what lies under it), not to the panel. */
+  escapeSuppressed?: boolean;
 }
 
 /**
@@ -40,6 +42,7 @@ export function CostumePanel({
   onSelect,
   onRename,
   onClose,
+  escapeSuppressed = false,
 }: CostumePanelProps) {
   const [selectedPalette, setSelectedPalette] = useState(currentPalette);
   const [hueShift, setHueShift] = useState(currentHueShift);
@@ -51,11 +54,15 @@ export function CostumePanel({
 
   // Escape in the nickname field first cancels an unsaved edit, like Rename in
   // the agent details; otherwise it closes only this panel. Capture phase, so
-  // the agent details' own Escape handler (bubble phase, same window) never sees it.
+  // the agent details' own Escape handler (bubble phase, same window) never sees
+  // it, and stopImmediatePropagation, so neither does the reset confirmation's
+  // capture listener on the same window. Under a modal the panel stands down
+  // entirely: the Sign editor's own Escape must reach it.
   useEffect(() => {
+    if (escapeSuppressed) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       const input = nicknameInputRef.current;
       if (input && e.target === input && normalizeNickname(input.value) !== savedNickname) {
         setNicknameDraft(savedNickname);
@@ -65,7 +72,7 @@ export function CostumePanel({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose, savedNickname]);
+  }, [onClose, savedNickname, escapeSuppressed]);
 
   const handlePaletteClick = (palette: number) => {
     setSelectedPalette(palette);
@@ -91,11 +98,13 @@ export function CostumePanel({
   const paletteCount = getLoadedCharacterCount();
   const hueFill = (hueShift / COSTUME_HUE_MAX_DEG) * 100;
 
+  // z-48: above the Intro bubble (45), below every modal's backdrop (ui/Modal
+  // starts at 50), so a modal opened over the panel covers it.
   return (
     <section
       aria-label="Costume"
       data-testid="costume-panel"
-      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 max-w-[calc(100%-16px)] max-h-[calc(100%-16px)] overflow-y-auto pixel-scrollbar pixel-panel p-10 flex flex-col gap-8"
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-48 max-w-[calc(100%-16px)] max-h-[calc(100%-16px)] overflow-y-auto pixel-scrollbar pixel-panel p-10 flex flex-col gap-8"
     >
       <div className="flex items-center justify-between gap-12">
         <h2 className="m-0 text-xl leading-none text-accent-bright">Choose Costume</h2>
