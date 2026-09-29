@@ -365,6 +365,51 @@ it('protects wall decoration and background footprints on otherwise empty candid
   expect(layout).toEqual(original);
 });
 
+it('keeps rooms clear of wall decoration overhanging the top of the grid', () => {
+  loadRoomCatalog();
+  // The top wall's only opening is at (4, 0) and every other floor tile holds furniture, so every
+  // candidate room expands the grid upward, and its bottom wall on row -1 covers columns 3 to 5.
+  const layout = emptyLayout(9, 9);
+  layout.tiles.fill(TileType.FLOOR_1);
+  for (let col = 0; col < layout.cols; col++) {
+    if (col !== 4) layout.tiles[col] = TileType.WALL;
+  }
+  for (let row = 1; row < layout.rows; row++) {
+    for (let col = 0; col < layout.cols; col++) {
+      layout.furniture.push({ uid: `old-${col}-${row}`, type: ROOM_ASSETS.decoration, col, row });
+    }
+  }
+  const open = generateRoom(layout, generationOptions());
+  assert.ok(open.ok);
+  expect(open.shift.row).toBeGreaterThan(0);
+  verifyRoom(layout, open);
+
+  // A 1×2 painting hung on the top wall at `col` overhangs the grid at (col, -1).
+  const hang = (col: number): OfficeLayout => ({
+    ...layout,
+    furniture: [...layout.furniture, { uid: 'painting', type: 'SMALL_PAINTING', col, row: -1 }],
+  });
+
+  // Beside the opening, the overhang lies under every candidate's wall ring.
+  const blocked = hang(3);
+  const original = structuredClone(blocked);
+  expect(generateRoom(blocked, generationOptions())).toMatchObject({
+    ok: false,
+    reason: 'no-space',
+  });
+  expect(blocked).toEqual(original);
+
+  // Further along the wall a room still fits, but never over the overhanging tile.
+  const beside = hang(1);
+  for (let seed = 1; seed <= 8; seed++) {
+    const result = generateRoom(beside, generationOptions(SMALLEST, SMALLEST, seed));
+    assert.ok(result.ok);
+    verifyRoom(beside, result);
+    const overhang = (result.shift.row - 1) * result.layout.cols + 1 + result.shift.col;
+    expect(result.layout.tiles[overhang]).toBe(TileType.VOID);
+  }
+});
+
 it('replays deterministically and rejects duplicate IDs without changing the layout', () => {
   loadRoomCatalog();
   const layout = defaultRoomLayout();
