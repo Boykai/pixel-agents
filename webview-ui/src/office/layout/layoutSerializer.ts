@@ -1,4 +1,5 @@
 import type { ColorValue } from '../../components/ui/types.js';
+import { DRAW_LAYER_SURFACE_OFFSET } from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
 import type {
   FurnitureInstance,
@@ -29,20 +30,35 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
   return map;
 }
 
+/** The desk a surface item on a given tile sits on. */
+interface SurfaceHost {
+  /** Depth by the default rules: the desk's footprint bottom. */
+  baseZY: number;
+  /** The desk's own Draw layer offset (drawLayerDepth). */
+  layerDepth: number;
+}
+
+function hostZY(desk: SurfaceHost): number {
+  return desk.baseZY + desk.layerDepth;
+}
+
 /** Convert placed furniture into renderable FurnitureInstance[] */
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
-  // Pre-compute desk zY per tile so surface items can sort in front of desks.
-  // It includes the desk's own draw layer, so what sits on a desk moves with it.
-  const deskZByTile = new Map<string, number>();
+  // Pre-compute the frontmost desk per tile (by layered depth) so surface items can
+  // sort in front of it, and move with its Draw layer.
+  const deskByTile = new Map<string, SurfaceHost>();
   for (const item of furniture) {
     const entry = getFurnitureEntry(item);
     if (!entry || !entry.isDesk) continue;
-    const deskZY = (item.row + entry.footprintH) * TILE_SIZE + drawLayerDepth(item.zLayer);
+    const desk: SurfaceHost = {
+      baseZY: (item.row + entry.footprintH) * TILE_SIZE,
+      layerDepth: drawLayerDepth(item.zLayer),
+    };
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const key = `${item.col + dc},${item.row + dr}`;
-        const prev = deskZByTile.get(key);
-        if (prev === undefined || deskZY > prev) deskZByTile.set(key, deskZY);
+        const prev = deskByTile.get(key);
+        if (!prev || hostZY(desk) > hostZY(prev)) deskByTile.set(key, desk);
       }
     }
   }
@@ -74,13 +90,21 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Surface items render in front of the desk they sit on
+    // Surface items render in front of the desk they sit on, and move with its Draw layer
     if (entry.canPlaceOnSurfaces) {
+      let host: SurfaceHost | undefined;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
-          const deskZ = deskZByTile.get(`${item.col + dc},${item.row + dr}`);
-          if (deskZ !== undefined && deskZ + 0.5 > zY) zY = deskZ + 0.5;
+          const desk = deskByTile.get(`${item.col + dc},${item.row + dr}`);
+          if (desk && (!host || hostZY(desk) > hostZY(host))) host = desk;
         }
+      }
+      if (host && host.layerDepth === 0) {
+        if (host.baseZY + 0.5 > zY) zY = host.baseZY + 0.5;
+      } else if (host) {
+        // The item shifts with its desk, but stays between the desk and whatever the
+        // desk's new row keeps in front of it (see DRAW_LAYER_SURFACE_OFFSET).
+        zY = Math.max(zY + host.layerDepth, hostZY(host) + DRAW_LAYER_SURFACE_OFFSET);
       }
     }
 

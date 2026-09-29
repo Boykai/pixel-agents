@@ -176,7 +176,7 @@ Furniture that shows a line of pixel text. The text, its color, glyph size, and 
 _Avoid_: label (that's the Activity label or a character's name label), text furniture, banner
 
 **Draw layer**:
-A per-furniture depth adjustment from −4 to +4. Each step moves the item one tile row forward or backward in draw order, on top of the default depth rules (footprint, chairs, surface items, background tiles, walls). Layer 0 is the default and leaves the order unchanged.
+A per-furniture depth adjustment from −4 to +4. Each step moves the item one tile row forward or backward in draw order, on top of the default depth rules (footprint, chairs, surface items, background tiles, walls). Whatever sits on a desk moves with the desk's layer. Layer 0 is the default and leaves the order unchanged.
 _Avoid_: z-index, z-order, layer (unqualified; carpets are a layer too)
 
 **Seat**:

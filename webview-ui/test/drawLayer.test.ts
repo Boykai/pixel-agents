@@ -19,6 +19,7 @@ import {
   CHARACTER_Z_SORT_OFFSET,
   DRAW_LAYER_MAX,
   DRAW_LAYER_MIN,
+  DRAW_LAYER_SURFACE_OFFSET,
   DRAW_LAYER_TIE_BREAK,
   SIGN_DEFAULT_COLOR,
   SIGN_TYPE,
@@ -225,12 +226,71 @@ test('a Draw layer offsets exactly the item it is set on, on top of every defaul
   }
 });
 
-test('what sits on a desk stays in front of the desk at any Draw layer of the desk', () => {
+test('what sits on a desk moves with the Draw layer of the desk, just in front of it', () => {
   const desk: PlacedFurniture = { uid: 'desk', type: 'DESK_FRONT', col: 2, row: 2 };
   const coffee: PlacedFurniture = { uid: 'coffee', type: 'COFFEE', col: 3, row: 3 };
+  // A PC whose front row hangs one row past the desk sorts by its own footprint.
+  const pc: PlacedFurniture = { uid: 'pc', type: 'PC_FRONT_OFF', col: 4, row: 3 };
+  const deskBottom = 4 * TILE_SIZE;
+  const pcBottom = 5 * TILE_SIZE;
+
+  const unlayered = [desk, coffee, pc];
+  assert.equal(zOf(unlayered, 'desk'), deskBottom);
+  assert.equal(zOf(unlayered, 'coffee'), deskBottom + 0.5, 'the default surface rule');
+  assert.equal(zOf(unlayered, 'pc'), pcBottom);
+
+  // Exact values at ±1: desk 64 ± 16.25 → 80.25 / 47.75, coffee 0.125 in front → 80.375 / 47.875.
+  assert.equal(zOf([{ ...desk, zLayer: 1 }, coffee], 'coffee'), 80.375);
+  assert.equal(zOf([{ ...desk, zLayer: -1 }, coffee], 'coffee'), 47.875);
+
   for (let layer = DRAW_LAYER_MIN; layer <= DRAW_LAYER_MAX; layer++) {
-    const items = [{ ...desk, zLayer: layer }, coffee];
-    assert.ok(zOf(items, 'coffee') > zOf(items, 'desk'), `desk layer ${layer}`);
+    if (layer === 0) continue;
+    const items = [{ ...desk, zLayer: layer }, coffee, pc];
+    const deskZY = deskBottom + drawLayerDepth(layer);
+    assert.equal(zOf(items, 'desk'), deskZY, `desk layer ${layer}`);
+    assert.equal(
+      zOf(items, 'coffee'),
+      deskZY + DRAW_LAYER_SURFACE_OFFSET,
+      `coffee, desk layer ${layer}`,
+    );
+    assert.equal(zOf(items, 'pc'), pcBottom + drawLayerDepth(layer), `pc, desk layer ${layer}`);
+  }
+});
+
+test('a layered desk keeps what sits on it between the same neighbours as the desk', () => {
+  const desk: PlacedFurniture = { uid: 'desk', type: 'DESK_FRONT', col: 2, row: 2 };
+  const coffee: PlacedFurniture = { uid: 'coffee', type: 'COFFEE', col: 3, row: 3 };
+
+  // Forward onto row 4: over the furniture there, but the Character seated there stays
+  // in front of the desk AND of its coffee (the default +0.5 would draw the coffee over it).
+  const forward = [{ ...desk, zLayer: 1 }, coffee, { uid: 'pot', type: 'POT', col: 8, row: 4 }];
+  assert.ok(zOf(forward, 'desk') > zOf(forward, 'pot'));
+  assert.ok(zOf(forward, 'coffee') > zOf(forward, 'desk'));
+  assert.ok(zOf(forward, 'coffee') < characterZY(4));
+
+  // Backward onto row 2: the furniture there now covers the desk, and its coffee too.
+  const backward = [{ ...desk, zLayer: -1 }, coffee, { uid: 'pot', type: 'POT', col: 8, row: 2 }];
+  assert.ok(zOf(backward, 'desk') < zOf(backward, 'pot'));
+  assert.ok(zOf(backward, 'coffee') > zOf(backward, 'desk'));
+  assert.ok(zOf(backward, 'coffee') < zOf(backward, 'pot'));
+});
+
+test("a surface item's own Draw layer applies on top of its layered desk", () => {
+  const desk: PlacedFurniture = { uid: 'desk', type: 'DESK_FRONT', col: 2, row: 2 };
+  const coffee: PlacedFurniture = { uid: 'coffee', type: 'COFFEE', col: 3, row: 3 };
+  for (const deskLayer of [-1, 1]) {
+    const layeredDesk = { ...desk, zLayer: deskLayer };
+    const onDesk = zOf([layeredDesk, coffee], 'coffee');
+    for (const own of [-2, -1, 1, 2]) {
+      const items = [layeredDesk, { ...coffee, zLayer: own }];
+      assert.equal(
+        zOf(items, 'coffee'),
+        onDesk + drawLayerDepth(own),
+        `desk layer ${deskLayer}, coffee layer ${own}`,
+      );
+    }
+    const sentBack = [layeredDesk, { ...coffee, zLayer: -1 }];
+    assert.ok(zOf(sentBack, 'coffee') < zOf(sentBack, 'desk'), `behind a desk at ${deskLayer}`);
   }
 });
 

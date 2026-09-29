@@ -138,6 +138,12 @@ export const DRAW_LAYER_MIN = -4;
 export const DRAW_LAYER_MAX = 4;
 /** Extra depth nudge so a layered item wins/loses the tie with whatever sits on its new row. */
 export const DRAW_LAYER_TIE_BREAK = 0.25;
+/**
+ * How far in front of a LAYERED desk the items on it sort. Unlayered desks keep the
+ * default +0.5; a layered desk sits only DRAW_LAYER_TIE_BREAK off its new row, so
+ * +0.5 would carry its items past what the desk itself stays behind.
+ */
+export const DRAW_LAYER_SURFACE_OFFSET = DRAW_LAYER_TIE_BREAK / 2;
 export const LAYER_BUTTON_BG = 'rgba(180, 140, 50, 0.85)';
 /** Device-pixel gap between the stacked bring-forward / send-backward canvas buttons. */
 export const LAYER_BUTTON_GAP_PX = 2;
