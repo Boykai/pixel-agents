@@ -48,6 +48,14 @@ _Avoid_: parent (that's the sub-agent relationship), orchestrator
 A named agent spawned by another agent — the name is what makes it a teammate. Its spawner is its Lead, and together they form a Team. Every teammate has its own transcript and sits in a seat; it may or may not have its own session or terminal — how it runs never changes what it is.
 _Avoid_: inline teammate, tmux teammate, session teammate (former run-style distinctions; a teammate's run style is a property, not an identity)
 
+**Nickname**:
+A name the user gives an agent, either at launch or later by renaming any agent, adopted ones included. It becomes the character's primary label, and the session name moves to secondary text. The office remembers a nickname per session, so re-adopting that session brings it back. Launching a new agent under a nickname used before restores that nickname's Appearance, and its seat when that seat is free. Clearing the nickname restores the default label. Sub-agents never have one. A nickname is not a Teammate's name: the name is what makes a teammate, while a nickname is only what the user calls an agent. Giving an agent a nickname never makes it a teammate, and a teammate keeps its name beside the nickname.
+_Avoid_: alias, display name, title (that's the session name), agent name (that's a teammate's name)
+
+**Appearance**:
+How an agent's character looks: one of the six character palettes plus a hue shift. It is persisted with the agent's seat assignment, its sub-agents wear it too, and a change shows in every connected office at once. The UI calls it the agent's Costume.
+_Avoid_: costume (UI label only), skin (that's a single palette), outfit, avatar
+
 ## Agent Lifecycle
 
 **Launch**:
@@ -112,7 +120,7 @@ The inactive form where the agent asked the user something and is blocked on a r
 The inactive form where the agent is blocked until the user approves a tool use. Unlike the other two forms, it can occur mid-turn.
 
 **Activity label**:
-The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown in its hover/focus details. The compact label above the character shows the normalized project name instead.
+The human-readable line describing what an agent is doing right now (e.g. "Reading foo.ts"), shown in its hover/focus details. The compact label above the character shows the agent's Nickname instead, or the normalized project name when it has none.
 _Avoid_: status text, tool status
 
 **Speech bubble**:

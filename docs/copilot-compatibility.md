@@ -46,6 +46,11 @@ Copilot terminals launched by Pixel Agents are linked through their allocated
 session UUID. Other Copilot sessions are observed as external agents: a terminal
 name or focus alone cannot establish which transcript it owns.
 
+Any Copilot agent, including an observed App session, can be given a Nickname.
+It becomes the primary label, and the session title stays visible as secondary
+text. The nickname is remembered by provider and session UUID, so the agent gets
+it back when the same session is observed again.
+
 ### Tool hooks are deliberately not installed
 
 Installation uses portable `bash`/`powershell` command fields and migrates only
