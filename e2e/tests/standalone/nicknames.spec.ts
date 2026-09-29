@@ -261,30 +261,47 @@ test.describe('Standalone / Copilot nicknames', () => {
     const [id] = await readAgentOverlayIds(page);
     if (id === undefined) throw new Error('the Copilot agent has no overlay');
 
-    await renameAgent(page, id, 'Scout');
-    const overlay = getOverlayByAgentId(page, id);
-    await expect(overlay).toContainText('Scout');
-    await expect(overlay).toContainText('Laughingman');
-    // The nickname heads the details; the session title stays beneath it.
-    const details = await openAgentDetails(page, id);
-    await expect(details.getByRole('heading', { level: 2 })).toHaveText('Scout');
-    await expect(details).toContainText(title);
-    await details.getByRole('button', { name: 'Hide agent details' }).click();
-    await expect(details).toHaveCount(0);
-
-    // The Usage panel names the agent's row by its nickname too.
+    // The Usage panel names the agent's row by its nickname too, and an open
+    // panel follows a rename made in another client: that rename reaches this
+    // client as one agentMetadata, which renames the character but changes no
+    // React state.
     await mock.run(
       copilotScenario().append('session.usage_checkpoint', {
         totalPremiumRequests: 1,
         totalNanoAiu: 25_000,
       }),
     );
-    await page.getByRole('button', { name: 'Usage', exact: true }).click();
-    const usageRow = page.getByTestId('usage-agent-row');
-    await expect(usageRow).toHaveCount(1);
-    await expect(usageRow).toContainText('Scout');
+    const second = await page.context().newPage();
+    try {
+      await second.addInitScript(() => {
+        (window as unknown as { __PIXEL_AGENTS_E2E?: boolean }).__PIXEL_AGENTS_E2E = true;
+      });
+      await second.goto(page.url());
+      await waitForOffice(second);
+      await expectOverlayVisible(second, 'Reading router.ts');
+      // Closing the First Agent popup re-renders the office, which would
+      // refresh the panel by itself; let it close first.
+      await expect(page.getByTestId('achievement-popup')).toHaveCount(0, { timeout: 10_000 });
+
+      await page.getByRole('button', { name: 'Usage', exact: true }).click();
+      const usageRow = page.getByTestId('usage-agent-row');
+      await expect(usageRow).toHaveCount(1);
+      await expect(usageRow).not.toContainText('Scout');
+
+      await renameAgent(second, id, 'Scout');
+      await expect(usageRow).toContainText('Scout');
+    } finally {
+      await second.close();
+    }
+    const overlay = getOverlayByAgentId(page, id);
+    await expect(overlay).toContainText('Scout');
+    await expect(overlay).toContainText('Laughingman');
     await page.getByRole('button', { name: 'Close token usage' }).click();
     await expect(page.getByTestId('usage-panel')).toHaveCount(0);
+    // The nickname heads the details; the session title stays beneath it.
+    const details = await openAgentDetails(page, id);
+    await expect(details.getByRole('heading', { level: 2 })).toHaveText('Scout');
+    await expect(details).toContainText(title);
 
     // A fresh server restores the observed session with its nickname, and its
     // next activity lands on the same named character.

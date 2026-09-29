@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 import type { AgentUsage } from '../../../core/src/messages.js';
 import { normalizeProjectName } from '../../../core/src/normalizeProjectName.js';
 import {
@@ -7,8 +9,10 @@ import {
   TOKEN_USAGE_INPUT_COLOR,
   TOKEN_USAGE_MIN_SEGMENT_PERCENT,
   TOKEN_USAGE_OUTPUT_COLOR,
+  USAGE_PANEL_REFRESH_MS,
 } from '../constants.js';
 import type { OfficeState } from '../office/engine/officeState.js';
+import { usageRowIds } from '../office/usageRows.js';
 import { Button } from './ui/Button.js';
 
 // Ported from hootbu/pixel-agents' UsagePanel. Each figure is the one the
@@ -170,7 +174,13 @@ function grandTotals(usages: AgentUsage[]): GrandTotals {
 }
 
 export function UsagePanel({ agents, agentUsage, officeState, onClose }: UsagePanelProps) {
-  const rows = agents.filter((id) => agentUsage[id]);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = window.setInterval(() => setTick((n) => n + 1), USAGE_PANEL_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const rows = usageRowIds(agents, agentUsage, officeState);
   const {
     tokens: grandTokens,
     premiumRequests: grandPremiumRequests,

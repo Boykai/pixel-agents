@@ -442,6 +442,10 @@ export const TOKEN_USAGE_CACHE_READ_COLOR = '#9a6adf';
 export const TOKEN_USAGE_BAR_BG = 'rgba(255, 255, 255, 0.06)';
 /** Breakdown-bar segments smaller than this share of the total (%) are not drawn. */
 export const TOKEN_USAGE_MIN_SEGMENT_PERCENT = 0.5;
+/** How often the open Usage panel re-reads OfficeState for its rows' names and
+ *  visibility: agentMetadata (a rename made in another client) and
+ *  agentObservation update OfficeState alone and re-render nothing. */
+export const USAGE_PANEL_REFRESH_MS = 500;
 
 // ── Agent Teams ─────────────────────────────────────────────
 export const TEAM_LEAD_COLOR = '#ffd700';

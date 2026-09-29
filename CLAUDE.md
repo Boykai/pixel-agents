@@ -99,7 +99,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
       CostumePanel.tsx, Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
       ActivityPanel.tsx              Activity panel (toolbar "Activity"), rows from office/activityRows.ts
-      UsagePanel.tsx                 Usage panel (toolbar "Usage"): per-agent token usage + office-wide totals, from agentUsage
+      UsagePanel.tsx                 Usage panel (toolbar "Usage"): per-agent token usage + totals, from agentUsage; rows from office/usageRows.ts
       AchievementGallery.tsx         Achievement gallery (Settings → "Achievements"), a ui/Modal
       AchievementPopup.tsx           Achievement popup toast (top-right), fed by achievements.ts's AchievementPopupQueue
     achievements.ts                  Gallery rows + popup queue (DOM-free, Node-runner tested)
@@ -113,6 +113,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       types.ts                       OfficeLayout, Character, etc. + re-exports constants
       toolUtils.ts                   STATUS_TO_TOOL mapping, extractToolName (DOM-free; defaultZoom lives in useEditorActions)
       activityRows.ts                Activity panel row model (DOM-free) + followCharacter (select + camera follow)
+      usageRows.ts                   Usage panel row selection (DOM-free): agents with usage that the office shows
       projection.ts                  World→screen math shared by renderer + DOM overlays (mapOffset, overlayProjection)
       colorize.ts                    Colorize (grayscale→HSL) + Adjust (HSL shift)
       floorTiles.ts                  Floor sprite storage + colorized cache
@@ -413,6 +414,7 @@ The Usage panel's numbers (CONTEXT.md "Token usage"). `AgentStateStore.tokenUsag
 - **Seeding** (`seedTokenUsage` in fileWatcher, once per watched file): `readTokenUsageHistory` reads the prefix before the live reader's offset — a 256 KiB tail first (a `total` there is enough), else a full scan up to 16 MiB, else nothing and the totals are flagged `sinceTracked`.
 - **Live observer** for features that react to new usage: `store.tokenUsage.onLiveUsage(listener)` reports only NEW positive increments — never seeded history, nor records re-read from before `liveFrom` (a resumed file). An ambiguous baseline under-reports rather than over-reports.
 - Copilot tokens exist only in `session.shutdown` `tokenDetails`, so a running Copilot session shows premium requests + nano AIU. A lead's inline sidechain records count; sub-agents' separate transcripts (the shadow store) don't.
+- **The panel lists only agents the office shows** (`usageRowIds` in `office/usageRows.ts`, the Activity panel's rule): an agent whose observation is unknown (e.g. a Copilot App session adopted from a long transcript whose tail recovery found no `session.idle` anchor) has no row and adds nothing to the totals until it is observed again. Names and visibility live in `OfficeState`, which the `agentMetadata` of a rename made in another client, or an `agentObservation`, updates without a React render, so the open panel re-reads them on a `USAGE_PANEL_REFRESH_MS` tick.
 
 ### Achievements (server/src/achievements.ts, server/src/agentActivity.ts)
 
@@ -559,7 +561,7 @@ Run: `npm run test:server` (or `npm test` for all).
 
 ### Webview unit (Vitest, Node runner)
 
-`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring, plus the ported features: mood tracking and mood bubbles, signs and draw layers, pet camera follow, agent appearance, the Activity panel rows and shared activity labels, and the Achievement gallery rows, popup queue and popup gate.
+`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring, plus the ported features: mood tracking and mood bubbles, signs and draw layers, pet camera follow, agent appearance, the Activity panel rows and shared activity labels, the Usage panel rows, and the Achievement gallery rows, popup queue and popup gate.
 
 Run: `npm run test:webview`.
 
