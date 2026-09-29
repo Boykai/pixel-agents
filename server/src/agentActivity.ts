@@ -40,6 +40,8 @@ export type AgentActivityEvent = AgentActivity & {
 type Listener = (event: AgentActivityEvent) => void;
 
 interface Liveness {
+  /** The transcript the watermark belongs to. */
+  file: string | undefined;
   /** Transcript bytes before this offset were written before tracking began. */
   liveFrom: number;
   /** The reader is processing records from before `liveFrom`. */
@@ -82,8 +84,14 @@ export class AgentActivityFeed {
   }
 
   /** Tracking of the agent's transcript (re)starts: bytes before `liveFrom` are history. */
-  markLiveFrom(agentId: number, liveFrom: number): void {
-    this.liveness.set(agentId, { liveFrom, replaying: false });
+  markLiveFrom(agentId: number, liveFrom: number, file?: string): void {
+    this.liveness.set(agentId, { file, liveFrom, replaying: false });
+  }
+
+  /** Where live data starts in `file`, once tracking of that file has begun. */
+  liveFromIn(agentId: number, file: string): number | undefined {
+    const entry = this.liveness.get(agentId);
+    return entry && entry.file === file ? entry.liveFrom : undefined;
   }
 
   /** The transcript reader is about to parse the record whose bytes end at

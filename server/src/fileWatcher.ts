@@ -208,7 +208,7 @@ export function createFileWatcherContext(
    *  live reader later takes from before `liveFrom` count toward the totals
    *  but are not reported as new usage, nor as Agent activity. */
   function seedTokenUsage(agent: AgentState, agents: AgentStateStore, liveFrom = 0): void {
-    agents.activity.markLiveFrom(agent.id, liveFrom);
+    agents.activity.markLiveFrom(agent.id, liveFrom, agent.jsonlFile);
     const provider = getHookProvider();
     if (!provider?.extractTokenUsage || !agent.jsonlFile) return;
     const history = readTokenUsageHistory(agent.jsonlFile, agent.fileOffset, (record) =>
@@ -290,7 +290,12 @@ export function createFileWatcherContext(
     }
     if (hookProvider?.id !== 'copilot') seedContextUsage(agentId, agents, getHookProvider());
     if (!agents.tokenUsage.isTracking(agentId, watched.jsonlFile)) {
-      seedTokenUsage(watched, agents, existingIsHistory ? transcriptSize(watched.jsonlFile) : 0);
+      // A watermark already set for this file (reassignAgentToFile) stands, also
+      // for a provider that reports no Token usage and so is never tracked here.
+      const liveFrom =
+        agents.activity.liveFromIn(agentId, watched.jsonlFile) ??
+        (existingIsHistory ? transcriptSize(watched.jsonlFile) : 0);
+      seedTokenUsage(watched, agents, liveFrom);
     }
     const previousTimer = pollingTimers.get(agentId);
     if (previousTimer) clearInterval(previousTimer);
