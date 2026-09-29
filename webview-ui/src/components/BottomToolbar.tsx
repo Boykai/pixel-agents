@@ -17,6 +17,8 @@ interface BottomToolbarProps {
   onToggleSettings: () => void;
   isActivityOpen: boolean;
   onToggleActivity: () => void;
+  isUsageOpen: boolean;
+  onToggleUsage: () => void;
   workspaceFolders: WorkspaceFolder[];
 }
 
@@ -30,6 +32,8 @@ export function BottomToolbar({
   onToggleSettings,
   isActivityOpen,
   onToggleActivity,
+  isUsageOpen,
+  onToggleUsage,
   workspaceFolders,
 }: BottomToolbarProps) {
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
@@ -154,19 +158,26 @@ export function BottomToolbar({
         Layout
       </Button>
       <Button
-        variant={isSettingsOpen ? 'active' : 'default'}
-        onClick={onToggleSettings}
-        title="Settings"
-      >
-        Settings
-      </Button>
-      <Button
         variant={isActivityOpen ? 'active' : 'default'}
         onClick={onToggleActivity}
         title="What every agent is doing"
         aria-pressed={isActivityOpen}
       >
         Activity
+      </Button>
+      <Button
+        variant={isUsageOpen ? 'active' : 'default'}
+        onClick={onToggleUsage}
+        title="Token usage"
+      >
+        Usage
+      </Button>
+      <Button
+        variant={isSettingsOpen ? 'active' : 'default'}
+        onClick={onToggleSettings}
+        title="Settings"
+      >
+        Settings
       </Button>
     </div>
   );

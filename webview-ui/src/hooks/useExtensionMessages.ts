@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { subtaskLabel } from '../../../core/src/activityLabel.js';
-import type { HooksConsentRequest } from '../../../core/src/messages.js';
+import type { AgentUsage, HooksConsentRequest } from '../../../core/src/messages.js';
 import { parseZoom } from '../../../core/src/zoom.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import { followCharacter } from '../office/activityRows.js';
@@ -83,6 +83,8 @@ interface ExtensionMessageState {
   agentStatuses: Record<number, string>;
   subagentTools: Record<number, Record<string, ToolActivity[]>>;
   subagentCharacters: SubagentCharacter[];
+  /** Token usage per agent (agentUsage messages); absent until an agent reports any. */
+  agentUsage: Record<number, AgentUsage>;
   layoutReady: boolean;
   layoutWasReset: boolean;
   /** Layout bundled with this build, or null when none shipped. Backs "Reset to Default". */
@@ -143,6 +145,7 @@ export function useExtensionMessages(
     Record<number, Record<string, ToolActivity[]>>
   >({});
   const [subagentCharacters, setSubagentCharacters] = useState<SubagentCharacter[]>([]);
+  const [agentUsage, setAgentUsage] = useState<Record<number, AgentUsage>>({});
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutWasReset, setLayoutWasReset] = useState(false);
   const [defaultLayout, setDefaultLayout] = useState<OfficeLayout | null>(null);
@@ -374,12 +377,21 @@ export function useExtensionMessages(
           delete next[id];
           return next;
         });
+        setAgentUsage((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         // Remove all sub-agent characters belonging to this agent
         delete backgroundParentToolIdsRef.current[id];
         os.removeAllSubagents(id);
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
         os.removeAgent(id);
       } else if (msg.type === 'existingAgents') {
+        // Handshake: the activity resend that follows replays every agent's
+        // current usage, so drop totals a reconnect may have left stale.
+        setAgentUsage({});
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<number, ExistingAgentMeta>;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
@@ -835,6 +847,17 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentContextUsage') {
         const id = msg.id as number;
         os.setAgentContext(id, msg.contextTokens as number, msg.maxContextTokens as number);
+      } else if (msg.type === 'agentUsage') {
+        // Each message carries the agent's whole current usage. One carrying
+        // only its id means the totals were reset (/clear); one with just a
+        // model or a since-tracked flag is kept.
+        const usage = msg as AgentUsage;
+        setAgentUsage((prev) => {
+          const next = { ...prev };
+          if (Object.keys(usage).length > 2) next[usage.id] = usage;
+          else delete next[usage.id];
+          return next;
+        });
       }
     };
     const unsubscribe = transport.onMessage(handler);
@@ -865,6 +888,7 @@ export function useExtensionMessages(
     agentStatuses,
     subagentTools,
     subagentCharacters,
+    agentUsage,
     layoutReady,
     layoutWasReset,
     defaultLayout,

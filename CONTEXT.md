@@ -123,6 +123,14 @@ _Avoid_: bubble alone when ambiguous, notification
 The small bar under an agent's activity label showing how full its context window is. Every agent has one once it has taken a turn; sub-agents never do, having no session of their own. It reads the newest turn, so it falls when a session compacts or clears — it is a level, not a total.
 _Avoid_: fuel gauge, health bar, token gauge (tokens are the unit, context is the thing)
 
+**Token usage**:
+What an agent's session has used so far, in the units its CLI records: input, output, cache-write and cache-read tokens for Claude Code; premium requests and nano AIU for GitHub Copilot. Copilot writes token counts only when a run shuts down, and its next checkpoint carries none, so its tokens show only from a shutdown until the next checkpoint. A running total, unlike the context gauge (a level); `/clear` starts a new session, which restarts it at zero. Never estimated or priced. A total the runtime could not read back to the session's start is labelled **since tracked**.
+_Avoid_: context usage (that is the context gauge), cost, spend, billing
+
+**Usage panel**:
+The panel opened from the toolbar's "Usage" button, listing every agent's token usage and the office-wide totals.
+_Avoid_: dashboard, stats panel
+
 ## Office & Layout
 
 **Office**:
