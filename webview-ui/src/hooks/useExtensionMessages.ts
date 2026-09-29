@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { subtaskLabel } from '../../../core/src/activityLabel.js';
 import type { AgentUsage, HooksConsentRequest } from '../../../core/src/messages.js';
 import { parseZoom } from '../../../core/src/zoom.js';
+import { MOOD_TICK_INTERVAL_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import { followCharacter } from '../office/activityRows.js';
 import { applyAgentStatus, clearPermissionBubbles } from '../office/engine/agentStatus.js';
@@ -11,6 +12,8 @@ import {
   reconcileAgentMetadata,
   reconcileExistingAgents,
 } from '../office/engine/existingAgents.js';
+import type { MoodTrigger } from '../office/engine/moodTracker.js';
+import { MoodTracker } from '../office/engine/moodTracker.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setGhostHeadlessAgents as setRendererGhostHeadlessAgents } from '../office/engine/renderer.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -22,6 +25,7 @@ import { setCharacterTemplates } from '../office/sprites/spriteData.js';
 import {
   extractToolName,
   isSubagentToolName,
+  isWaitingToolName,
   setProviderCapabilities,
 } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
@@ -101,6 +105,9 @@ interface ExtensionMessageState {
   alwaysShowLabels: boolean;
   ghostHeadlessAgents: boolean;
   setGhostHeadlessAgents: (v: boolean) => void;
+  /** The "Mood bubbles" setting: transient happy / error / stressed reactions. */
+  moodBubbles: boolean;
+  setMoodBubbles: (v: boolean) => void;
   hooksEnabled: boolean;
   setHooksEnabled: (v: boolean) => void;
   /** Actual install state per provider (hooksStatus messages) — absent/false
@@ -160,6 +167,7 @@ export function useExtensionMessages(
   const [watchAllSessions, setWatchAllSessions] = useState(false);
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
   const [ghostHeadlessAgents, setGhostHeadlessAgentsState] = useState(false);
+  const [moodBubbles, setMoodBubblesState] = useState(true);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInstalled, setHooksInstalled] = useState<Record<string, boolean>>({});
   const [hooksFeedback, setHooksFeedback] = useState<Record<string, HooksFeedback>>({});
@@ -182,6 +190,15 @@ export function useExtensionMessages(
     setGhostHeadlessAgentsState(enabled);
     setRendererGhostHeadlessAgents(enabled);
   }, []);
+
+  // Same two-copy pattern: OfficeState gates every Mood bubble it is asked to show.
+  const applyMoodBubbles = useCallback(
+    (enabled: boolean) => {
+      setMoodBubblesState(enabled);
+      getOfficeState().setMoodBubblesEnabled(enabled);
+    },
+    [getOfficeState],
+  );
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -225,6 +242,7 @@ export function useExtensionMessages(
           status: msg.status,
           toolId: msg.toolId,
           parentToolId: msg.parentToolId,
+          isError: msg.isError,
         });
       }
 
@@ -234,6 +252,7 @@ export function useExtensionMessages(
           displayName: msg.displayName,
           readingTools: msg.readingTools,
           subagentToolNames: msg.subagentToolNames,
+          permissionExemptTools: msg.permissionExemptTools,
         });
         setProviders((previous) => {
           const providerId = msg.providerId ?? 'claude';
@@ -756,6 +775,9 @@ export function useExtensionMessages(
         if (typeof msg.ghostHeadlessAgents === 'boolean') {
           applyGhostHeadlessAgents(msg.ghostHeadlessAgents as boolean);
         }
+        if (typeof msg.moodBubbles === 'boolean') {
+          applyMoodBubbles(msg.moodBubbles as boolean);
+        }
         if (typeof msg.hooksEnabled === 'boolean') {
           setHooksEnabled(msg.hooksEnabled as boolean);
         }
@@ -860,9 +882,48 @@ export function useExtensionMessages(
         });
       }
     };
-    const unsubscribe = transport.onMessage(handler);
+    // Mood reactions read the same stream: the tracker sees each message, the
+    // handler applies it (a lazily-created Sub-agent exists after that), then
+    // any Moods it triggered are shown.
+    const moodTracker = new MoodTracker({
+      isWaitingTool: (m) =>
+        isWaitingToolName(
+          m.toolName ?? extractToolName(m.status),
+          getOfficeState().characters.get(m.id)?.providerId,
+        ),
+    });
+    const applyMoodTriggers = (triggers: MoodTrigger[]) => {
+      if (triggers.length === 0) return;
+      const os = getOfficeState();
+      for (const trigger of triggers) {
+        const id =
+          trigger.parentToolId === undefined
+            ? trigger.id
+            : os.getSubagentId(trigger.id, trigger.parentToolId);
+        if (id !== null) os.showMoodBubble(id, trigger.mood);
+      }
+    };
+    const unsubscribe = transport.onMessage((msg) => {
+      // Moods are cosmetic: a tracker fault must never cost the office a message.
+      let moods: MoodTrigger[] = [];
+      try {
+        moods = moodTracker.handleMessage(msg, Date.now());
+      } catch (err) {
+        console.warn('[Webview] Mood tracker skipped a message:', err);
+      }
+      handler(msg);
+      applyMoodTriggers(moods);
+    });
+    // A long-running tool sends nothing while it runs, so it is found on a clock.
+    const moodTick = setInterval(
+      () => applyMoodTriggers(moodTracker.tick(Date.now())),
+      MOOD_TICK_INTERVAL_MS,
+    );
     transport.send({ type: 'webviewReady' });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      clearInterval(moodTick);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getOfficeState]);
 
@@ -903,6 +964,8 @@ export function useExtensionMessages(
     alwaysShowLabels,
     ghostHeadlessAgents,
     setGhostHeadlessAgents: applyGhostHeadlessAgents,
+    moodBubbles,
+    setMoodBubbles: applyMoodBubbles,
     hooksEnabled,
     hooksInstalled,
     hooksFeedback,

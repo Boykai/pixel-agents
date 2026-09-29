@@ -127,6 +127,14 @@ _Avoid_: task picker, agent picker
 The indicator above a character announcing a form of inactivity: "…" for a permission request (stays until resolved), a checkmark for a finished turn (fades on its own).
 _Avoid_: bubble alone when ambiguous, notification
 
+**Mood**:
+A character's short-lived reaction to its own recent work: error when one of its tools fails, happy when a turn that used tools ends done with no tool failure, stressed when it starts tools in rapid succession or one tool keeps running. Derived in the office UI from the protocol alone, so every provider gets it; never persisted.
+_Avoid_: emotion, emote, status (a mood is not a form of inactivity)
+
+**Mood bubble**:
+The small icon above a character showing its current mood, gone after a few seconds. It shares the speech bubble's slot and yields to it: a permission request or a done checkmark covers it. The "Mood bubbles" setting turns them off per adapter.
+_Avoid_: emoji, speech bubble (that one announces inactivity)
+
 **Context gauge**:
 The small bar under an agent's activity label showing how full its context window is. Every agent has one once it has taken a turn; sub-agents never do, having no session of their own. It reads the newest turn, so it falls when a session compacts or clears — it is a level, not a total.
 _Avoid_: fuel gauge, health bar, token gauge (tokens are the unit, context is the thing)
@@ -238,6 +246,10 @@ _Avoid_: plugin, connector
 **Agent event**:
 The canonical, CLI-agnostic description of something happening in a session: a tool started, a turn ended, a teammate went idle. Providers produce agent events; everything downstream consumes only these, never CLI-specific names.
 _Avoid_: hook event (the raw, CLI-specific payload before a provider normalizes it)
+
+**Tool failure**:
+A tool call that ran and reported that it failed. The provider flags it on the tool's end event, so everything downstream counts it once, on the character that ran the tool (the agent or its sub-agent). It drives the error mood.
+_Avoid_: tool error (ambiguous with a tool that never ran), crash
 
 **Runtime**:
 The adapter-independent core that tracks agents and drives the office. It is a separate thing from the adapters that compose it, the providers that feed it, and the office UI it serves.

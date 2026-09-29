@@ -19,6 +19,9 @@ interface SettingsModalProps {
   /** Whether headless agents (adopted, no terminal to focus) render translucent. */
   ghostHeadlessAgents: boolean;
   onToggleGhostHeadlessAgents: () => void;
+  /** Whether characters show transient Mood bubbles (happy / error / stressed). */
+  moodBubbles: boolean;
+  onToggleMoodBubbles: () => void;
   externalAssetDirectories: string[];
   watchAllSessions: boolean;
   onToggleWatchAllSessions: () => void;
@@ -47,6 +50,8 @@ export function SettingsModal({
   onToggleAlwaysShowOverlay,
   ghostHeadlessAgents,
   onToggleGhostHeadlessAgents,
+  moodBubbles,
+  onToggleMoodBubbles,
   externalAssetDirectories,
   watchAllSessions,
   onToggleWatchAllSessions,
@@ -281,6 +286,7 @@ export function SettingsModal({
         checked={alwaysShowOverlay}
         onChange={onToggleAlwaysShowOverlay}
       />
+      <Checkbox label="Mood Bubbles" checked={moodBubbles} onChange={onToggleMoodBubbles} />
       {/* Headless agents are the office's only terminal-less citizens in VS Code.
           Standalone has no terminals at all, so nothing there would ever ghost. */}
       {!isBrowserRuntime && (

@@ -113,8 +113,10 @@ describe('Copilot hooks share the transcript reducer', () => {
     transcript('tool.execution_failed', { toolCallId: 'failed' });
     expect(agent.permissionSent).toBe(false);
     expect([...agent.activeToolIds]).toEqual(['running']);
+    // The ignored postToolUseFailure hook adds nothing; the transcript record
+    // alone carries the tool-failure signal, once.
     expect(messages.filter((message) => message.type === 'agentToolDone')).toEqual([
-      { type: 'agentToolDone', id: 1, toolId: 'failed' },
+      { type: 'agentToolDone', id: 1, toolId: 'failed', isError: true },
     ]);
   });
 

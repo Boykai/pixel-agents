@@ -66,7 +66,8 @@ export type ClientMessage =
   | SaveAreaMappings
   | SetShowAreas
   | RequestDiagnostics
-  | SetZoom;
+  | SetZoom
+  | SetMoodBubbles;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -76,6 +77,7 @@ export interface ProviderCapabilities {
   capabilities?: Record<string, boolean>;
   readingTools: string[];
   subagentToolNames: string[];
+  permissionExemptTools?: string[];
 }
 
 export interface ProviderConsentDisclosure {
@@ -157,12 +159,14 @@ export interface AgentToolStart {
   permissionActive?: boolean;
   runInBackground?: boolean;
   isTeammateSpawn?: boolean;
+  replay?: boolean;
 }
 
 export interface AgentToolDone {
   type: 'agentToolDone';
   id: number;
   toolId: string;
+  isError?: boolean;
 }
 
 export interface AgentToolsClear {
@@ -196,6 +200,7 @@ export interface SubagentToolDone {
   id: number;
   parentToolId: string;
   toolId: string;
+  isError?: boolean;
 }
 
 export interface SubagentClear {
@@ -330,6 +335,7 @@ export interface SettingsLoaded {
   externalAssetDirectories: string[];
   showAreas: boolean;
   zoom?: number;
+  moodBubbles: boolean;
 }
 
 export interface HooksStatus {
@@ -491,4 +497,9 @@ export interface RequestDiagnostics {
 export interface SetZoom {
   type: 'setZoom';
   zoom: number;
+}
+
+export interface SetMoodBubbles {
+  type: 'setMoodBubbles';
+  enabled: boolean;
 }
