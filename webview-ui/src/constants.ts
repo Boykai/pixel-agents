@@ -358,8 +358,10 @@ export const MOOD_TICK_INTERVAL_MS = 1_000;
 export const ACHIEVEMENT_POPUP_DURATION_MS = 4_000;
 /** The popup's fade-and-slide out; the next queued popup shows after it. */
 export const ACHIEVEMENT_POPUP_FADE_MS = 300;
-/** Above the side panels (Usage z-20, Activity z-44), below the modal stack
- *  (ui/Modal 50+), so a popup never covers a dialog the user is working in. */
+/** Above the side panels (Usage z-20, Activity z-44), below the Intro bubble
+ *  (INTRO_BUBBLE_Z_INDEX) and the modal stack (ui/Modal 50+), so a popup never
+ *  covers a dialog the user is working in. It is click-through, so where it
+ *  does overlap something, nothing under it loses a click. */
 export const ACHIEVEMENT_POPUP_Z_INDEX = 45;
 /** The gallery opens from Settings (ui/Modal default 50), so it stacks above it. */
 export const ACHIEVEMENT_GALLERY_Z_INDEX = 52;
@@ -371,8 +373,10 @@ export const GREETER_ID = -1_000_000_000;
 /** Stacking order for the Intro's bubble. Deliberately BELOW the modal stack
  *  (ui/Modal defaults to 50, ChangelogModal 51, the migration notice z-100): the
  *  Intro is diegetic furniture over the office, not a modal, so a modal opened
- *  on top of it must cover it rather than slide underneath. */
-export const INTRO_BUBBLE_Z_INDEX = 45;
+ *  on top of it must cover it rather than slide underneath. Above the
+ *  Achievement popup (45): First Agent can unlock mid-tour, and in a short or
+ *  narrow panel the two meet, so the consent step's disclosure stays readable. */
+export const INTRO_BUBBLE_Z_INDEX = 46;
 /** The greeter stands this many tiles in from the office's bottom-left corner
  *  (target tile (margin, rows-1-margin); nearest walkable tile if blocked). */
 export const GREETER_TILE_MARGIN = 3;

@@ -98,7 +98,7 @@ export function CostumePanel({
   const paletteCount = getLoadedCharacterCount();
   const hueFill = (hueShift / COSTUME_HUE_MAX_DEG) * 100;
 
-  // z-48: above the Intro bubble (45), below every modal's backdrop (ui/Modal
+  // z-48: above the Intro bubble (46), below every modal's backdrop (ui/Modal
   // starts at 50), so a modal opened over the panel covers it.
   return (
     <section

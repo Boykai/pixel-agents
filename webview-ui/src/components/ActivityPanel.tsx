@@ -65,7 +65,7 @@ export function ActivityPanel({
   };
 
   return (
-    // z-44: above the Characters' floating labels (41-43), below the Intro bubble (45) and modals.
+    // z-44: above the Characters' floating labels (41-43), below the Achievement popup (45), the Intro bubble (46) and modals.
     <section
       aria-label="Activity"
       data-testid="activity-panel"
