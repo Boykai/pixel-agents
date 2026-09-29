@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import { toMajorMinor } from './changelogData.js';
+import { AchievementGallery } from './components/AchievementGallery.js';
+import { AchievementPopup } from './components/AchievementPopup.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { ConnectionIndicator } from './components/ConnectionIndicator.js';
@@ -99,6 +101,10 @@ function App() {
     setGhostHeadlessAgents,
     moodBubbles,
     setMoodBubbles,
+    achievements,
+    achievementPopups,
+    setAchievementPopups,
+    achievementPopup,
     providers,
     launchProvider,
     hooksInstalled,
@@ -124,6 +130,7 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
@@ -170,6 +177,19 @@ function App() {
     setMoodBubbles(next);
     transport.send({ type: 'setMoodBubbles', enabled: next });
   }, [moodBubbles, setMoodBubbles]);
+
+  const handleToggleAchievementPopups = useCallback(() => {
+    const next = !achievementPopups;
+    setAchievementPopups(next);
+    transport.send({ type: 'setAchievementPopups', enabled: next });
+  }, [achievementPopups, setAchievementPopups]);
+
+  // The gallery opens over Settings with the snapshot already held, and asks for
+  // a fresh one: counters move without an unlock to announce them.
+  const handleOpenAchievements = useCallback(() => {
+    setIsAchievementsOpen(true);
+    transport.send({ type: 'requestAchievements' });
+  }, []);
 
   const handleSelectAgent = useCallback((id: number) => {
     transport.send({ type: 'focusAgent', id });
@@ -389,9 +409,12 @@ function App() {
           const migrated = migrateLayoutColors(imported as unknown as OfficeLayout);
           getOfficeState().rebuildFromLayout(migrated);
           editor.setLastSavedLayout(migrated);
+          // `imported`: furniture that arrives in a file was not placed here, so
+          // it does not count toward the Interior Decorator Achievement.
           transport.send({
             type: 'saveLayout',
             layout: migrated as unknown as Record<string, unknown>,
+            imported: true,
           });
           editor.markClean();
         } catch {
@@ -708,6 +731,9 @@ function App() {
         onToggleGhostHeadlessAgents={handleToggleGhostHeadlessAgents}
         moodBubbles={moodBubbles}
         onToggleMoodBubbles={handleToggleMoodBubbles}
+        achievementPopups={achievementPopups}
+        onToggleAchievementPopups={handleToggleAchievementPopups}
+        onOpenAchievements={handleOpenAchievements}
         externalAssetDirectories={externalAssetDirectories}
         watchAllSessions={watchAllSessions}
         onToggleWatchAllSessions={() => {
@@ -739,6 +765,14 @@ function App() {
         onImportLayout={handleImportLayout}
       />
 
+      <AchievementGallery
+        isOpen={isAchievementsOpen}
+        onClose={() => setIsAchievementsOpen(false)}
+        achievements={achievements}
+      />
+
+      <AchievementPopup popup={achievementPopup} />
+
       {showMigrationNotice && (
         <MigrationNotice onDismiss={() => setMigrationNoticeDismissed(true)} />
       )}
@@ -757,6 +791,7 @@ function App() {
           onClose={handleIntroClose}
           escapeSuppressed={
             isSettingsOpen ||
+            isAchievementsOpen ||
             isChangelogOpen ||
             isHooksInfoOpen ||
             showMigrationNotice ||

@@ -483,7 +483,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       } else if (message.type === 'saveLayout') {
         this.layoutWatcher?.markOwnWrite();
         // The user's own editing: new furniture in it was placed (Achievements).
-        writeLayoutToFile(message.layout as Record<string, unknown>, 'edit');
+        // An imported file's furniture was not.
+        writeLayoutToFile(
+          message.layout as Record<string, unknown>,
+          message.imported === true ? 'replace' : 'edit',
+        );
       } else if (message.type === 'setSoundEnabled') {
         this.adapter.setSetting(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
       } else if (message.type === 'setLastSeenVersion') {
