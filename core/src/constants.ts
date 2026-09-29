@@ -17,6 +17,8 @@ export const HOOK_SCRIPTS_DIR = '.pixel-agents/hooks';
 
 export const BASH_COMMAND_DISPLAY_MAX_LENGTH = 30;
 export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
+/** Longest agent nickname kept, in characters (the label ellipsizes anyway). */
+export const AGENT_NICKNAME_MAX_LENGTH = 32;
 
 // ── Transport ────────────────────────────────────────────────
 // Connection-state names for the MessageTransport state machine.

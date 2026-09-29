@@ -37,6 +37,29 @@ export interface PersistedAgent {
   palette?: number;
   /** Hue shift in degrees (0-360). Persisted alongside palette. */
   hueShift?: number;
+  /** User-chosen display name (see NicknameBook for the copy that outlives the agent). */
+  nickname?: string;
+}
+
+/** The look and seat last used under a nickname, restored when an agent takes it again. */
+export interface NicknameProfile {
+  /** The nickname as last written (profiles are matched case-insensitively). */
+  nickname: string;
+  palette?: number;
+  hueShift?: number;
+  seatId?: string;
+}
+
+/**
+ * Durable nickname memory, kept beside (not inside) the persisted agent list so a
+ * nickname survives its agent's removal: re-adopting the same session, or launching
+ * a new agent under a nickname used before, restores it.
+ */
+export interface NicknameBook {
+  /** `<providerId>:<sessionId>[#<agentName>]` → nickname. */
+  sessions: Record<string, string>;
+  /** Oldest first; one entry per nickname. */
+  profiles: NicknameProfile[];
 }
 
 /** Agent seat assignment with visual identity

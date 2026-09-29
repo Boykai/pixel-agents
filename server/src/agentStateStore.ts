@@ -2,6 +2,14 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync } from 'node:fs';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import { normalizeNickname } from '../../core/src/normalizeNickname.js';
+import type { NicknameProfile } from '../../core/src/schemas.js';
+import {
+  findNicknameProfile,
+  nicknameSessionKey,
+  rememberNicknameProfile,
+  rememberSessionNickname,
+} from './nicknames.js';
 import { TokenUsageTracker } from './tokenUsage.js';
 import type { AgentState, PersistedAgent } from './types.js';
 
@@ -134,6 +142,8 @@ export class AgentStateStore {
     const isNew = !this.agents.has(id);
     this.agents.set(id, agent);
     if (isNew) {
+      // Before agentAdded, so agentCreated already carries a remembered nickname.
+      this.recordNickname(agent);
       this.emitter.emit('agentAdded', id, agent);
     }
     return this;
@@ -168,6 +178,128 @@ export class AgentStateStore {
     this.emitter.emit('agentUpdated', id, agent, 'metadata');
     this.broadcast({ type: 'agentMetadata', id, ...changes });
     this.persist();
+  }
+
+  // ── Nicknames + appearance ──────────────────────────────────
+
+  /**
+   * Rename an agent ('' clears). The nickname is remembered for the agent's session
+   * (so re-adopting it restores the name) and takes the agent's current look and
+   * saved seat as its profile (so a later agent launched under it looks the same).
+   * Broadcasts the normalized result, even when unchanged, so every client converges.
+   */
+  setNickname(id: number, raw: unknown): boolean {
+    const agent = this.agents.get(id);
+    if (!agent) return false;
+    const nickname = normalizeNickname(raw);
+    if ((agent.nickname ?? '') !== nickname) {
+      if (nickname) agent.nickname = nickname;
+      else delete agent.nickname;
+      const adapter = this.adapter;
+      if (adapter?.loadNicknameBook && adapter.saveNicknameBook) {
+        const book = adapter.loadNicknameBook();
+        const key = nicknameSessionKey(agent);
+        let changed = key !== undefined && rememberSessionNickname(book, key, nickname);
+        if (nickname) {
+          changed =
+            rememberNicknameProfile(book, {
+              nickname,
+              palette: agent.palette,
+              hueShift: agent.hueShift,
+              seatId: adapter.loadSeats()[String(id)]?.seatId,
+            }) || changed;
+        }
+        if (changed) adapter.saveNicknameBook(book);
+      }
+      this.emitter.emit('agentUpdated', id, agent, 'nickname');
+      this.persist();
+    }
+    this.broadcast({ type: 'agentMetadata', id, nickname });
+    return true;
+  }
+
+  /**
+   * Give an agent without a nickname the one remembered for its session, and return
+   * the look and seat last used under its nickname (undefined when there is none).
+   */
+  recallNicknameProfile(agent: AgentState): NicknameProfile | undefined {
+    const book = this.adapter?.loadNicknameBook?.();
+    if (!book) return undefined;
+    if (agent.nickname === undefined) {
+      const key = nicknameSessionKey(agent);
+      const remembered = key ? normalizeNickname(book.sessions[key]) : '';
+      if (remembered) agent.nickname = remembered;
+    }
+    return agent.nickname ? findNicknameProfile(book, agent.nickname) : undefined;
+  }
+
+  /**
+   * Re-record an agent's nickname after its session id changed (/clear, a teammate
+   * moving to its own session), so re-adopting the new session still finds it. An
+   * agent without one picks up the nickname remembered for the new session, and
+   * every client hears about it.
+   */
+  rememberNickname(agent: AgentState): void {
+    if (!this.recordNickname(agent)) return;
+    this.broadcast({ type: 'agentMetadata', id: agent.id, nickname: agent.nickname ?? '' });
+    this.persist();
+  }
+
+  /**
+   * Record an agent's nickname under its CURRENT session identity (recalling it first
+   * when the agent has none), and seed the nickname's profile from the agent's look
+   * when there is none yet. Runs for every new agent. Returns whether it recalled.
+   */
+  private recordNickname(agent: AgentState): boolean {
+    const adapter = this.adapter;
+    if (!adapter?.loadNicknameBook || !adapter.saveNicknameBook) return false;
+    const book = adapter.loadNicknameBook();
+    const key = nicknameSessionKey(agent);
+    let recalled = false;
+    if (agent.nickname === undefined && key) {
+      const remembered = normalizeNickname(book.sessions[key]);
+      if (remembered) {
+        agent.nickname = remembered;
+        recalled = true;
+      }
+    }
+    if (!agent.nickname) return false;
+    let changed = key !== undefined && rememberSessionNickname(book, key, agent.nickname);
+    if (!findNicknameProfile(book, agent.nickname)) {
+      changed =
+        rememberNicknameProfile(book, {
+          nickname: agent.nickname,
+          palette: agent.palette,
+          hueShift: agent.hueShift,
+        }) || changed;
+    }
+    if (changed) adapter.saveNicknameBook(book);
+    return recalled;
+  }
+
+  /** Remember the look and seat each nicknamed agent has now, in one book write. */
+  rememberNicknameLooks(looks: NicknameProfile[]): void {
+    const adapter = this.adapter;
+    if (looks.length === 0 || !adapter?.loadNicknameBook || !adapter.saveNicknameBook) return;
+    const book = adapter.loadNicknameBook();
+    let changed = false;
+    for (const look of looks) changed = rememberNicknameProfile(book, look) || changed;
+    if (changed) adapter.saveNicknameBook(book);
+  }
+
+  /**
+   * Change an agent's appearance (its costume). Broadcasts `agentAppearance` so every
+   * connected client updates live; the caller persists. Returns whether it changed.
+   */
+  setAppearance(id: number, palette: number, hueShift: number): boolean {
+    const agent = this.agents.get(id);
+    if (!agent) return false;
+    if (agent.palette === palette && (agent.hueShift ?? 0) === hueShift) return false;
+    agent.palette = palette;
+    agent.hueShift = hueShift;
+    this.emitter.emit('agentUpdated', id, agent, 'appearance');
+    this.broadcast({ type: 'agentAppearance', id, palette, hueShift });
+    return true;
   }
 
   // ── Broadcast (replaces direct webview.postMessage in server/) ─
@@ -232,6 +364,7 @@ export class AgentStateStore {
           agent.backgroundAgentToolIds.size > 0 ? [...agent.backgroundAgentToolIds] : undefined,
         palette: agent.palette,
         hueShift: agent.hueShift,
+        nickname: agent.nickname,
       });
     }
     this.adapter.saveAgents(persisted);

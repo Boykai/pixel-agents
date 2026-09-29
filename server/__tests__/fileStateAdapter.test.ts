@@ -292,4 +292,73 @@ describe('FileStateAdapter', () => {
     expect(adapter.loadSeats()).toEqual({ '1': { palette: 3 } });
     expect(adapter.loadAgents()).toHaveLength(1);
   });
+
+  // ── Nickname memory ──────────────────────────────────────────
+
+  it('round-trips the nickname book, keeps it across agent and seat saves, per namespace', () => {
+    const standalone = new FileStateAdapter({ namespace: 'standalone' });
+    const book = {
+      sessions: { 'copilot:sess-1': 'Ada' },
+      profiles: [{ nickname: 'Ada', palette: 2, hueShift: 45, seatId: 'seat-a' }],
+    };
+    standalone.saveNicknameBook(book);
+    standalone.saveAgents([
+      { id: 1, terminalName: '', jsonlFile: '/x.jsonl', projectDir: '/tmp', nickname: 'Ada' },
+    ]);
+    standalone.saveSeats({ '1': { palette: 2, hueShift: 45, seatId: 'seat-a' } });
+
+    const reloaded = new FileStateAdapter({ namespace: 'standalone' });
+    expect(reloaded.loadNicknameBook()).toEqual(book);
+    expect(reloaded.loadAgents()[0].nickname).toBe('Ada');
+    expect(new FileStateAdapter({ namespace: 'vscode' }).loadNicknameBook()).toEqual({
+      sessions: {},
+      profiles: [],
+    });
+  });
+
+  it('writes no nicknames section until a nickname exists', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    adapter.saveSeats({ '1': { palette: 1 } });
+    adapter.saveNicknameBook({ sessions: {}, profiles: [] });
+    const stateFile = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf-8'))).toEqual({
+      agents: [],
+      seats: { '1': { palette: 1 } },
+    });
+  });
+
+  it('drops malformed nickname entries and keeps the well-formed ones', () => {
+    const stateFile = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        agents: [],
+        seats: {},
+        nicknames: {
+          sessions: {
+            'claude:ok': ' Ada ',
+            'claude:blank': '   ',
+            'no-prefix': 'Bob',
+            'claude:num': 7,
+          },
+          profiles: [
+            { nickname: 'Ada', palette: 1, hueShift: 400, seatId: '' },
+            { nickname: '', palette: 2 },
+            { palette: 3 },
+            'junk',
+            { nickname: 'Cy', palette: -1, hueShift: 90, seatId: 'seat-c' },
+          ],
+        },
+      }),
+    );
+
+    expect(new FileStateAdapter({ namespace: 'standalone' }).loadNicknameBook()).toEqual({
+      sessions: { 'claude:ok': 'Ada' },
+      profiles: [
+        { nickname: 'Ada', palette: 1 },
+        { nickname: 'Cy', hueShift: 90, seatId: 'seat-c' },
+      ],
+    });
+  });
 });

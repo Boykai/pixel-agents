@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import { normalizeProjectName } from '../../core/src/normalizeProjectName.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity } from '../../server/src/agentActivityResend.js';
@@ -31,6 +32,16 @@ export function getProjectDirPath(cwd?: string, provider: HookProvider = claudeP
   return projectDir;
 }
 
+/**
+ * A nicknamed agent's terminal is named after it. restoreAgents re-binds agents to
+ * terminals BY NAME, so a nickname already on a live terminal gets the index too.
+ */
+function terminalNameFor(provider: HookProvider, idx: number, nickname: string): string {
+  if (!nickname) return `${provider.terminalNamePrefix ?? provider.displayName} #${idx}`;
+  const taken = vscode.window.terminals.some((terminal) => terminal.name === nickname);
+  return taken ? `${nickname} #${idx}` : nickname;
+}
+
 export async function launchNewTerminal(
   runtime: AgentRuntime,
   provider: HookProvider,
@@ -38,6 +49,7 @@ export async function launchNewTerminal(
   folderPath?: string,
   bypassPermissions?: boolean,
   suppressShow?: boolean,
+  nickname?: unknown,
 ): Promise<void> {
   const { fileWatchers, pollingTimers, waitingTimers, permissionTimers, jsonlPollTimers } = runtime;
   const { readNewLines, reassignAgentToFile, startFileWatching } = runtime.getFileWatcher(
@@ -58,8 +70,9 @@ export async function launchNewTerminal(
   }
   const projectDir = path.dirname(expectedFile);
   const idx = agents.nextTerminalIndex.current++;
+  const agentNickname = normalizeNickname(nickname);
   const terminal = vscode.window.createTerminal({
-    name: `${provider.terminalNamePrefix ?? provider.displayName} #${idx}`,
+    name: terminalNameFor(provider, idx, agentNickname),
     cwd,
     env: launch.env,
   });
@@ -112,8 +125,10 @@ export async function launchNewTerminal(
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+    ...(agentNickname ? { nickname: agentNickname } : {}),
   };
 
+  // A nickname used before brings back that nickname's look (and seat, if free).
   assignPaletteIfNeeded(agent, agents);
   agents.set(id, agent);
   runtime.activeAgentId.current = id;
@@ -279,6 +294,7 @@ export function persistAgents(agents: AgentStateStore, adapter: StateAdapter): v
       teamUsesTmux: agent.teamUsesTmux,
       backgroundAgentToolIds:
         agent.backgroundAgentToolIds.size > 0 ? [...agent.backgroundAgentToolIds] : undefined,
+      nickname: agent.nickname,
     });
   }
   adapter.saveAgents(persisted);
@@ -327,6 +343,7 @@ export function restoreAgents(
       if (!terminal) continue;
     }
 
+    const restoredNickname = normalizeNickname(p.nickname);
     const agent: AgentState = {
       id: p.id,
       providerId: provider.id,
@@ -369,6 +386,7 @@ export function restoreAgents(
       teamUsesTmux: p.teamUsesTmux,
       palette: p.palette,
       hueShift: p.hueShift,
+      ...(restoredNickname ? { nickname: restoredNickname } : {}),
     };
 
     recoverAgent(agent, store, waitingTimers, permissionTimers);
@@ -472,10 +490,16 @@ export function sendExistingAgents(
   const providerIds: Record<number, string> = {};
   const observations: Record<number, 'known' | 'unknown'> = {};
   const sessionNames: Record<number, string> = {};
+  const nicknames: Record<number, string> = {};
   for (const [id, agent] of agents) {
     providerIds[id] = agent.providerId ?? 'claude';
     observations[id] = agent.observation ?? 'known';
     if (agent.sessionName) sessionNames[id] = agent.sessionName;
+    if (agent.nickname) nicknames[id] = agent.nickname;
+    // Never seated yet: offer the seat last used under its nickname.
+    if (agent.preferredSeatId && !agentMeta[id]?.seatId) {
+      agentMeta[id] = { ...agentMeta[id], seatId: agent.preferredSeatId };
+    }
     if (agent.folderName) {
       folderNames[id] = agent.folderName;
     }
@@ -496,6 +520,7 @@ export function sendExistingAgents(
     providerIds,
     observations,
     sessionNames,
+    nicknames,
   });
   // Note: sendCurrentAgentStatuses is called separately AFTER layoutLoaded
   // so that agentStatus/agentToolStart messages arrive after characters are created.

@@ -26,6 +26,8 @@ export interface PendingAgent {
   seatId?: string;
   folderName?: string;
   sessionName?: string;
+  /** '' = the snapshot says this agent has no nickname (clears a stale one). */
+  nickname?: string;
   isHeadless?: boolean;
   providerId?: string;
   observation?: 'known' | 'unknown';
@@ -52,21 +54,40 @@ export interface ExistingAgentsOffice {
       observation?: 'known' | 'unknown';
       folderName?: string;
       sessionName?: string;
+      nickname?: string;
     },
   ) => void;
+  setAgentAppearance?: (id: number, palette: number, hueShift: number) => boolean;
 }
 
 export function reconcileAgentMetadata(
   office: ExistingAgentsOffice,
   pendingAgents: PendingAgent[],
   id: number,
-  metadata: Pick<PendingAgent, 'folderName' | 'sessionName'>,
+  metadata: Pick<PendingAgent, 'folderName' | 'sessionName' | 'nickname'>,
 ): void {
   office.setAgentMetadata?.(id, metadata);
   const pending = pendingAgents.find((agent) => agent.id === id);
   if (!pending) return;
   if (metadata.folderName !== undefined) pending.folderName = metadata.folderName;
   if (metadata.sessionName !== undefined) pending.sessionName = metadata.sessionName;
+  if (metadata.nickname !== undefined) pending.nickname = metadata.nickname;
+}
+
+/** Apply a costume change to an agent, or to its buffered entry if the layout
+ *  has not been built yet (the flush then creates it already dressed). */
+export function reconcileAgentAppearance(
+  office: ExistingAgentsOffice,
+  pendingAgents: PendingAgent[],
+  id: number,
+  palette: number,
+  hueShift: number,
+): void {
+  office.setAgentAppearance?.(id, palette, hueShift);
+  const pending = pendingAgents.find((agent) => agent.id === id);
+  if (!pending) return;
+  pending.palette = palette;
+  pending.hueShift = hueShift;
 }
 
 /**
@@ -87,6 +108,7 @@ export function reconcileExistingAgents(
   sessionNames: Record<number, string> = {},
   providerIds: Record<number, string> = {},
   observations: Record<number, 'known' | 'unknown'> = {},
+  nicknames?: Record<number, string>,
 ): boolean {
   let addedDirectly = false;
   for (const id of incoming) {
@@ -101,6 +123,8 @@ export function reconcileExistingAgents(
       isHeadless: headlessAgents[id] === true,
       ...(providerIds[id] !== undefined ? { providerId: providerIds[id] } : {}),
       ...(observations[id] !== undefined ? { observation: observations[id] } : {}),
+      // A snapshot that carries nicknames is authoritative: absent = none.
+      ...(nicknames ? { nickname: nicknames[id] ?? '' } : {}),
     };
     if (layoutReady) {
       if (!os.characters.has(p.id)) {
@@ -116,6 +140,9 @@ export function reconcileExistingAgents(
         );
         if (p.isHeadless) os.setHeadless(p.id, true);
         addedDirectly = true;
+      } else if (p.palette !== undefined) {
+        // Reconnect: a costume changed while this client was away.
+        os.setAgentAppearance?.(p.id, p.palette, p.hueShift ?? 0);
       }
       os.setAgentMetadata?.(p.id, p);
     } else {

@@ -1,6 +1,7 @@
 import type { HookProvider } from '../../core/src/provider.js';
 import { parseZoom } from '../../core/src/zoom.js';
 import { resendAgentActivity } from './agentActivityResend.js';
+import { applySavedSeats } from './agentAppearance.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -12,8 +13,8 @@ import {
   setHooksEnabled,
   writeConfig,
 } from './configPersistence.js';
-import { HUE_SHIFT_MAX_DEG, PALETTE_COUNT } from './constants.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
+import { getPaletteCount } from './paletteAssigner.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
@@ -123,41 +124,22 @@ export function handleClientMessage(
 
     case 'saveAgentSeats':
       if (msg.seats) {
-        const seats = msg.seats as Record<
-          string,
-          { palette?: number; hueShift?: number; seatId?: string }
-        >;
-        // Sync palette/hueShift back to AgentState so existingAgents stays
-        // consistent across reconnects. Validate ranges to keep a remote
-        // client (or a hand-edited payload) from corrupting the stored
-        // values with out-of-range inputs that would render as a glitch.
-        // Palette ceiling is dynamic: external asset directories can add
-        // char_N.png beyond the bundled 6, so read the count from the asset
-        // cache instead of hardcoding PALETTE_COUNT.
-        const paletteCount = cache?.characters?.characters.length ?? PALETTE_COUNT;
-        for (const [idStr, meta] of Object.entries(seats)) {
-          const id = Number(idStr);
-          const agent = store.get(id);
-          if (agent) {
-            if (
-              meta.palette !== undefined &&
-              Number.isInteger(meta.palette) &&
-              meta.palette >= 0 &&
-              meta.palette < paletteCount
-            ) {
-              agent.palette = meta.palette;
-            }
-            if (
-              meta.hueShift !== undefined &&
-              Number.isInteger(meta.hueShift) &&
-              meta.hueShift >= 0 &&
-              meta.hueShift <= HUE_SHIFT_MAX_DEG
-            ) {
-              agent.hueShift = meta.hueShift;
-            }
-          }
-        }
-        adapter?.saveSeats(seats);
+        // Persists the seats, syncs palette/hueShift back to AgentState (so
+        // existingAgents stays consistent across reconnects), and rebroadcasts
+        // an appearance change to the other clients. The palette ceiling is
+        // dynamic: external asset directories can add char_N.png beyond the
+        // bundled 6, so read the count from the asset cache.
+        applySavedSeats(
+          store,
+          msg.seats,
+          cache?.characters?.characters.length ?? getPaletteCount(),
+        );
+      }
+      break;
+
+    case 'setAgentNickname':
+      if (typeof msg.id === 'number') {
+        store.setNickname(msg.id, msg.nickname);
       }
       break;
 
@@ -547,6 +529,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const agentIds: number[] = [];
   const folderNames: Record<number, string> = {};
   const sessionNames: Record<number, string> = {};
+  const nicknames: Record<number, string> = {};
   const externalAgents: Record<number, boolean> = {};
   const providerIds: Record<number, string> = {};
   const observations: Record<number, string> = {};
@@ -562,6 +545,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     if (agent.sessionName) {
       sessionNames[id] = agent.sessionName;
     }
+    if (agent.nickname) {
+      nicknames[id] = agent.nickname;
+    }
     if (agent.isExternal) {
       externalAgents[id] = true;
     }
@@ -569,7 +555,8 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentMeta[id] = {
       palette: agent.palette,
       hueShift: agent.hueShift,
-      seatId: persisted?.seatId,
+      // Never seated yet: offer the seat last used under its nickname.
+      seatId: persisted?.seatId ?? agent.preferredSeatId,
     };
   }
   send({
@@ -578,6 +565,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentMeta,
     folderNames,
     sessionNames,
+    nicknames,
     externalAgents,
     providerIds,
     observations,

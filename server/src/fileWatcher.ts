@@ -951,6 +951,7 @@ export function createFileWatcherContext(
         if (ownSessionId && existingTeammate.sessionId !== ownSessionId) {
           existingTeammate.sessionId = ownSessionId;
           teammateRegisterCallback?.(ownSessionId, existingTeammate.id);
+          agents.rememberNickname(existingTeammate);
         }
         startFileWatching(
           existingTeammate.id,
@@ -1003,12 +1004,8 @@ export function createFileWatcherContext(
         teamUsesTmux: parentAgent?.teamUsesTmux,
       };
 
-      if (parentAgent?.palette !== undefined) {
-        agent.palette = parentAgent.palette;
-        agent.hueShift = parentAgent.hueShift ?? 0;
-      } else {
-        assignPaletteIfNeeded(agent, agents);
-      }
+      // The lead's look, unless the teammate's nickname remembers its own.
+      assignPaletteIfNeeded(agent, agents, parentAgent);
       agents.set(id, agent);
       persistAgents();
 
@@ -1160,12 +1157,8 @@ export function createFileWatcherContext(
         spawnToolUseId: entry.toolUseId,
       };
 
-      if (lead.palette !== undefined) {
-        agent.palette = lead.palette;
-        agent.hueShift = lead.hueShift ?? 0;
-      } else {
-        assignPaletteIfNeeded(agent, agents);
-      }
+      // The lead's look, unless the teammate's nickname remembers its own.
+      assignPaletteIfNeeded(agent, agents, lead);
       agents.set(id, agent);
 
       // Derived team: spawning a named agent makes the spawner a Lead, whether
@@ -1369,8 +1362,10 @@ export function createFileWatcherContext(
         );
       }
       if (adoptedAgent) {
+        const rekeyed = adoptedAgent.sessionId !== sessionId;
         adoptedAgent.sessionId = sessionId;
         adoptedAgent.hookDelivered = true;
+        if (rekeyed) agents.rememberNickname(adoptedAgent);
         onAgentCreated?.(adoptedAgent);
       }
     } else {

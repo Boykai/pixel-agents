@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import { parseZoom } from '../../core/src/zoom.js';
+import { applySavedSeats } from '../../server/src/agentAppearance.js';
 import { buildAgentDiagnostics } from '../../server/src/agentDiagnostics.js';
 import { AgentRuntime } from '../../server/src/agentRuntime.js';
 import { AgentStateStore } from '../../server/src/agentStateStore.js';
@@ -135,6 +136,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         hooksOnly: agent.hooksOnly || undefined,
         palette: agent.palette,
         hueShift: agent.hueShift,
+        nickname: agent.nickname,
+        seatId: agent.preferredSeatId,
       });
     });
     this.store.on('agentRemoved', (id) => {
@@ -432,6 +435,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             this.store,
             message.folderPath as string | undefined,
             message.bypassPermissions as boolean | undefined,
+            undefined,
+            message.nickname,
           );
         } catch (error) {
           void vscode.window.showErrorMessage(
@@ -466,7 +471,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       } else if (message.type === 'saveAgentSeats') {
         // Store seat assignments in a separate key (never touched by persistAgents)
         console.log(`[Pixel Agents] State: saveAgentSeats:`, JSON.stringify(message.seats));
-        this.adapter.saveSeats(message.seats);
+        // Shared with standalone: also applies (and rebroadcasts) a costume change.
+        applySavedSeats(this.store, message.seats);
+      } else if (message.type === 'setAgentNickname') {
+        if (typeof message.id === 'number') {
+          this.store.setNickname(message.id, message.nickname);
+        }
       } else if (message.type === 'saveLayout') {
         this.layoutWatcher?.markOwnWrite();
         writeLayoutToFile(message.layout as Record<string, unknown>);
