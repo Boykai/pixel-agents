@@ -66,7 +66,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     teamUtils.ts                     isInlineTeammateOf, getInlineTeammates, hasInlineTeammates
     types.ts                         ServerAgentState
     constants.ts                     All timing/scanning constants
-  __tests__/                         43 Vitest files
+  __tests__/                         47 Vitest files
   manual-hook-events.http            Manual hook testing helper (REST-Client format)
 
 adapters/vscode/                     VS Code surface — composes core + server
@@ -484,7 +484,7 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 **Undo/Redo**: 50-level, Ctrl+Z/Y. EditActionBar (top-center when dirty): Undo, Redo, Save, Reset.
 
-**Multi-stage Esc**: exit furniture pick → deselect catalog → close tool tab → deselect furniture → close editor. One press closes one surface, topmost first: the Sign editor, then the Costume panel, then the Reset to Default confirmation, and only then these stages (the two window capture-phase listeners use `stopImmediatePropagation`, and each stands down while a surface above it is open, because registration order changes whenever an effect re-runs).
+**Multi-stage Esc**: exit furniture pick → deselect catalog → close tool tab → deselect furniture → close editor. One press closes one surface, topmost first: the Achievement gallery, the Sign editor, then the Costume panel, then the Reset to Default confirmation, and only then these stages. The window capture-phase listeners use `stopImmediatePropagation`. The gallery's registers once at mount, so it always runs first; the other two stand down while a surface above them is open, because their registration order changes whenever an effect re-runs.
 
 **Erase tool**: Sets tiles to `TileType.VOID` (transparent, non-walkable, no furniture). Right-click in floor/wall/erase tools also erases to VOID (drag-erasing supported). Context menu suppressed in edit mode.
 
@@ -535,6 +535,7 @@ Three tiers, each with its own framework.
 | `agentStateStore.test.ts`      | Mutations, EventEmitter events, snapshot                                                                                                       |
 | `agentActivity.test.ts`        | Activity feed: liveness watermark (/clear-resume, late teammate, re-materialized Sub-agent watch), emission per source                         |
 | `achievements.test.ts`         | Each Achievement for Claude (hooks + transcript) and Copilot, exactly-once, `achievements.json` merge across writers                           |
+| `decoratorHandshake.test.ts`   | Interior Decorator baseline at both handshakes: a Sign or generated room another surface saved never counts                                    |
 | `hookEventHandler.test.ts`     | Routing, buffering, normalized dispatch, team gating                                                                                           |
 | `sessionRouter.test.ts`        | session_id mapping, pending sessions, buffer flush                                                                                             |
 | `fileWatcherDismissal.test.ts` | DismissalTracker integration                                                                                                                   |
@@ -558,7 +559,7 @@ Run: `npm run test:server` (or `npm test` for all).
 
 ### Webview unit (Vitest, Node runner)
 
-`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring, plus the ported features: mood tracking and mood bubbles, signs and draw layers, pet camera follow, agent appearance, and the Activity panel rows and shared activity labels.
+`webview-ui/test/` covers office state, layout editing and migration, assets, changelog behavior, and Vite/browser wiring, plus the ported features: mood tracking and mood bubbles, signs and draw layers, pet camera follow, agent appearance, the Activity panel rows and shared activity labels, and the Achievement gallery rows, popup queue and popup gate.
 
 Run: `npm run test:webview`.
 
