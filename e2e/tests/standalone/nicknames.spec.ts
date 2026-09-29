@@ -166,6 +166,20 @@ test.describe('Standalone / Copilot nicknames', () => {
     await details.getByRole('button', { name: 'Hide agent details' }).click();
     await expect(details).toHaveCount(0);
 
+    // The Usage panel names the agent's row by its nickname too.
+    await mock.run(
+      copilotScenario().append('session.usage_checkpoint', {
+        totalPremiumRequests: 1,
+        totalNanoAiu: 25_000,
+      }),
+    );
+    await page.getByRole('button', { name: 'Usage', exact: true }).click();
+    const usageRow = page.getByTestId('usage-agent-row');
+    await expect(usageRow).toHaveCount(1);
+    await expect(usageRow).toContainText('Scout');
+    await page.getByRole('button', { name: 'Close token usage' }).click();
+    await expect(page.getByTestId('usage-panel')).toHaveCount(0);
+
     // A fresh server restores the observed session with its nickname, and its
     // next activity lands on the same named character.
     await standalone.stopHost();
