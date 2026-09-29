@@ -629,7 +629,7 @@ export class AgentRuntime {
       leadAgentId: lead.id,
       spawnToolUseId: child.parentToolId,
     };
-    assignPaletteIfNeeded(teammate, this.store);
+    assignPaletteIfNeeded(teammate, this.store, lead);
     this.store.set(teammate.id, teammate);
     lead.isTeamLead = true;
     lead.teammateSpawnToolIds ??= new Set();

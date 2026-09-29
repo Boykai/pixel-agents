@@ -1004,12 +1004,8 @@ export function createFileWatcherContext(
         teamUsesTmux: parentAgent?.teamUsesTmux,
       };
 
-      if (parentAgent?.palette !== undefined) {
-        agent.palette = parentAgent.palette;
-        agent.hueShift = parentAgent.hueShift ?? 0;
-      } else {
-        assignPaletteIfNeeded(agent, agents);
-      }
+      // The lead's look, unless the teammate's nickname remembers its own.
+      assignPaletteIfNeeded(agent, agents, parentAgent);
       agents.set(id, agent);
       persistAgents();
 
@@ -1161,12 +1157,8 @@ export function createFileWatcherContext(
         spawnToolUseId: entry.toolUseId,
       };
 
-      if (lead.palette !== undefined) {
-        agent.palette = lead.palette;
-        agent.hueShift = lead.hueShift ?? 0;
-      } else {
-        assignPaletteIfNeeded(agent, agents);
-      }
+      // The lead's look, unless the teammate's nickname remembers its own.
+      assignPaletteIfNeeded(agent, agents, lead);
       agents.set(id, agent);
 
       // Derived team: spawning a named agent makes the spawner a Lead, whether

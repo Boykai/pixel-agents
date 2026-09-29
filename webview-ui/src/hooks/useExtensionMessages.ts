@@ -309,7 +309,8 @@ export function useExtensionMessages(
           // Teammate: inherit parent's palette and workspace folderName (teammate runs
           // in the same workspace as the lead). Name shown via agentName (teamRoleLabel).
           // Seat them at the free seat closest to the lead so the team clusters.
-          // A nicknamed teammate keeps the costume last worn under its nickname.
+          // A nicknamed teammate wears the look the server gave it: the costume
+          // remembered for its nickname, else its lead's (assignPaletteIfNeeded).
           const parentCh = os.characters.get(teammateParentId);
           const ownLook = msg.nickname && msg.palette !== undefined;
           const palette = ownLook ? (msg.palette as number) : parentCh?.palette;

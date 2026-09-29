@@ -365,6 +365,61 @@ describe('name-keyed restore', () => {
     expect(agent.nickname).toBeUndefined();
     expect(agent.preferredSeatId).toBeUndefined();
   });
+
+  describe('Teammates', () => {
+    const lead = () => createTestAgent({ id: 1, sessionId: 'lead-1', palette: 2, hueShift: 30 });
+    const teammate = () =>
+      createTestAgent({ id: 2, sessionId: 'lead-1', agentName: 'writer', leadAgentId: 1 });
+
+    it("dresses a re-adopted nicknamed Teammate in its nickname's look, not its Lead's", () => {
+      const { adapter } = createMemoryAdapter({
+        book: {
+          sessions: { 'claude:lead-1#writer': 'Casper' },
+          profiles: [{ nickname: 'Casper', palette: 4, hueShift: 90 }],
+        },
+      });
+      store.setAdapter(adapter);
+      const agent = teammate();
+
+      assignPaletteIfNeeded(agent, store, lead());
+
+      expect(agent.nickname).toBe('Casper');
+      expect(agent.palette).toBe(4);
+      expect(agent.hueShift).toBe(90);
+    });
+
+    it("dresses a Teammate with no remembered look in its Lead's", () => {
+      const { adapter } = createMemoryAdapter({
+        book: { sessions: {}, profiles: [{ nickname: 'Casper', palette: 4, hueShift: 90 }] },
+      });
+      store.setAdapter(adapter);
+      const agent = teammate();
+
+      assignPaletteIfNeeded(agent, store, lead());
+
+      expect(agent.nickname).toBeUndefined();
+      expect(agent.palette).toBe(2);
+      expect(agent.hueShift).toBe(30);
+    });
+
+    it("prefers its Lead's look to the diverse pick when the remembered palette is gone", () => {
+      const { adapter } = createMemoryAdapter({
+        book: {
+          sessions: { 'claude:lead-1#writer': 'Casper' },
+          profiles: [{ nickname: 'Casper', palette: 7, hueShift: 90 }],
+        },
+      });
+      store.setAdapter(adapter);
+      setPaletteCount(6);
+      const agent = teammate();
+
+      assignPaletteIfNeeded(agent, store, lead());
+
+      expect(agent.nickname).toBe('Casper');
+      expect(agent.palette).toBe(2);
+      expect(agent.hueShift).toBe(30);
+    });
+  });
 });
 
 describe('applySavedSeats', () => {

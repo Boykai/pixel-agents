@@ -32,13 +32,19 @@ export function getPaletteCount(): number {
 /**
  * Assign palette and hueShift to an agent if not already set.
  * An agent under a nickname used before gets that nickname's look back (and
- * its seat is offered as preferredSeatId); otherwise the diversity algorithm
- * picks a palette that's least used among existing agents.
+ * its seat is offered as preferredSeatId). Otherwise a Teammate wears its
+ * Lead's look, and any other agent gets the palette least used among existing
+ * agents (the diversity algorithm).
  *
  * @param agent - The agent to assign a palette to (mutated in place)
  * @param store - The agent state store (used to count existing palettes)
+ * @param lead - A Teammate's Lead, whose look it wears unless its nickname remembers one
  */
-export function assignPaletteIfNeeded(agent: AgentState, store: AgentStateStore): void {
+export function assignPaletteIfNeeded(
+  agent: AgentState,
+  store: AgentStateStore,
+  lead?: AgentState,
+): void {
   if (agent.palette !== undefined) return;
 
   const count = currentPaletteCount;
@@ -47,6 +53,12 @@ export function assignPaletteIfNeeded(agent: AgentState, store: AgentStateStore)
     agent.palette = profile.palette;
     agent.hueShift = profile.hueShift ?? 0;
     agent.preferredSeatId = profile.seatId;
+    return;
+  }
+
+  if (lead?.palette !== undefined) {
+    agent.palette = lead.palette;
+    agent.hueShift = lead.hueShift ?? 0;
     return;
   }
 

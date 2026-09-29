@@ -53,7 +53,7 @@ A name the user gives an agent, either at launch or later by renaming any agent,
 _Avoid_: alias, display name, title (that's the session name), agent name (that's a teammate's name)
 
 **Appearance**:
-How an agent's character looks: one of the six character palettes plus a hue shift. It is persisted with the agent's seat assignment, its sub-agents wear it too, and a change shows in every connected office at once. The UI calls it the agent's Costume.
+How an agent's character looks: one of the six character palettes plus a hue shift. It is persisted with the agent's seat assignment, its sub-agents wear it too, and a change shows in every connected office at once. A Teammate starts in its Lead's Appearance unless its Nickname remembers one of its own. The UI calls it the agent's Costume.
 _Avoid_: costume (UI label only), skin (that's a single palette), outfit, avatar
 
 ## Agent Lifecycle
