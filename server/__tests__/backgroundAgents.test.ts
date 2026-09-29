@@ -142,6 +142,17 @@ function subToolResultLine(): string {
   });
 }
 
+function subToolFailedResultLine(): string {
+  return JSON.stringify({
+    type: 'user',
+    message: {
+      content: [
+        { type: 'tool_result', tool_use_id: SUB_TOOL_ID, is_error: true, content: 'ENOENT' },
+      ],
+    },
+  });
+}
+
 function subTurnDurationLine(): string {
   return JSON.stringify({ type: 'system', subtype: 'turn_duration' });
 }
@@ -347,6 +358,49 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     expect(done).toBeDefined();
     expect(done!.id).toBe(1);
     expect(done!.parentToolId).toBe(SPAWN_TOOL_ID);
+  });
+
+  it('forwards a failed sub tool at once, carrying the tool-failure signal', () => {
+    vi.useFakeTimers();
+    seedSidecar({ transcriptLines: [subToolUseLine(), subToolFailedResultLine()] });
+    spawnAndLaunch();
+    vi.advanceTimersByTime(400);
+
+    // Not deferred to the turn end like a successful tool's done.
+    expect(messages.filter((m) => m.type === 'subagentToolDone')).toEqual([
+      {
+        type: 'subagentToolDone',
+        id: 1,
+        parentToolId: SPAWN_TOOL_ID,
+        toolId: SUB_TOOL_ID,
+        isError: true,
+      },
+    ]);
+    // A Sub-agent's failure is never reported as its Lead's own.
+    expect(messages.some((m) => m.type === 'agentToolDone' && m.isError === true)).toBe(false);
+  });
+
+  it('reports a failed sub tool exactly once even when its turn ends first', () => {
+    // turn_duration is read in the same poll as the failed tool_result. The
+    // turn end sends the deferred failure first, so the turn-end batch no
+    // longer holds the tool and never reports it a second time, unflagged.
+    vi.useFakeTimers();
+    seedSidecar({
+      transcriptLines: [subToolUseLine(), subToolFailedResultLine(), subTurnDurationLine()],
+    });
+    spawnAndLaunch();
+    vi.advanceTimersByTime(400);
+
+    const dones = messages.filter((m) => m.type === 'subagentToolDone' && m.toolId === SUB_TOOL_ID);
+    expect(dones).toEqual([
+      {
+        type: 'subagentToolDone',
+        id: 1,
+        parentToolId: SPAWN_TOOL_ID,
+        toolId: SUB_TOOL_ID,
+        isError: true,
+      },
+    ]);
   });
 
   it('re-sends a watched spawn tool with toolName + runInBackground at turn end', () => {

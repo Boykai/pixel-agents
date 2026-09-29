@@ -49,6 +49,7 @@ export function resendAgentActivity(
         toolId,
         status,
         toolName,
+        replay: true,
       });
     }
 
@@ -69,6 +70,7 @@ export function resendAgentActivity(
         toolName,
         runInBackground: true,
         isTeammateSpawn: agent.teammateSpawnToolIds?.has(toolId) || undefined,
+        replay: true,
       });
     }
 

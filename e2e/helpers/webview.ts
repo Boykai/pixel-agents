@@ -19,6 +19,7 @@ export interface WebviewSettings {
   hooksProvider?: 'claude' | 'copilot';
   alwaysShowLabels?: boolean;
   ghostHeadlessAgents?: boolean;
+  moodBubbles?: boolean;
   debugView?: boolean;
 }
 
@@ -529,6 +530,9 @@ export async function setSettings(frame: WebviewSurface, settings: WebviewSettin
   }
   if (settings.ghostHeadlessAgents !== undefined) {
     await setCheckbox(settingsModal, 'Display Headless as Ghosts', settings.ghostHeadlessAgents);
+  }
+  if (settings.moodBubbles !== undefined) {
+    await setCheckbox(settingsModal, 'Mood Bubbles', settings.moodBubbles);
   }
   if (settings.debugView !== undefined) {
     await setCheckbox(settingsModal, 'Debug View', settings.debugView);

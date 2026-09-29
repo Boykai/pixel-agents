@@ -308,6 +308,20 @@ export const COSTUME_GRID_COLUMNS = 6;
 /** Quiet period before a costume change is saved (and relayed to other clients). */
 export const COSTUME_SAVE_DEBOUNCE_MS = 150;
 
+// ── Mood Bubbles ─────────────────────────────────────────────
+// Thresholds ported from hootbu/pixel-agents (d0843a9).
+/** How long a Mood bubble stays up; the clock pauses behind a priority bubble. */
+export const MOOD_BUBBLE_DURATION_SEC = 3.0;
+/** Final stretch of MOOD_BUBBLE_DURATION_SEC over which the bubble fades out. */
+export const MOOD_BUBBLE_FADE_DURATION_SEC = 0.5;
+/** A single tool running this long makes its character stressed. */
+export const MOOD_STRESSED_TOOL_DURATION_MS = 30_000;
+/** Rapid-fire window: MOOD_STRESSED_RAPID_COUNT tool starts inside it → stressed. */
+export const MOOD_STRESSED_RAPID_THRESHOLD_MS = 2_000;
+export const MOOD_STRESSED_RAPID_COUNT = 4;
+/** Cadence of the long-running-tool check. */
+export const MOOD_TICK_INTERVAL_MS = 1_000;
+
 // ── Greeter + Intro bubble ──────────────────────────────────
 /** Reserved character id for the Intro's greeter. Far outside both real agent
  *  ids (positive) and sub-agent ids (small negatives from -1 down). */

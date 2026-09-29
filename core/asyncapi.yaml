@@ -151,6 +151,7 @@ components:
         - $ref: '#/components/schemas/SetShowAreas'
         - $ref: '#/components/schemas/RequestDiagnostics'
         - $ref: '#/components/schemas/SetZoom'
+        - $ref: '#/components/schemas/SetMoodBubbles'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -187,6 +188,15 @@ components:
           items:
             type: string
           description: Tool names that spawn sub-agent characters (e.g. Task, Agent).
+        permissionExemptTools:
+          type: array
+          items:
+            type: string
+          description: >-
+            Tool names that legitimately wait (on a Sub-agent or on the user, e.g.
+            Task, AskUserQuestion), so a long run is expected rather than a sign of
+            trouble. Mirrors HookProvider.permissionExemptTools; Mood reactions never
+            count these as long-running.
 
     ProviderConsentDisclosure:
       type: object
@@ -420,6 +430,12 @@ components:
             True when this spawn tool call carries a name, making the spawn a
             Teammate-to-be. The office must not create a Subtask sub-character
             for it — a teammate character will represent the spawn instead.
+        replay:
+          type: boolean
+          description: >-
+            Snapshot hydration of a tool that was already running when the
+            client connected; not a new tool start (clients must not count it
+            as fresh activity, e.g. for Mood reactions).
 
     AgentToolDone:
       description: Agent finished executing a tool.
@@ -433,6 +449,12 @@ components:
           type: integer
         toolId:
           type: string
+        isError:
+          type: boolean
+          description: >-
+            Tool failure signal: true when the tool finished in failure. Absent
+            means success or unknown. At most one done per failed tool carries
+            it, so consumers can count failures from the broadcast stream.
 
     AgentToolsClear:
       description: All foreground tools cleared (turn end). Background agents preserved.
@@ -506,6 +528,11 @@ components:
           type: string
         toolId:
           type: string
+        isError:
+          type: boolean
+          description: >-
+            Tool failure signal for a Sub-agent's tool, with the same contract
+            as AgentToolDone.isError.
 
     SubagentClear:
       description: A sub-agent task completed.
@@ -828,6 +855,7 @@ components:
         - hooksInfoShown
         - externalAssetDirectories
         - showAreas
+        - moodBubbles
       properties:
         type:
           const: settingsLoaded
@@ -862,6 +890,9 @@ components:
             Persisted office zoom for this surface (integer, clamped to the shared
             ZOOM_MIN..ZOOM_MAX). Absent until the user has zoomed, in which case the
             client keeps its own default.
+        moodBubbles:
+          type: boolean
+          description: Show transient Mood bubbles (happy / error / stressed) over characters.
 
     HooksStatus:
       description: |
@@ -1122,6 +1153,19 @@ components:
       properties:
         type:
           const: setGhostHeadlessAgents
+        enabled:
+          type: boolean
+
+    SetMoodBubbles:
+      description: >-
+        Toggle Mood bubbles: transient happy / error / stressed reactions drawn
+        over characters. Persisted per namespace, default on.
+      type: object
+      additionalProperties: false
+      required: [type, enabled]
+      properties:
+        type:
+          const: setMoodBubbles
         enabled:
           type: boolean
 

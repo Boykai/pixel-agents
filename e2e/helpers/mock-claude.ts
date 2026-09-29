@@ -431,3 +431,55 @@ export async function spawnExternalClaudeScenario(options: {
       `stderr so far: ${stderrText || '<empty>'}`,
   );
 }
+
+export interface MockClaudeProcess {
+  stop(): Promise<void>;
+  logs(): string;
+}
+
+/**
+ * Run the mock claude as a bare process, for the standalone server, which has
+ * no VS Code terminal to host it. It plays the scenario queued with
+ * `arrangeNextClaudeInvocation` exactly as a terminal-hosted mock does: an
+ * append-only transcript, and every hook through the INSTALLED hook script
+ * (so the caller must wait for `waitForClaudeHookSetup` first).
+ */
+export function spawnMockClaudeProcess(options: {
+  homeDir: string;
+  workspaceDir: string;
+  sessionId: string;
+}): MockClaudeProcess {
+  const child = spawn(
+    process.execPath,
+    [
+      path.join(__dirname, '..', 'fixtures', 'mock-claude-runner.cjs'),
+      '--session-id',
+      options.sessionId,
+    ],
+    {
+      cwd: options.workspaceDir,
+      env: {
+        ...applyMockHomeEnv(process.env, options.homeDir),
+        USERPROFILE: options.homeDir,
+        COPILOT_HOME: path.join(options.homeDir, '.copilot'),
+      },
+      stdio: 'pipe',
+    },
+  );
+  let logs = '';
+  child.stdout?.on('data', (chunk: Buffer) => {
+    logs += chunk.toString();
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    logs += chunk.toString();
+  });
+  return {
+    logs: () => logs,
+    stop: async () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+      child.kill();
+      await exited;
+    },
+  };
+}

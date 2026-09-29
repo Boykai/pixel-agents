@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
-import { PERMISSION_TIMER_DELAY_MS } from '../src/constants.js';
+import { PERMISSION_TIMER_DELAY_MS, TOOL_DONE_DELAY_MS } from '../src/constants.js';
 import { HookEventHandler } from '../src/hookEventHandler.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { SessionRouter } from '../src/sessionRouter.js';
 import { startPermissionTimer, startWaitingTimer } from '../src/timerManager.js';
+import { processTranscriptLine, setHookProvider } from '../src/transcriptParser.js';
 import type { AgentState } from '../src/types.js';
 
 /** Minimal AgentState for testing. */
@@ -587,24 +588,114 @@ describe('HookEventHandler', () => {
     const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
     expect(doneMsg).toBeTruthy();
     expect(doneMsg?.toolId).toBe('hook-123');
+    // A successful tool never carries the tool-failure signal.
+    expect(doneMsg).not.toHaveProperty('isError');
     expect(agent.currentHookToolId).toBeUndefined();
   });
 
-  it('PostToolUseFailure sends agentToolDone', () => {
+  it('PostToolUseFailure sends agentToolDone with the tool-failure signal', () => {
     const agent = createTestAgent({ id: 1 });
     agent.currentHookToolId = 'hook-456';
+    agent.currentHookToolName = 'Bash';
     agents.set(1, agent);
     handler.registerAgent('sess-1', 1);
 
     handler.handleEvent('claude', {
       hook_event_name: 'PostToolUseFailure',
       session_id: 'sess-1',
+      tool_name: 'Bash',
+      error: 'Exit code 1',
+    });
+
+    const doneMsgs = mockWebview.messages.filter((m) => m.type === 'agentToolDone');
+    expect(doneMsgs).toEqual([{ type: 'agentToolDone', id: 1, toolId: 'hook-456', isError: true }]);
+    expect(agent.currentHookToolId).toBeUndefined();
+  });
+
+  it('PostToolUseFailure for a sub-agent spawn tool leaves the failure to JSONL', () => {
+    // JSONL owns spawn tools (their real tool id and their tool_result), so the
+    // hook path must not report the same failure a second time.
+    const agent = createTestAgent({ id: 1 });
+    agent.currentHookToolId = 'hook-789';
+    agent.currentHookToolName = 'Agent';
+    agents.set(1, agent);
+    handler.registerAgent('sess-1', 1);
+
+    handler.handleEvent('claude', {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'sess-1',
+      tool_name: 'Agent',
     });
 
     const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
-    expect(doneMsg).toBeTruthy();
-    expect(doneMsg?.toolId).toBe('hook-456');
-    expect(agent.currentHookToolId).toBeUndefined();
+    expect(doneMsg).toEqual({ type: 'agentToolDone', id: 1, toolId: 'hook-789' });
+  });
+
+  it('PostToolUseFailure fired inside a sub-agent does not flag the parent', () => {
+    const agent = createTestAgent({ id: 1 });
+    agent.currentHookToolId = 'hook-sub';
+    agent.currentHookToolName = 'Bash';
+    agents.set(1, agent);
+    handler.registerAgent('sess-1', 1);
+
+    handler.handleEvent('claude', {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'sess-1',
+      agent_id: 'agent-abc123',
+      tool_name: 'Bash',
+    });
+
+    const doneMsg = mockWebview.messages.find((m) => m.type === 'agentToolDone');
+    expect(doneMsg).toEqual({ type: 'agentToolDone', id: 1, toolId: 'hook-sub' });
+  });
+
+  it("Stop sends a failed spawn tool's transcript done before the turn end", () => {
+    // Hooks mode leaves spawn tools to the transcript, whose dones are deferred
+    // TOOL_DONE_DELAY_MS. A Stop landing inside that window must not judge the
+    // turn before its failure is reported.
+    vi.useFakeTimers();
+    try {
+      setHookProvider(claudeProvider);
+      const agent = createTestAgent({ id: 1, hookDelivered: true });
+      agents.set(1, agent);
+      handler.registerAgent('sess-1', 1);
+      const feed = (record: Record<string, unknown>) =>
+        processTranscriptLine(1, JSON.stringify(record), agents, waitingTimers, permissionTimers);
+      feed({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'toolu_task', name: 'Task', input: { prompt: 'x' } }],
+        },
+      });
+      feed({
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_task', is_error: true, content: 'failed' },
+          ],
+        },
+      });
+      mockWebview.messages.length = 0;
+
+      handler.handleEvent('claude', { hook_event_name: 'Stop', session_id: 'sess-1' });
+
+      const order = mockWebview.messages
+        .filter((m) =>
+          ['agentToolDone', 'agentToolsClear', 'agentStatus'].includes(m.type as string),
+        )
+        .map((m) => (m.type === 'agentStatus' ? `agentStatus:${m.status as string}` : m.type));
+      expect(order).toEqual(['agentToolDone', 'agentToolsClear', 'agentStatus:waiting']);
+      expect(mockWebview.messages[0]).toEqual({
+        type: 'agentToolDone',
+        id: 1,
+        toolId: 'toolu_task',
+        isError: true,
+      });
+      vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+      expect(mockWebview.messages.filter((m) => m.type === 'agentToolDone')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ── Pending external session confirmation ────────────────────

@@ -97,6 +97,8 @@ function App() {
     alwaysShowLabels,
     ghostHeadlessAgents,
     setGhostHeadlessAgents,
+    moodBubbles,
+    setMoodBubbles,
     providers,
     launchProvider,
     hooksInstalled,
@@ -160,6 +162,14 @@ function App() {
     setGhostHeadlessAgents(next);
     transport.send({ type: 'setGhostHeadlessAgents', enabled: next });
   }, [ghostHeadlessAgents, setGhostHeadlessAgents]);
+
+  // Toggle "Mood Bubbles". setMoodBubbles also updates OfficeState's copy, so
+  // turning it off drops any showing Mood on the next frame.
+  const handleToggleMoodBubbles = useCallback(() => {
+    const next = !moodBubbles;
+    setMoodBubbles(next);
+    transport.send({ type: 'setMoodBubbles', enabled: next });
+  }, [moodBubbles, setMoodBubbles]);
 
   const handleSelectAgent = useCallback((id: number) => {
     transport.send({ type: 'focusAgent', id });
@@ -696,6 +706,8 @@ function App() {
         onToggleAlwaysShowOverlay={handleToggleAlwaysShowOverlay}
         ghostHeadlessAgents={ghostHeadlessAgents}
         onToggleGhostHeadlessAgents={handleToggleGhostHeadlessAgents}
+        moodBubbles={moodBubbles}
+        onToggleMoodBubbles={handleToggleMoodBubbles}
         externalAssetDirectories={externalAssetDirectories}
         watchAllSessions={watchAllSessions}
         onToggleWatchAllSessions={() => {

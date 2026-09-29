@@ -2,7 +2,7 @@ import type { ColorValue } from './components/ui/types.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
-import type { PetState } from './office/types.js';
+import type { Mood, PetState } from './office/types.js';
 
 declare global {
   interface Window {
@@ -19,9 +19,15 @@ declare global {
         nickname?: string;
         palette: number;
         hueShift: number;
+        moodType?: Mood | null;
       }>;
       /** Effective "Display headless as ghosts" setting the renderer is using. */
       getGhostHeadlessAgents?: () => boolean;
+      /** Effective "Mood bubbles" setting OfficeState is using. */
+      getMoodBubbles?: () => boolean;
+      /** Append-only history of every Mood a character was asked to show;
+       *  `shown` is false when OfficeState suppressed it (setting off, hidden). */
+      moodLog?: Array<{ id: number; mood: Mood; at: number; shown: boolean; isSubagent: boolean }>;
       // ── Carpet + Areas observability (added for carpet/areas e2e) ──
       /** Sparse list of painted carpet tiles with their grid coords. */
       getCarpetTiles?: () => Array<{
@@ -100,6 +106,7 @@ declare global {
         status?: string;
         toolId?: string;
         parentToolId?: string;
+        isError?: boolean;
       }>;
       selectAgent?: (id: number) => void;
       /** Live integer zoom (device pixels per sprite pixel) — for zoom-persistence specs. */
@@ -119,6 +126,8 @@ declare global {
  *   log captures matrixEffect AT addAgent time (synchronously inside the
  *   wrapper), eliminating the ~300ms matrix-effect lifetime race that would
  *   let a regression slip past a snapshot-based check.
+ * - moodLog: append-only history of every OfficeState.showMoodBubble call, for
+ *   the same reason — a Mood bubble lives a few seconds, a snapshot can miss it.
  * - playedSounds: populated separately by notificationSound.ts (same namespace,
  *   different owner).
  * - selectAgent(id): sets officeState.selectedAgentId directly, the same state
@@ -149,12 +158,28 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       nickname: ch.nickname,
       palette: ch.palette,
       hueShift: ch.hueShift,
+      moodType: ch.moodType ?? null,
     }));
   };
 
   // The ghost setting lives in the renderer module (read every rAF frame), not
   // in OfficeState, so e2e reads it from there to assert what is actually drawn.
   hooks.getGhostHeadlessAgents = () => isGhostHeadlessAgentsEnabled();
+
+  hooks.getMoodBubbles = () => officeStateRef.current?.isMoodBubblesEnabled() ?? true;
+  if (!hooks.moodLog) hooks.moodLog = [];
+  const origShowMoodBubble = OfficeState.prototype.showMoodBubble;
+  OfficeState.prototype.showMoodBubble = function (id, mood) {
+    const shown = origShowMoodBubble.call(this, id, mood);
+    hooks.moodLog?.push({
+      id,
+      mood,
+      at: Date.now(),
+      shown,
+      isSubagent: this.characters.get(id)?.isSubagent === true,
+    });
+    return shown;
+  };
 
   hooks.selectAgent = (id) => {
     const os = officeStateRef.current;

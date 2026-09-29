@@ -66,7 +66,7 @@ export type FolderNameResolver = (ctx: { cwd?: string; projectDir?: string }) =>
 export function createFileWatcherContext(
   parser: Omit<TranscriptParserContext, 'dispose'> = legacyParser,
 ) {
-  const { getHookProvider, processTranscriptLine } = parser;
+  const { getHookProvider, processTranscriptLine, flushToolDones } = parser;
   const candidateSizes = new Map<string, number>();
   let discoveryBaselined = false;
   let completeDiscoveryBaseline = true;
@@ -1909,9 +1909,10 @@ export function createFileWatcherContext(
     }
     pollingTimers.delete(agentId);
 
-    // Clear activity
+    // Clear activity; the old session's pending tool dones close its last turn first.
     cancelWaitingTimer(agentId, waitingTimers);
     cancelPermissionTimer(agentId, permissionTimers);
+    flushToolDones(agent);
     clearAgentActivity(agent, agentId, agents, permissionTimers);
 
     // Permanently dismiss old file so scanners never re-adopt it as external

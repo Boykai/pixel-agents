@@ -174,7 +174,13 @@ export class SubagentWatch {
    *  subagentToolDone fires when the shadow agent's turn ends — via
    *  agentToolsClear (activity cleared) or agentStatus:waiting (clean
    *  turn_duration broadcasts no clear) — so the sub types through its turn
-   *  and idles between turns. */
+   *  and idles between turns.
+   *
+   *  The one exception is a FAILED tool (agentToolDone with isError): it is
+   *  forwarded at once as subagentToolDone with isError, so the tool-failure
+   *  signal lands when the failure happens rather than at a turn end that can
+   *  coincide with the sub-character's removal. It leaves the batch, so the
+   *  failure is reported exactly once. */
   private translate(message: Record<string, unknown>): void {
     const shadowId = message.id as number;
     const key = this.subKeys.get(shadowId);
@@ -202,6 +208,19 @@ export class SubagentWatch {
       }
       case 'agentToolsClear': {
         this.finishSubTurn(shadowId, leadId, spawnToolUseId);
+        break;
+      }
+      case 'agentToolDone': {
+        if (message.isError !== true) break;
+        const toolId = message.toolId as string;
+        this.liveToolIds.get(shadowId)?.delete(toolId);
+        this.mainStore.broadcast({
+          type: 'subagentToolDone',
+          id: leadId,
+          parentToolId: spawnToolUseId,
+          toolId,
+          isError: true,
+        });
         break;
       }
       case 'agentStatus': {

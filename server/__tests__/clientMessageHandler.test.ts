@@ -12,7 +12,9 @@ import {
 } from '../src/clientMessageHandler.js';
 import { getHooksEnabled, readConfig, setHooksEnabled } from '../src/configPersistence.js';
 import { FileStateAdapter } from '../src/fileStateAdapter.js';
+import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { CLAUDE_HOOK_EVENTS } from '../src/providers/hook/claude/constants.js';
+import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
 import type { AgentState } from '../src/types.js';
 
 /** Let the setHooksEnabled dispatch's async chain (side effect →
@@ -188,6 +190,40 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       handleClientMessage({ type: 'setZoom', zoom: 7 }, (m) => sent.push(m), ctx);
 
       expect(settingsLoaded()?.zoom).toBe(7);
+    });
+  });
+
+  // ── setMoodBubbles ───────────────────────────────────────────
+
+  describe('setMoodBubbles', () => {
+    it('defaults to on in the settingsLoaded handshake', () => {
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+
+      const settings = sent.find((m) => m.type === 'settingsLoaded');
+      expect(settings?.moodBubbles).toBe(true);
+    });
+
+    it('persists the toggle per namespace and reports it on the next handshake', () => {
+      handleClientMessage({ type: 'setMoodBubbles', enabled: false }, (m) => sent.push(m), ctx);
+
+      expect(readConfig().standalone.moodBubbles).toBe(false);
+      expect(readConfig().vscode.moodBubbles).toBe(true);
+
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      const settings = sent.find((m) => m.type === 'settingsLoaded');
+      expect(settings?.moodBubbles).toBe(false);
+    });
+
+    // The webview's stressed rule skips tools that legitimately wait on the
+    // user; it learns their names from the provider, never from a UI list.
+    it("sends each provider's permission-exempt tools in providerCapabilities", () => {
+      ctx.activeProviders = [claudeProvider, copilotProvider];
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+
+      const caps = sent.filter((m) => m.type === 'providerCapabilities');
+      const exempt = Object.fromEntries(caps.map((m) => [m.providerId, m.permissionExemptTools]));
+      expect(exempt.claude).toEqual(expect.arrayContaining(['AskUserQuestion']));
+      expect(exempt.copilot).toEqual(expect.arrayContaining(['ask_user']));
     });
   });
 

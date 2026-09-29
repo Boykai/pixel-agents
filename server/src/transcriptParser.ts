@@ -31,17 +31,63 @@ export function createTranscriptParser() {
     copilotOptions = factory;
     afterCopilotRecord = afterRecord;
   }
+  /** Tool dones go out TOOL_DONE_DELAY_MS late so a brief tool's active state
+   *  survives React batching. The delay must never carry a done past the turn
+   *  boundary that follows it: a failed tool's done (isError) has to reach the
+   *  store before the turn-end status that concludes its turn, and before the
+   *  next prompt's clear, or the failure is charged to the wrong turn. Each
+   *  agent's pending dones are kept in order so flushToolDones() can send them
+   *  early at those boundaries. */
+  type PendingToolDone = { timer: ReturnType<typeof setTimeout>; send: () => void };
   const deferred = new Set<ReturnType<typeof setTimeout>>();
-  function defer(callback: () => void, delay: number): void {
+  let pendingToolDones = new WeakMap<AgentState, PendingToolDone[]>();
+
+  function deferToolDone(
+    agentId: number,
+    agent: AgentState,
+    agents: AgentStateStore,
+    message: Record<string, unknown>,
+  ): void {
+    const send = (): void => {
+      if (agents.get(agentId) === agent) agents.broadcast(message);
+    };
     const timer = setTimeout(() => {
       deferred.delete(timer);
-      callback();
-    }, delay);
+      const queue = pendingToolDones.get(agent) ?? [];
+      const index = queue.findIndex((entry) => entry.timer === timer);
+      if (index >= 0) queue.splice(index, 1);
+      if (queue.length === 0) pendingToolDones.delete(agent);
+      send();
+    }, TOOL_DONE_DELAY_MS);
     deferred.add(timer);
+    let queue = pendingToolDones.get(agent);
+    if (!queue) {
+      queue = [];
+      pendingToolDones.set(agent, queue);
+    }
+    queue.push({ timer, send });
   }
+
+  /** Send the agent's pending tool dones now, in order. Called at every turn
+   *  boundary: turn_duration, a new user prompt, /clear, and the hook path's
+   *  turn end (HookEventHandler.markAgentWaiting). The text-idle timer needs no
+   *  flush: new transcript data cancels it, and TEXT_IDLE_DELAY_MS far exceeds
+   *  TOOL_DONE_DELAY_MS. */
+  function flushToolDones(agent: AgentState): void {
+    const queue = pendingToolDones.get(agent);
+    if (!queue) return;
+    pendingToolDones.delete(agent);
+    for (const { timer, send } of queue) {
+      clearTimeout(timer);
+      deferred.delete(timer);
+      send();
+    }
+  }
+
   function dispose(): void {
     for (const timer of deferred) clearTimeout(timer);
     deferred.clear();
+    pendingToolDones = new WeakMap();
     backgroundAgentDetectedCallback = null;
     backgroundAgentCompletedCallback = null;
     teamSwitchCallback = null;
@@ -318,6 +364,7 @@ export function createTranscriptParser() {
             type: string;
             tool_use_id?: string;
             content?: unknown;
+            is_error?: unknown;
           }>;
           const hasToolResult = blocks.some((b) => b.type === 'tool_result');
           if (hasToolResult) {
@@ -432,20 +479,19 @@ export function createTranscriptParser() {
                 agent.activeToolNames.delete(completedToolId);
                 // Send agentToolDone when hooks are off, or for Task/Agent tools
                 // (which always use JSONL path for consistent sub-agent lifecycle).
+                // tool_result.is_error is the transcript's tool-failure signal (also
+                // set for validation errors, permission denials and interrupts).
                 const isCompletedAgentTool =
                   completedToolName === 'Task' || completedToolName === 'Agent';
                 const useJsonlToolEvents =
                   agent.hookDelivered && hasInlineTeammates(agentId, agents);
                 if (!agent.hookDelivered || useJsonlToolEvents || isCompletedAgentTool) {
-                  const toolId = completedToolId;
-                  defer(() => {
-                    if (agents.get(agentId) !== agent) return;
-                    agents.broadcast({
-                      type: 'agentToolDone',
-                      id: agentId,
-                      toolId,
-                    });
-                  }, TOOL_DONE_DELAY_MS);
+                  deferToolDone(agentId, agent, agents, {
+                    type: 'agentToolDone',
+                    id: agentId,
+                    toolId: completedToolId,
+                    ...(block.is_error === true ? { isError: true } : {}),
+                  });
                 }
               }
             }
@@ -457,12 +503,14 @@ export function createTranscriptParser() {
           } else {
             // New user text prompt — new turn starting
             cancelWaitingTimer(agentId, waitingTimers);
+            flushToolDones(agent);
             clearAgentActivity(agent, agentId, agents, permissionTimers);
             agent.hadToolsInTurn = false;
           }
         } else if (typeof content === 'string' && content.trim()) {
           // New user text prompt — new turn starting
           cancelWaitingTimer(agentId, waitingTimers);
+          flushToolDones(agent);
           clearAgentActivity(agent, agentId, agents, permissionTimers);
           agent.hadToolsInTurn = false;
         }
@@ -491,20 +539,18 @@ export function createTranscriptParser() {
               // Remove the spawn's teammate character or stop its shadow watch.
               backgroundAgentCompletedCallback?.(agentId, completedToolId);
               if (!agent.hookDelivered) {
-                const toolId = completedToolId;
-                defer(() => {
-                  if (agents.get(agentId) !== agent) return;
-                  agents.broadcast({
-                    type: 'agentToolDone',
-                    id: agentId,
-                    toolId,
-                  });
-                }, TOOL_DONE_DELAY_MS);
+                deferToolDone(agentId, agent, agents, {
+                  type: 'agentToolDone',
+                  id: agentId,
+                  toolId: completedToolId,
+                });
               }
             }
           }
         }
       } else if (record.type === 'system' && record.subtype === 'turn_duration') {
+        // The turn's tool dones, failures included, precede its end.
+        flushToolDones(agent);
         cancelWaitingTimer(agentId, waitingTimers);
         cancelPermissionTimer(agentId, permissionTimers);
 
@@ -694,16 +740,13 @@ export function createTranscriptParser() {
             subNames.delete(block.tool_use_id);
           }
 
-          const toolId = block.tool_use_id;
-          defer(() => {
-            if (agents.get(agentId) !== agent) return;
-            agents.broadcast({
-              type: 'subagentToolDone',
-              id: agentId,
-              parentToolId,
-              toolId,
-            });
-          }, 300);
+          deferToolDone(agentId, agent, agents, {
+            type: 'subagentToolDone',
+            id: agentId,
+            parentToolId,
+            toolId: block.tool_use_id,
+            ...(block.is_error === true ? { isError: true } : {}),
+          });
         }
       }
       // If there are still active non-exempt sub-agent tools, restart the permission timer
@@ -813,6 +856,7 @@ export function createTranscriptParser() {
     setTeamSwitchCallback,
     formatToolStatus,
     processTranscriptLine,
+    flushToolDones,
     setCopilotRecordOptions,
     dispose,
   };
@@ -829,5 +873,6 @@ export const {
   setTeamSwitchCallback,
   formatToolStatus,
   processTranscriptLine,
+  flushToolDones,
   setCopilotRecordOptions,
 } = createTranscriptParser();
