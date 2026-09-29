@@ -104,13 +104,17 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       sprites/
         spriteData.ts                Pixel data (characters, furniture, tiles, bubbles)
         spriteCache.ts               SpriteData → offscreen canvas, per-zoom WeakMap
+        pixelFont.ts                 3×5 / 5×7 pixel fonts, text → SpriteData (Sign text; ported from hootbu)
+        textSpriteCache.ts           Sign text normalization, bounded LRU of text sprites, text → footprint
       editor/
         editorActions.ts             Pure layout ops
         editorState.ts               Imperative state (tools, ghost, selection, undo/redo, drag)
         EditorToolbar.tsx
+        PixelTextEditor.tsx          Sign editor dialog (text, color, glyph size, pixel scale)
       layout/
         furnitureCatalog.ts          Dynamic catalog from loaded assets
         layoutSerializer.ts          OfficeLayout ↔ runtime (tileMap, furniture, seats)
+        drawLayer.ts                 Draw layer (zLayer) clamp + whole-row depth offset
         tileMap.ts                   Walkability, BFS pathfinding
       engine/
         characters.ts                Character FSM (idle/walk/type) + wander AI
@@ -433,6 +437,10 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 **Furniture**: Ghost preview (green/red validity). R key rotates, T key toggles on/off state. Drag-to-move in SELECT. Delete button (red X) + rotate button (blue arrow) on selected items. Any selected furniture shows HSBC color sliders (Color toggle + Clear button); color stored per-item in `PlacedFurniture.color?`. Single undo entry per color-editing session (tracked by `colorEditUidRef`). Pick tool copies type+color from placed item. Surface items preferred when clicking stacked furniture.
 
+**Signs** (ported from hootbu/pixel-agents dd427e1 + 69c433f): a built-in `PIXEL_TEXT` (`SIGN_TYPE`) Decor entry appended by `buildDynamicCatalog()`, not an asset. `PlacedFurniture.text? { value, color, size: '3x5'|'5x7', scale }` drives both the sprite (`getTextSprite`, bounded LRU) and the footprint (`getTextFootprint`), so resolve a placed item's entry with `getFurnitureEntry(item)` / `getEffectiveCatalogEntry(type, text)` — `getCatalogEntry(type)` alone yields the 1×1 palette icon. Placing a Sign opens the Sign editor (`PixelTextEditor.tsx`) and commits one undo entry on confirm; the toolbar "Edit sign" button and the canvas pencil button re-open it (text edits are undoable, and refused when the new footprint no longer fits). While it is open `editorState.isSignEditorOpen()` makes `useEditorKeyboard` stand down. Signs may be placed on wall tiles as well as floor, skip the HSBC tint (text color is baked into the sprite), and persisted `text` is re-validated by `normalizeSignText` rather than trusted (fork layouts' `pixel_text`/`textConfig` shape is not migrated).
+
+**Draw layer** (`PlacedFurniture.zLayer?`, integer `DRAW_LAYER_MIN..MAX` = −4..+4, 0 ⇒ key deleted): Forward/Backward buttons in the toolbar and on the canvas (one undo entry each). `layoutToFurnitureInstances()` sorts furniture by its footprint bottom `(row + footprintH) * TILE_SIZE` (not the sprite height — ported from 4db21f3; identical for every bundled asset), applies the chair/surface rules, then adds `drawLayerDepth(zLayer)` = `layer * TILE_SIZE ± DRAW_LAYER_TIE_BREAK`. Surface items move with their desk's layer: they shift by the desk's depth, and sort `DRAW_LAYER_SURFACE_OFFSET` (0.125) in front of a layered desk instead of the default +0.5. The desk sits only the 0.25 tie-break off its new row, so +0.5 would draw a raised desk's monitor over the Character seated at it, or keep a lowered desk's mug over the furniture that now covers the desk. dd427e1's "scan down the wall span" rule is deliberately not ported (it re-sorted the default layout and drew wall items over characters beside vertical walls); a +1 layer covers thick walls. Both fields ride through save/export/import untouched — every editor op spreads the item.
+
 **Undo/Redo**: 50-level, Ctrl+Z/Y. EditActionBar (top-center when dirty): Undo, Redo, Save, Reset.
 
 **Multi-stage Esc**: exit furniture pick → deselect catalog → close tool tab → deselect furniture → close editor.
@@ -459,7 +467,7 @@ Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Er
 
 **Background tiles**: `backgroundTiles?: number` — top N footprint rows allow other furniture to be placed on them AND characters to walk through. Z-sort places bg-row items behind the host furniture.
 
-**Surface placement**: `canPlaceOnSurfaces?: boolean` — items like laptops, monitors, mugs can overlap with all tiles of `isDesk` furniture. `canPlaceFurniture()` builds a desk-tile set and excludes it from collision checks. Z-sort: surface items get `zY = max(spriteBottom, deskZY + 0.5)`.
+**Surface placement**: `canPlaceOnSurfaces?: boolean` — items like laptops, monitors, mugs can overlap with all tiles of `isDesk` furniture. `canPlaceFurniture()` builds a desk-tile set and excludes it from collision checks. Z-sort: surface items get `zY = max(footprintBottom, deskZY + 0.5)` (on an unlayered desk; see Draw layer).
 
 **Wall placement**: `canPlaceOnWalls?: boolean` — items like paintings, windows, clocks can only be placed on wall tiles. `canPlaceFurniture()` requires the bottom row of the footprint to be on wall tiles; upper rows may extend above the map. `getWallPlacementRow()` offsets placement so the bottom row aligns with the hovered tile.
 

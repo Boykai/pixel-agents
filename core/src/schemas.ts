@@ -60,6 +60,18 @@ export interface ColorValue {
   colorize?: boolean;
 }
 
+/** Text a Sign furniture item renders (see webview-ui office/types.ts SignText) */
+export interface SignText {
+  /** Text shown on the sign; rendered upper-case, at most 32 characters */
+  value: string;
+  /** Text color, `#RRGGBB` */
+  color: string;
+  /** Pixel font glyph size */
+  size: '3x5' | '5x7';
+  /** Sprite pixels per font pixel (1-5) */
+  scale: number;
+}
+
 /** A placed furniture item in the layout */
 export interface PlacedFurniture {
   type: string;
@@ -67,6 +79,10 @@ export interface PlacedFurniture {
   col: number;
   row: number;
   color?: ColorValue;
+  /** Sign text — present only on Sign furniture (type `PIXEL_TEXT`) */
+  text?: SignText;
+  /** Draw layer: whole-tile-row depth offset (-4..+4); absent means 0 */
+  zLayer?: number;
 }
 
 /** Floor color for a specific tile */

@@ -25,6 +25,7 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from '../components/ui/types.js';
 import type { ColorValue } from '../components/ui/types.js';
+import type { SIGN_FONT_SIZES } from '../constants.js';
 
 export const CharacterState = {
   IDLE: 'idle',
@@ -117,6 +118,24 @@ export interface PlacedFurniture {
   row: number;
   /** Optional color override for furniture */
   color?: ColorValue;
+  /** Sign text — present only on Sign furniture (type SIGN_TYPE). */
+  text?: SignText;
+  /** Draw layer: whole-tile-row depth offset (DRAW_LAYER_MIN..MAX). Absent = 0 = the default depth rules. */
+  zLayer?: number;
+}
+
+/** Pixel font glyph size of a Sign. */
+export type SignFontSize = (typeof SIGN_FONT_SIZES)[number];
+
+/** What a Sign renders. Its sprite and footprint are derived from this. */
+export interface SignText {
+  /** Rendered upper-case; at most SIGN_TEXT_MAX_LENGTH characters. */
+  value: string;
+  /** Text color, `#RRGGBB`. */
+  color: string;
+  size: SignFontSize;
+  /** Sprite pixels per font pixel (SIGN_SCALE_MIN..MAX). */
+  scale: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

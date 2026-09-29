@@ -1,4 +1,5 @@
 import type { ColorValue } from '../../components/ui/types.js';
+import { DRAW_LAYER_SURFACE_OFFSET } from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
 import type {
   FurnitureInstance,
@@ -8,7 +9,13 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
+import { drawLayerDepth } from './drawLayer.js';
+import {
+  getCatalogEntry,
+  getFurnitureEntry,
+  getOrientationInGroup,
+  isSignType,
+} from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -23,31 +30,50 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
   return map;
 }
 
+/** The desk a surface item on a given tile sits on. */
+interface SurfaceHost {
+  /** Depth by the default rules: the desk's footprint bottom. */
+  baseZY: number;
+  /** The desk's own Draw layer offset (drawLayerDepth). */
+  layerDepth: number;
+}
+
+function hostZY(desk: SurfaceHost): number {
+  return desk.baseZY + desk.layerDepth;
+}
+
 /** Convert placed furniture into renderable FurnitureInstance[] */
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
-  // Pre-compute desk zY per tile so surface items can sort in front of desks
-  const deskZByTile = new Map<string, number>();
+  // Pre-compute the frontmost desk per tile (by layered depth) so surface items can
+  // sort in front of it, and move with its Draw layer.
+  const deskByTile = new Map<string, SurfaceHost>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry || !entry.isDesk) continue;
-    const deskZY = item.row * TILE_SIZE + entry.sprite.length;
+    const desk: SurfaceHost = {
+      baseZY: (item.row + entry.footprintH) * TILE_SIZE,
+      layerDepth: drawLayerDepth(item.zLayer),
+    };
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const key = `${item.col + dc},${item.row + dr}`;
-        const prev = deskZByTile.get(key);
-        if (prev === undefined || deskZY > prev) deskZByTile.set(key, deskZY);
+        const prev = deskByTile.get(key);
+        if (!prev || hostZY(desk) > hostZY(prev)) deskByTile.set(key, desk);
       }
     }
   }
 
   const instances: FurnitureInstance[] = [];
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
     const y = item.row * TILE_SIZE;
-    const spriteH = entry.sprite.length;
-    let zY = y + spriteH;
+    // Sort by the bottom of the footprint, not of the sprite (ported from
+    // hootbu/pixel-agents (MIT) 4db21f3). Every bundled sprite is exactly its
+    // footprint tall, so they sort as before; a Sign's text sprite is shorter,
+    // and on a wall row it would otherwise sort behind the wall it hangs on.
+    let zY = (item.row + entry.footprintH) * TILE_SIZE;
 
     // Chair z-sorting: ensure characters sitting on chairs render correctly
     if (entry.category === 'chairs') {
@@ -64,19 +90,31 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Surface items render in front of the desk they sit on
+    // Surface items render in front of the desk they sit on, and move with its Draw layer
     if (entry.canPlaceOnSurfaces) {
+      let host: SurfaceHost | undefined;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
-          const deskZ = deskZByTile.get(`${item.col + dc},${item.row + dr}`);
-          if (deskZ !== undefined && deskZ + 0.5 > zY) zY = deskZ + 0.5;
+          const desk = deskByTile.get(`${item.col + dc},${item.row + dr}`);
+          if (desk && (!host || hostZY(desk) > hostZY(host))) host = desk;
         }
+      }
+      if (host && host.layerDepth === 0) {
+        if (host.baseZY + 0.5 > zY) zY = host.baseZY + 0.5;
+      } else if (host) {
+        // The item shifts with its desk, but stays between the desk and whatever the
+        // desk's new row keeps in front of it (see DRAW_LAYER_SURFACE_OFFSET).
+        zY = Math.max(zY + host.layerDepth, hostZY(host) + DRAW_LAYER_SURFACE_OFFSET);
       }
     }
 
-    // Colorize sprite if this furniture has a color override
+    // Draw layer: the user's explicit override, applied on top of the rules above.
+    zY += drawLayerDepth(item.zLayer);
+
+    // Colorize sprite if this furniture has a color override. A Sign's color is
+    // baked into its text sprite (and this cache key doesn't include the text).
     let sprite = entry.sprite;
-    if (item.color) {
+    if (item.color && !isSignType(item.type)) {
       const { h, s, b: bv, c: cv } = item.color;
       sprite = getColorizedSprite(
         `furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`,
@@ -107,7 +145,7 @@ export function getBlockedTiles(
 ): Set<string> {
   const tiles = new Set<string>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -130,7 +168,7 @@ export function getPlacementBlockedTiles(
   const tiles = new Set<string>();
   for (const item of furniture) {
     if (item.uid === excludeUid) continue;
-    const entry = getCatalogEntry(item.type);
+    const entry = getFurnitureEntry(item);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -272,8 +310,7 @@ export function createDefaultLayout(): OfficeLayout {
   return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
 }
 
-/** Serialize layout to JSON string
- * @internal */
+/** Serialize layout to JSON string */
 export function serializeLayout(layout: OfficeLayout): string {
   return JSON.stringify(layout);
 }
@@ -309,8 +346,7 @@ function migrateFurnitureTypes(furniture: PlacedFurniture[]): PlacedFurniture[] 
   return migrated;
 }
 
-/** Deserialize layout from JSON string, migrating old tile types if needed
- * @internal */
+/** Deserialize layout from JSON string, migrating old tile types if needed */
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);

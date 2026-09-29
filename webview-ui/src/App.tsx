@@ -24,13 +24,16 @@ import { OfficeCanvas } from './office/components/OfficeCanvas.js';
 import { ToolOverlay } from './office/components/ToolOverlay.js';
 import { EditorState } from './office/editor/editorState.js';
 import { EditorToolbar } from './office/editor/EditorToolbar.js';
+import { PixelTextEditor } from './office/editor/PixelTextEditor.js';
 import type { RoomBounds } from './office/editor/roomGeneration.js';
 import { OfficeState } from './office/engine/officeState.js';
+import { normalizeZLayer } from './office/layout/drawLayer.js';
 import { exportLayoutToFile } from './office/layout/exportLayout.js';
-import { isRotatable } from './office/layout/furnitureCatalog.js';
+import { isRotatable, isSignType } from './office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from './office/layout/layoutSerializer.js';
 import { frameLayoutBounds } from './office/projection.js';
 import { getPetCount } from './office/sprites/petSpriteData.js';
+import { normalizeSignText } from './office/sprites/textSpriteCache.js';
 import { EditTool, type OfficeLayout } from './office/types.js';
 import { isBrowserRuntime, isE2E } from './runtime.js';
 import { installTestHooks } from './testHooks.js';
@@ -391,6 +394,9 @@ function App() {
         onEditorSelectionChange={editor.handleEditorSelectionChange}
         onDeleteSelected={editor.handleDeleteSelected}
         onRotateSelected={editor.handleRotateSelected}
+        onEditSign={editor.handleEditSign}
+        onLayerForward={editor.handleLayerForward}
+        onLayerBackward={editor.handleLayerBackward}
         onDragMove={editor.handleDragMove}
         editorTick={editor.editorTick}
         zoom={editor.zoom}
@@ -426,9 +432,10 @@ function App() {
           {editor.isEditMode &&
             (() => {
               const selUid = editorState.selectedFurnitureUid;
-              const selColor = selUid
-                ? (officeState.getLayout().furniture.find((f) => f.uid === selUid)?.color ?? null)
-                : null;
+              const selItem = selUid
+                ? officeState.getLayout().furniture.find((f) => f.uid === selUid)
+                : undefined;
+              const selColor = selItem?.color ?? null;
               return (
                 <EditorToolbar
                   toolbarRef={editorToolbarRef}
@@ -442,6 +449,11 @@ function App() {
                   selectedFurnitureType={editorState.selectedFurnitureType}
                   selectedFurnitureUid={selUid}
                   selectedFurnitureColor={selColor}
+                  selectedFurnitureZLayer={normalizeZLayer(selItem?.zLayer)}
+                  selectedFurnitureIsSign={!!selItem && isSignType(selItem.type)}
+                  onEditSign={editor.handleEditSign}
+                  onLayerForward={editor.handleLayerForward}
+                  onLayerBackward={editor.handleLayerBackward}
                   floorColor={editorState.floorColor}
                   wallColor={editorState.wallColor}
                   selectedWallSet={editorState.selectedWallSet}
@@ -475,6 +487,25 @@ function App() {
                   onRenameArea={editor.handleRenameArea}
                   onAreaColorChange={editor.handleAreaColorChange}
                   onAreaMappingChange={handleAreaMappingChange}
+                />
+              );
+            })()}
+
+          {editor.isEditMode &&
+            editorState.isSignEditorOpen() &&
+            (() => {
+              const editingUid = editorState.editingSignUid;
+              const editingItem = editingUid
+                ? officeState.getLayout().furniture.find((f) => f.uid === editingUid)
+                : undefined;
+              return (
+                <PixelTextEditor
+                  key={editingUid ?? 'new'}
+                  initialText={normalizeSignText(editingItem?.text)}
+                  isEditing={editingUid !== null}
+                  fits={editor.signFits}
+                  onConfirm={editor.handleSignConfirm}
+                  onCancel={editor.handleSignCancel}
                 />
               );
             })()}
