@@ -20,6 +20,7 @@ import {
   ACHIEVEMENTS_SAVE_DEBOUNCE_MS,
   LAYOUT_FILE_POLL_INTERVAL_MS,
   TEXT_IDLE_DELAY_MS,
+  TOOL_DONE_DELAY_MS,
 } from '../src/constants.js';
 import { watchLayoutFile, writeLayoutToFile } from '../src/layoutPersistence.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
@@ -1391,5 +1392,101 @@ describe('Achievements through the runtime', () => {
       unlocked: true,
     });
     expect(o.unlocks).toContain('token_millionaire');
+  });
+
+  // Bug Squasher reads the feed's toolFailure; the webview's failure Mood reacts
+  // to each done flagged isError. Each path decides both at one site.
+  describe('one tool failure reaches Bug Squasher and the failure Mood once each', () => {
+    const edit = () => ({
+      file_path: path.join(dir, 'src', 'a.ts'),
+      old_string: 'a',
+      new_string: 'b',
+    });
+
+    it.each<[string, () => { store: AgentStateStore; tracker: AchievementTracker; fail(): void }]>([
+      [
+        'Claude, hooks on: the hook, then the transcript copy',
+        () => {
+          const o = claudeSession();
+          const hook = (event: Record<string, unknown>) =>
+            o.runtime.handleHookEvent('claude', { session_id: o.sessionId, ...event });
+          hook({
+            hook_event_name: 'SessionStart',
+            source: 'resume',
+            transcript_path: o.jsonlFile,
+          });
+          return {
+            ...o,
+            fail() {
+              o.append(prompt('fix it', at(12)));
+              hook({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: edit() });
+              hook({ hook_event_name: 'PostToolUseFailure', tool_name: 'Edit', error: 'boom' });
+              hook({ hook_event_name: 'Stop' });
+              o.append(
+                toolUse('toolu_1', 'Edit', edit(), at(12, 0, 1)) +
+                  toolError('toolu_1', at(12, 0, 2)) +
+                  turnDuration(at(12, 0, 5)),
+              );
+            },
+          };
+        },
+      ],
+      [
+        'Claude, hooks off: the transcript alone',
+        () => {
+          const o = claudeSession();
+          return {
+            ...o,
+            fail: () =>
+              o.append(
+                prompt('fix it', at(12)) +
+                  toolUse('toolu_1', 'Edit', edit(), at(12, 0, 1)) +
+                  toolError('toolu_1', at(12, 0, 2)) +
+                  turnDuration(at(12, 0, 5)),
+              ),
+          };
+        },
+      ],
+      [
+        'Copilot: a failed completion',
+        () => {
+          const o = copilotSession(copilot('session.start', { selectedModel: 'gpt-5' }));
+          return {
+            ...o,
+            fail: () =>
+              o.append(
+                copilot('user.message', { content: 'fix it' }) +
+                  copilot('assistant.turn_start', { turnId: 't1' }) +
+                  copilot('tool.execution_start', {
+                    toolCallId: 'c1',
+                    toolName: 'edit',
+                    arguments: { path: 'src/app.ts', old_str: 'a', new_str: 'b' },
+                    turnId: 't1',
+                  }) +
+                  copilot('tool.execution_complete', {
+                    toolCallId: 'c1',
+                    success: false,
+                    turnId: 't1',
+                  }) +
+                  copilot('assistant.turn_end', { turnId: 't1' }) +
+                  copilot('session.idle', {}),
+              ),
+          };
+        },
+      ],
+    ])('%s', (_label, start) => {
+      const o = start();
+      const failedDones: unknown[] = [];
+      o.store.on('broadcast', (message) => {
+        const done = message.type === 'agentToolDone' || message.type === 'subagentToolDone';
+        if (done && message.isError === true) failedDones.push(message.toolId);
+      });
+
+      o.fail();
+      vi.advanceTimersByTime(TOOL_DONE_DELAY_MS);
+
+      expect(failedDones).toHaveLength(1);
+      expect(progress(o.tracker, 'bug_squasher').current).toBe(1);
+    });
   });
 });
