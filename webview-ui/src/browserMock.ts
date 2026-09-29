@@ -280,8 +280,17 @@ export function dispatchMockMessages(): void {
   dispatch({
     type: 'settingsLoaded',
     soundEnabled: false,
+    achievementPopups: true,
     extensionVersion: '1.3.0',
     lastSeenVersion: '1.2',
+  });
+  dispatch({
+    type: 'achievementsLoaded',
+    achievements: [
+      { id: 'first_agent', current: 1, unlocked: true, unlockedAt: Date.now() },
+      { id: 'token_millionaire', current: 420_000, unlocked: false },
+      { id: 'architect', current: 12, unlocked: false },
+    ],
   });
 
   console.log('[BrowserMock] Messages dispatched');

@@ -20,6 +20,7 @@ export interface WebviewSettings {
   alwaysShowLabels?: boolean;
   ghostHeadlessAgents?: boolean;
   moodBubbles?: boolean;
+  achievementPopups?: boolean;
   debugView?: boolean;
 }
 
@@ -541,6 +542,9 @@ export async function setSettings(frame: WebviewSurface, settings: WebviewSettin
   }
   if (settings.moodBubbles !== undefined) {
     await setCheckbox(settingsModal, 'Mood Bubbles', settings.moodBubbles);
+  }
+  if (settings.achievementPopups !== undefined) {
+    await setCheckbox(settingsModal, 'Achievement Popups', settings.achievementPopups);
   }
   if (settings.debugView !== undefined) {
     await setCheckbox(settingsModal, 'Debug View', settings.debugView);

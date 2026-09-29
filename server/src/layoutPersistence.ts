@@ -14,6 +14,40 @@ export interface LayoutWatcher {
   dispose(): void;
 }
 
+/**
+ * Why layout.json changed. `edit` is the user's own editing, saved by an editor
+ * session's `saveLayout`. `replace` swaps the office wholesale (an import, the
+ * bundled default, a migration), and so does `external`: a layout another
+ * window wrote, seen by this window's watcher.
+ */
+export type LayoutChangeOrigin = 'edit' | 'replace' | 'external';
+
+type LayoutChangeListener = (layout: Record<string, unknown>, origin: LayoutChangeOrigin) => void;
+
+const layoutChangeListeners = new Set<LayoutChangeListener>();
+
+/**
+ * Observe every layout this process writes (once the write has landed) and
+ * every external change its watchers see: the one choke point for features
+ * that react to layout edits, whichever surface dispatched them.
+ */
+export function onLayoutChange(listener: LayoutChangeListener): () => void {
+  layoutChangeListeners.add(listener);
+  return () => {
+    layoutChangeListeners.delete(listener);
+  };
+}
+
+function notifyLayoutChange(layout: Record<string, unknown>, origin: LayoutChangeOrigin): void {
+  for (const listener of layoutChangeListeners) {
+    try {
+      listener(layout, origin);
+    } catch (err) {
+      console.error('[Pixel Agents] Layout change listener failed:', err);
+    }
+  }
+}
+
 function getLayoutFilePath(): string {
   return path.join(os.homedir(), LAYOUT_FILE_DIR, LAYOUT_FILE_NAME);
 }
@@ -30,7 +64,10 @@ export function readLayoutFromFile(): Record<string, unknown> | null {
   }
 }
 
-export function writeLayoutToFile(layout: Record<string, unknown>): void {
+export function writeLayoutToFile(
+  layout: Record<string, unknown>,
+  origin: Exclude<LayoutChangeOrigin, 'external'> = 'replace',
+): void {
   const filePath = getLayoutFilePath();
   const dir = path.dirname(filePath);
   try {
@@ -43,7 +80,9 @@ export function writeLayoutToFile(layout: Record<string, unknown>): void {
     fs.renameSync(tmpPath, filePath);
   } catch (err) {
     console.error('[Pixel Agents] Failed to write layout file:', err);
+    return;
   }
+  notifyLayoutChange(layout, origin);
 }
 
 interface LayoutLoadResult {
@@ -130,6 +169,7 @@ export function watchLayoutFile(
       const raw = fs.readFileSync(filePath, 'utf-8');
       const layout = JSON.parse(raw) as Record<string, unknown>;
       console.log('[Pixel Agents] External layout change detected');
+      notifyLayoutChange(layout, 'external');
       onExternalChange(layout);
     } catch (err) {
       console.error('[Pixel Agents] Error checking layout file:', err);

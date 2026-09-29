@@ -37,6 +37,9 @@
   --color-status-success: #89d185;
   --color-status-error: var(--color-danger);
 
+  /* Achievements (gold, from hootbu/pixel-agents) */
+  --color-achievement: #ccaa33;
+
   /* Shadow */
   --shadow-pixel: 2px 2px 0px #0a0a14;
 
@@ -94,6 +97,7 @@
   --color-status-active: var(--color-status-active);
   --color-status-success: var(--color-status-success);
   --color-status-error: var(--color-status-error);
+  --color-achievement: var(--color-achievement);
 
   /* Shadow */
   --shadow-pixel: var(--shadow-pixel);

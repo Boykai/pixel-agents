@@ -73,6 +73,21 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
   }
 }
 
+/** Files a Claude Code tool modifies: Edit, MultiEdit and Write name theirs in
+ *  `file_path`, NotebookEdit in `notebook_path`. Claude requires absolute paths
+ *  for all four, but the runtime copes with a relative one anyway. */
+export function editedFilePaths(toolName: string, input: unknown): string[] {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
+  const inp = input as Record<string, unknown>;
+  const field =
+    toolName === 'NotebookEdit'
+      ? inp.notebook_path
+      : toolName === 'Edit' || toolName === 'MultiEdit' || toolName === 'Write'
+        ? inp.file_path
+        : undefined;
+  return typeof field === 'string' && field ? [field] : [];
+}
+
 // ── Session dir + launch command ──
 
 function getSessionDirs(workspacePath: string): string[] {
@@ -325,6 +340,7 @@ export const claudeProvider: HookProvider = {
   terminalNamePrefix: CLAUDE_TERMINAL_NAME_PREFIX,
   contextWindowForModel,
   extractTokenUsage: extractClaudeTokenUsage,
+  editedFilePaths,
 
   getSessionDirs,
   getAllSessionRoots,

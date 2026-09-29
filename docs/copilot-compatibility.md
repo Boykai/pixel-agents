@@ -41,6 +41,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated.             |
 | Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.                        |
 | Nicknames and Costumes             | Any Copilot agent, observed App sessions included, can be renamed and given a Costume (Appearance). Its Sub-agents wear the Costume; a Teammate starts in its Lead's. |
+| Achievements                       | Adopted sessions count. Token credit lands when `session.shutdown` records tokens; failures are transcript-only; a turn counts when it settles Done.                  |
 | Office features                    | Pets, Signs, Draw layers, zoom persistence and camera Follow depend only on the office and its Characters, so they work the same with Copilot agents.                 |
 | App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                                  |
 
@@ -58,6 +59,14 @@ text. The nickname is remembered by provider and session UUID, so the agent gets
 it back when the same session is observed again. A Costume is persisted with the
 agent, like a Claude agent's, and a nicknamed agent's Costume is also remembered
 under its nickname.
+
+Achievements count Copilot activity as they count Claude's, with three
+differences that follow from the transcript. Token Millionaire credit lands only
+when `session.shutdown` records tokens, and only for tokens known to be new: a
+session adopted with earlier usage credits none until its next shutdown. Bug
+Squasher counts transcript failures only, since tool hooks are not installed.
+Marathon Runner counts an interaction when it settles Done (`session.idle` or the
+`agentStop` hook), not at each `assistant.turn_end`.
 
 ### Tool hooks are deliberately not installed
 

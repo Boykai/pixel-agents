@@ -123,6 +123,9 @@ components:
         - $ref: '#/components/schemas/WorkspaceFolders'
         # Diagnostics
         - $ref: '#/components/schemas/AgentDiagnostics'
+        # Achievements
+        - $ref: '#/components/schemas/AchievementsLoaded'
+        - $ref: '#/components/schemas/AchievementUnlocked'
       discriminator: type
 
     ClientMessage:
@@ -152,6 +155,8 @@ components:
         - $ref: '#/components/schemas/RequestDiagnostics'
         - $ref: '#/components/schemas/SetZoom'
         - $ref: '#/components/schemas/SetMoodBubbles'
+        - $ref: '#/components/schemas/RequestAchievements'
+        - $ref: '#/components/schemas/SetAchievementPopups'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -866,6 +871,7 @@ components:
         - externalAssetDirectories
         - showAreas
         - moodBubbles
+        - achievementPopups
       properties:
         type:
           const: settingsLoaded
@@ -903,6 +909,9 @@ components:
         moodBubbles:
           type: boolean
           description: Show transient Mood bubbles (happy / error / stressed) over characters.
+        achievementPopups:
+          type: boolean
+          description: Show an Achievement popup when an Achievement unlocks. Unlocks are recorded either way.
 
     HooksStatus:
       description: |
@@ -1026,6 +1035,42 @@ components:
           items:
             type: object
 
+    AchievementsLoaded:
+      description: |
+        Every Achievement's progress, as recorded in the machine-global
+        ~/.pixel-agents/achievements.json, so it includes what other windows and
+        the other surface counted. Sent in the webviewReady handshake and in
+        reply to requestAchievements. The definitions (name, description,
+        target) are shared code in core/src/achievements.ts and are not sent.
+      type: object
+      additionalProperties: false
+      required: [type, achievements]
+      properties:
+        type:
+          const: achievementsLoaded
+        achievements:
+          type: array
+          items:
+            $ref: '#/components/schemas/AchievementProgress'
+
+    AchievementUnlocked:
+      description: |
+        An Achievement was just unlocked by activity this server observed.
+        Broadcast once, when it happens. Never replayed on connect or restart:
+        the handshake's achievementsLoaded shows it as unlocked instead.
+      type: object
+      additionalProperties: false
+      required: [type, id, unlockedAt]
+      properties:
+        type:
+          const: achievementUnlocked
+        id:
+          type: string
+          description: Achievement id (core/src/achievements.ts).
+        unlockedAt:
+          type: integer
+          description: Unlock time, epoch milliseconds.
+
     # ── Client message variants ────────────────────────────────────
 
     WebviewReady:
@@ -1122,6 +1167,12 @@ components:
         layout:
           type: object
           description: Opaque layout object; format owned by the rendering layer.
+        imported:
+          type: boolean
+          description: |
+            The layout replaces the office wholesale (a browser-side import)
+            rather than being the user's own edit. Its furniture is not counted
+            as placed by the Interior Decorator Achievement.
 
     SetSoundEnabled:
       type: object
@@ -1355,7 +1406,47 @@ components:
         zoom:
           type: integer
 
+    RequestAchievements:
+      description: Ask for every Achievement's progress (server replies with achievementsLoaded).
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: requestAchievements
+
+    SetAchievementPopups:
+      description: >-
+        Toggle Achievement popups: the toast shown when an Achievement unlocks.
+        Unlocks are recorded either way. Persisted per namespace, default on.
+      type: object
+      additionalProperties: false
+      required: [type, enabled]
+      properties:
+        type:
+          const: setAchievementPopups
+        enabled:
+          type: boolean
+
     # ── Supporting schemas ─────────────────────────────────────────
+
+    AchievementProgress:
+      description: |
+        One Achievement's progress. `current` is clamped to the target, and
+        equals it once `unlocked`. `unlockedAt` (epoch milliseconds) is set
+        when unlocked.
+      type: object
+      additionalProperties: false
+      required: [id, current, unlocked]
+      properties:
+        id:
+          type: string
+        current:
+          type: integer
+        unlocked:
+          type: boolean
+        unlockedAt:
+          type: integer
 
     AgentSeatMeta:
       description: |

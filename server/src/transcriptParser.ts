@@ -167,6 +167,26 @@ export function createTranscriptParser() {
     return hookProvider?.formatToolStatus(toolName, input) ?? `Using ${toolName}`;
   }
 
+  /** A text-only turn is Done when the text-idle timer fires: that completes
+   *  an interaction, unless the record that armed the timer was history or a
+   *  Sub-agent's (its lead is still at work, like its prompts and turn ends). */
+  function textIdleDone(
+    agent: AgentState,
+    agents: AgentStateStore,
+    record: { isSidechain?: unknown; timestamp?: unknown },
+  ): ((agent: AgentState) => void) | undefined {
+    if (agents.activity.isReplaying(agent) || isSubagentRecord(agent, record)) return undefined;
+    return (done) => agents.activity.live(done, { kind: 'interactionEnd' }, record.timestamp);
+  }
+
+  /** A sidechain record is one of the agent's Sub-agents at work (older Claude
+   *  formats inline them) once the transcript has a main chain of its own; a
+   *  teammate's own transcript is sidechain top to bottom. Same positional
+   *  rule as the context gauge (contextUsage.ts). */
+  function isSubagentRecord(agent: AgentState, record: { isSidechain?: unknown }): boolean {
+    return record.isSidechain === true && agent.sawMainChainUsage === true;
+  }
+
   function processTranscriptLine(
     agentId: number,
     line: string,
@@ -262,6 +282,18 @@ export function createTranscriptParser() {
               agent.activeToolIds.add(block.id);
               agent.activeToolStatuses.set(block.id, status);
               agent.activeToolNames.set(block.id, toolName);
+              agents.activity.transcript(
+                agent,
+                {
+                  kind: 'toolStart',
+                  toolId: block.id,
+                  toolName,
+                  input: block.input,
+                  // An inline Sub-agent's records share the transcript.
+                  subagent: isSubagentRecord(agent, record) || undefined,
+                },
+                record.timestamp,
+              );
               if (!exemptTools().has(toolName)) {
                 hasNonExemptTool = true;
               }
@@ -342,13 +374,25 @@ export function createTranscriptParser() {
           // if no new JSONL data arrives within TEXT_IDLE_DELAY_MS, mark as waiting.
           // Skip when hooks are active — Stop hook handles this exactly.
           if (!agent.hookDelivered) {
-            startWaitingTimer(agentId, TEXT_IDLE_DELAY_MS, agents, waitingTimers);
+            startWaitingTimer(
+              agentId,
+              TEXT_IDLE_DELAY_MS,
+              agents,
+              waitingTimers,
+              textIdleDone(agent, agents, record),
+            );
           }
         }
       } else if (record.type === 'assistant' && typeof assistantContent === 'string') {
         // Text-only assistant response (content is a string, not an array)
         if (!agent.hadToolsInTurn && !agent.hookDelivered) {
-          startWaitingTimer(agentId, TEXT_IDLE_DELAY_MS, agents, waitingTimers);
+          startWaitingTimer(
+            agentId,
+            TEXT_IDLE_DELAY_MS,
+            agents,
+            waitingTimers,
+            textIdleDone(agent, agents, record),
+          );
         }
       } else if (record.type === 'assistant' && assistantContent === undefined) {
         // Assistant record with no recognizable content structure
@@ -492,6 +536,15 @@ export function createTranscriptParser() {
                     toolId: completedToolId,
                     ...(block.is_error === true ? { isError: true } : {}),
                   });
+                  // Reported where the failed done is decided (synchronously; the
+                  // done itself is deferred), so each failure is reported once.
+                  if (block.is_error === true) {
+                    agents.activity.transcript(
+                      agent,
+                      { kind: 'toolFailure', toolId: completedToolId },
+                      record.timestamp,
+                    );
+                  }
                 }
               }
             }
@@ -506,6 +559,9 @@ export function createTranscriptParser() {
             flushToolDones(agent);
             clearAgentActivity(agent, agentId, agents, permissionTimers);
             agent.hadToolsInTurn = false;
+            if (!isSubagentRecord(agent, record)) {
+              agents.activity.transcript(agent, { kind: 'interactionStart' }, record.timestamp);
+            }
           }
         } else if (typeof content === 'string' && content.trim()) {
           // New user text prompt — new turn starting
@@ -513,6 +569,9 @@ export function createTranscriptParser() {
           flushToolDones(agent);
           clearAgentActivity(agent, agentId, agents, permissionTimers);
           agent.hadToolsInTurn = false;
+          if (!isSubagentRecord(agent, record)) {
+            agents.activity.transcript(agent, { kind: 'interactionStart' }, record.timestamp);
+          }
         }
       } else if (record.type === 'queue-operation' && record.operation === 'enqueue') {
         // Background agent completed — parse tool-use-id from XML content
@@ -621,6 +680,11 @@ export function createTranscriptParser() {
             awaitingInput: false,
           });
         }
+        // Also in hooks mode: the Stop hook reports the same end, and the
+        // consumer counts one completed interaction per start.
+        if (!isSubagentRecord(agent, record)) {
+          agents.activity.transcript(agent, { kind: 'interactionEnd' }, record.timestamp);
+        }
       } else if (record.type && !agent.seenUnknownRecordTypes.has(record.type)) {
         // Log first occurrence of unrecognized record types to help diagnose issues
         // where Claude Code changes JSONL format. Known types we intentionally skip:
@@ -718,6 +782,17 @@ export function createTranscriptParser() {
             status,
             toolName,
           });
+          agents.activity.transcript(
+            agent,
+            {
+              kind: 'toolStart',
+              toolId: block.id,
+              toolName,
+              input: block.input,
+              subagent: true,
+            },
+            record.timestamp,
+          );
         }
       }
       if (hasNonExemptSubTool && !agent.hookDelivered) {
@@ -747,6 +822,15 @@ export function createTranscriptParser() {
             toolId: block.tool_use_id,
             ...(block.is_error === true ? { isError: true } : {}),
           });
+          // A Sub-agent's failures are only ever reported here (its hook
+          // carries agent_id and is left to the transcript).
+          if (block.is_error === true) {
+            agents.activity.transcript(
+              agent,
+              { kind: 'toolFailure', toolId: block.tool_use_id, subagent: true },
+              record.timestamp,
+            );
+          }
         }
       }
       // If there are still active non-exempt sub-agent tools, restart the permission timer

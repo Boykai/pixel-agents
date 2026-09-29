@@ -63,6 +63,7 @@ import {
   AGENT_REVEAL_TIMEOUT_MS,
   CONFIG_KEY_AUTO_SHOW_PANEL,
   CONFIG_KEY_AUTO_SPAWN_AGENT,
+  GLOBAL_KEY_ACHIEVEMENT_POPUPS,
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
   GLOBAL_KEY_GHOST_HEADLESS_AGENTS,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
@@ -168,7 +169,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
       this.sendOrBuffer(message);
     });
 
-    this.runtime = new AgentRuntime(this.store, this.providers);
+    this.runtime = new AgentRuntime(this.store, this.providers, {
+      achievements: { namespace: 'vscode' },
+    });
     this.runtime.setTerminalAdapter(new VscodeTerminalAdapter());
 
     // Map an external agent's cwd/projectDir to its WorkspaceFolder.name — the
@@ -580,7 +583,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
         }
       } else if (message.type === 'saveLayout') {
         this.layoutWatcher?.markOwnWrite();
-        writeLayoutToFile(message.layout as Record<string, unknown>);
+        // The user's own editing: new furniture in it was placed (Achievements).
+        // An imported file's furniture was not.
+        writeLayoutToFile(
+          message.layout as Record<string, unknown>,
+          message.imported === true ? 'replace' : 'edit',
+        );
       } else if (message.type === 'setSoundEnabled') {
         this.adapter.setSetting(GLOBAL_KEY_SOUND_ENABLED, message.enabled);
       } else if (message.type === 'setLastSeenVersion') {
@@ -591,6 +599,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
         this.adapter.setSetting(GLOBAL_KEY_GHOST_HEADLESS_AGENTS, message.enabled);
       } else if (message.type === 'setMoodBubbles') {
         this.adapter.setSetting(GLOBAL_KEY_MOOD_BUBBLES, message.enabled);
+      } else if (message.type === 'setAchievementPopups') {
+        this.adapter.setSetting(GLOBAL_KEY_ACHIEVEMENT_POPUPS, message.enabled === true);
+      } else if (message.type === 'requestAchievements') {
+        this.webview?.postMessage({
+          type: 'achievementsLoaded',
+          achievements: this.runtime.achievements?.snapshot() ?? [],
+        });
       } else if (message.type === 'setHooksEnabled') {
         // The provider id is echoed by the webview, never originated; an
         // unknown id names nothing to install into, so it is dropped like a
@@ -711,6 +726,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
         // Omitted until the user zooms, so the webview keeps its devicePixelRatio default.
         const zoom = parseZoom(this.adapter.getSetting<unknown>(GLOBAL_KEY_ZOOM, undefined));
         const moodBubbles = this.adapter.getSetting<boolean>(GLOBAL_KEY_MOOD_BUBBLES, true);
+        const achievementPopups = this.adapter.getSetting<boolean>(
+          GLOBAL_KEY_ACHIEVEMENT_POPUPS,
+          true,
+        );
         const config = readConfig();
         this.webview?.postMessage({
           type: 'settingsLoaded',
@@ -727,6 +746,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
           showAreas,
           ...(zoom !== undefined ? { zoom } : {}),
           moodBubbles,
+          achievementPopups,
+        });
+        // Achievement progress, so the gallery opens on current numbers.
+        this.webview?.postMessage({
+          type: 'achievementsLoaded',
+          achievements: this.runtime.achievements?.snapshot() ?? [],
         });
 
         // One status + at most one consent ask PER PROVIDER. Install state is distinct from the hooksEnabled
@@ -857,7 +882,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
             if (!assetsRoot) {
               console.log('[Extension] ⚠️  No assets directory found');
               if (this.webview) {
-                sendLayout(this.webview, this.defaultLayout);
+                sendLayout(this.webview, this.defaultLayout, this.seedSentLayout);
                 // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
                 sendCurrentAgentStatuses(this.store, this.webview);
                 this.startLayoutWatcher();
@@ -871,6 +896,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
 
             // Load bundled default layout
             this.defaultLayout = loadDefaultLayout(assetsRoot);
+            // Resetting the office to the default places none of its furniture.
+            if (this.defaultLayout) this.runtime.achievements?.seedLayout(this.defaultLayout);
 
             // Load character sprites (bundled + external)
             const charSprites = await this.loadAllCharacterSprites();
@@ -922,7 +949,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
           // Always send saved layout (or null for default)
           if (this.webview) {
             console.log('[Extension] Sending saved layout');
-            sendLayout(this.webview, this.defaultLayout);
+            sendLayout(this.webview, this.defaultLayout, this.seedSentLayout);
             // Send agent statuses AFTER layoutLoaded so characters exist when messages arrive
             sendCurrentAgentStatuses(this.store, this.webview);
             this.startLayoutWatcher();
@@ -1135,6 +1162,13 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider, Acti
       console.error('[Extension] Error reloading pet sprites:', err);
     }
   }
+
+  /** The webview saves back only the layout it is sent, so none of its
+   *  furniture is newly placed. No watcher runs before the first handshake, so
+   *  another window may have replaced the shared layout unseen until then. */
+  private readonly seedSentLayout = (layout: Record<string, unknown>): void => {
+    this.runtime.achievements?.seedLayout(layout);
+  };
 
   private startLayoutWatcher(): void {
     if (this.layoutWatcher) return;

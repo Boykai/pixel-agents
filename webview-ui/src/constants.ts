@@ -352,6 +352,18 @@ export const MOOD_STRESSED_RAPID_COUNT = 4;
 /** Cadence of the long-running-tool check. */
 export const MOOD_TICK_INTERVAL_MS = 1_000;
 
+// ── Achievements ────────────────────────────────────────────
+// Popup timing ported from hootbu/pixel-agents (d0843a9).
+/** How long an Achievement popup stays up before it fades. */
+export const ACHIEVEMENT_POPUP_DURATION_MS = 4_000;
+/** The popup's fade-and-slide out; the next queued popup shows after it. */
+export const ACHIEVEMENT_POPUP_FADE_MS = 300;
+/** Above the side panels (Usage z-20, Activity z-44), below the modal stack
+ *  (ui/Modal 50+), so a popup never covers a dialog the user is working in. */
+export const ACHIEVEMENT_POPUP_Z_INDEX = 45;
+/** The gallery opens from Settings (ui/Modal default 50), so it stacks above it. */
+export const ACHIEVEMENT_GALLERY_Z_INDEX = 52;
+
 // ── Greeter + Intro bubble ──────────────────────────────────
 /** Reserved character id for the Intro's greeter. Far outside both real agent
  *  ids (positive) and sub-agent ids (small negatives from -1 down). */

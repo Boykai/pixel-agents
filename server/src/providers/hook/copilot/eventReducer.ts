@@ -1,3 +1,4 @@
+import type { AgentActivity } from '../../../agentActivity.js';
 import type { AgentStateStore } from '../../../agentStateStore.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from '../../../timerManager.js';
 import type { AgentState } from '../../../types.js';
@@ -448,7 +449,24 @@ export function processCopilotRecord(
   const emit = (message: Record<string, unknown>): void => {
     if (!options.replay) agents.broadcast(message);
   };
-  const onObservation = options.replay ? undefined : options.onObservation;
+  // Agent activity is reported once, where the record is reduced; hydration
+  // (replay) reports nothing, like it broadcasts nothing.
+  const report = (activity: AgentActivity): void => {
+    if (options.replay) return;
+    if (options.source === 'hook' || options.source === 'bridge') {
+      agents.activity.live(agent, activity, record.timestamp);
+    } else {
+      agents.activity.transcript(agent, activity, record.timestamp);
+    }
+  };
+  const onObservation = options.replay
+    ? undefined
+    : (activity: CopilotActivity): void => {
+        options.onObservation?.(activity);
+        // Done is the settled end of the user's interaction, never the end of
+        // one model-loop step (assistant.turn_end publishes 'unknown').
+        if (activity === 'done') report({ kind: 'interactionEnd' });
+      };
   const publish = (activity: CopilotActivity): void =>
     publishActivity(state, agent, activity, emit, onObservation);
   const reconcile = (): void => reconcileActivity(state, agent, emit, onObservation);
@@ -474,6 +492,13 @@ export function processCopilotRecord(
     // Only an observed failed completion carries the tool-failure signal; clears
     // on child end, idle or generation change say nothing about the outcome.
     const failure = isError ? { isError: true } : {};
+    if (isError) {
+      report({
+        kind: 'toolFailure',
+        toolId,
+        subagent: tool.parentToolId !== undefined || undefined,
+      });
+    }
     if (tool.parentToolId) {
       agent.activeSubagentToolIds.get(tool.parentToolId)?.delete(toolId);
       agent.activeSubagentToolNames.get(tool.parentToolId)?.delete(toolId);
@@ -583,6 +608,7 @@ export function processCopilotRecord(
     case 'hook.start':
       if (childRecord) return;
       if (hookType === 'userPromptSubmitted') {
+        report({ kind: 'interactionStart' });
         state.mainIdle = false;
         state.mainStopped = false;
         for (const [key, request] of state.inputs) {
@@ -627,6 +653,13 @@ export function processCopilotRecord(
         // Enrich hook-first labels without replaying activity notifications or
         // resurrecting completed tools. A live independent child keeps metadata.
         if (state.tools.has(key) || state.children.has(toolId)) {
+          report({
+            kind: 'toolStart',
+            toolId,
+            toolName: name,
+            input: data.arguments,
+            subagent: parentToolId !== undefined || undefined,
+          });
           if (parentToolId) {
             agent.activeSubagentToolNames.get(parentToolId)?.set(toolId, name);
             emit({
@@ -668,6 +701,14 @@ export function processCopilotRecord(
         source,
       };
       state.tools.set(key, tool);
+      // The raw arguments: apply_patch may carry its patch as a bare string.
+      report({
+        kind: 'toolStart',
+        toolId,
+        toolName: name,
+        input: data.arguments,
+        subagent: parentToolId !== undefined || undefined,
+      });
       if (parentToolId) {
         let ids = agent.activeSubagentToolIds.get(parentToolId);
         if (!ids) agent.activeSubagentToolIds.set(parentToolId, (ids = new Set()));
@@ -745,6 +786,7 @@ export function processCopilotRecord(
       if (childRecord) return;
       const turnId = text(data.turnId);
       if (turnId && state.retiredTurns.has(turnId)) return;
+      report({ kind: 'interactionStart' });
       if (state.turnId && state.turnId !== turnId) remember(state.retiredTurns, state.turnId);
       state.turnId = turnId;
       state.mainIdle = false;
@@ -959,10 +1001,12 @@ export function processCopilotRecord(
         publish('unknown');
       }
       return;
+    case 'user.message':
+      if (!childRecord) report({ kind: 'interactionStart' });
+      return;
     case 'assistant.usage':
     case 'session.usage_checkpoint':
     case 'session.start':
-    case 'user.message':
     case 'assistant.message':
     case 'session.compaction_start':
     case 'session.compaction_complete':

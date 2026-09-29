@@ -22,6 +22,11 @@ interface SettingsModalProps {
   /** Whether characters show transient Mood bubbles (happy / error / stressed). */
   moodBubbles: boolean;
   onToggleMoodBubbles: () => void;
+  /** Whether an unlocked Achievement shows a popup (the gallery records it either way). */
+  achievementPopups: boolean;
+  onToggleAchievementPopups: () => void;
+  /** Opens the Achievement gallery over this modal. */
+  onOpenAchievements: () => void;
   externalAssetDirectories: string[];
   watchAllSessions: boolean;
   onToggleWatchAllSessions: () => void;
@@ -52,6 +57,9 @@ export function SettingsModal({
   onToggleGhostHeadlessAgents,
   moodBubbles,
   onToggleMoodBubbles,
+  achievementPopups,
+  onToggleAchievementPopups,
+  onOpenAchievements,
   externalAssetDirectories,
   watchAllSessions,
   onToggleWatchAllSessions,
@@ -77,6 +85,7 @@ export function SettingsModal({
       title="Settings"
       className="min-w-0! w-[min(480px,calc(100vw-32px))] max-h-[calc(100dvh-32px)] overflow-y-auto"
     >
+      <MenuItem onClick={onOpenAchievements}>Achievements</MenuItem>
       {/* Open Sessions Folder opens an OS file manager — impossible in the browser. */}
       {!isBrowserRuntime && (
         <MenuItem
@@ -287,6 +296,11 @@ export function SettingsModal({
         onChange={onToggleAlwaysShowOverlay}
       />
       <Checkbox label="Mood Bubbles" checked={moodBubbles} onChange={onToggleMoodBubbles} />
+      <Checkbox
+        label="Achievement Popups"
+        checked={achievementPopups}
+        onChange={onToggleAchievementPopups}
+      />
       {/* Headless agents are the office's only terminal-less citizens in VS Code.
           Standalone has no terminals at all, so nothing there would ever ghost. */}
       {!isBrowserRuntime && (

@@ -76,6 +76,7 @@ const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
 const KEY_ZOOM = 'pixel-agents.zoom';
 const KEY_MOOD_BUBBLES = 'pixel-agents.moodBubbles';
+const KEY_ACHIEVEMENT_POPUPS = 'pixel-agents.achievementPopups';
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -118,7 +119,11 @@ export function handleClientMessage(
 
     case 'saveLayout':
       if (msg.layout) {
-        writeLayoutToFile(msg.layout as Record<string, unknown>);
+        // An import replaces the office; only the user's own editing places furniture.
+        writeLayoutToFile(
+          msg.layout as Record<string, unknown>,
+          msg.imported === true ? 'replace' : 'edit',
+        );
       }
       break;
 
@@ -277,6 +282,15 @@ export function handleClientMessage(
     }
     case 'setMoodBubbles':
       adapter?.setSetting(KEY_MOOD_BUBBLES, msg.enabled);
+      break;
+
+    case 'setAchievementPopups':
+      adapter?.setSetting(KEY_ACHIEVEMENT_POPUPS, msg.enabled === true);
+      break;
+
+    case 'requestAchievements':
+      // Point-to-point: the gallery of the client that opened it.
+      send({ type: 'achievementsLoaded', achievements: runtime?.achievements?.snapshot() ?? [] });
       break;
 
     default:
@@ -460,7 +474,11 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     showAreas,
     ...(zoom !== undefined ? { zoom } : {}),
     moodBubbles: adapter?.getSetting(KEY_MOOD_BUBBLES, true) ?? true,
+    achievementPopups: adapter?.getSetting(KEY_ACHIEVEMENT_POPUPS, true) ?? true,
   });
+
+  // 4-bis. Achievement progress, so the gallery opens on current numbers.
+  send({ type: 'achievementsLoaded', achievements: runtime?.achievements?.snapshot() ?? [] });
 
   // 4a. Actual install state, distinct from the hooksEnabled preference —
   // hooksEnabled defaults true while first-run consent is still pending. The
@@ -573,10 +591,14 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
 
   // 7. Layout last (see step 3): flushes the webview's buffered existingAgents
   // into characters once seats are rebuilt.
-  const savedLayout = readLayoutFromFile();
+  const layout = readLayoutFromFile() ?? cache?.defaultLayout ?? null;
+  // The page saves back only what it is sent, so none of this furniture is
+  // newly placed. Another surface may have replaced the shared layout since
+  // this server last read it: standalone runs no layout watcher.
+  if (layout) runtime?.achievements?.seedLayout(layout);
   send({
     type: 'layoutLoaded',
-    layout: savedLayout ?? cache?.defaultLayout ?? null,
+    layout,
     defaultLayout: cache?.defaultLayout ?? null,
   });
 

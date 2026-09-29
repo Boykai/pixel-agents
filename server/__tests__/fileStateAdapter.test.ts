@@ -37,6 +37,7 @@ describe('FileStateAdapter', () => {
     expect(adapter.getSetting('pixel-agents.watchAllSessions', true)).toBe(false);
     expect(adapter.getSetting('pixel-agents.lastSeenVersion', 'x')).toBe('');
     expect(adapter.getSetting('pixel-agents.moodBubbles', false)).toBe(true);
+    expect(adapter.getSetting('pixel-agents.achievementPopups', false)).toBe(true);
   });
 
   it('round-trips each namespaced setting key (hooksEnabled moved to the per-provider map)', () => {
@@ -48,6 +49,7 @@ describe('FileStateAdapter', () => {
     adapter.setSetting('pixel-agents.watchAllSessions', true);
     adapter.setSetting('pixel-agents.hooksInfoShown', true);
     adapter.setSetting('pixel-agents.moodBubbles', false);
+    adapter.setSetting('pixel-agents.achievementPopups', false);
 
     expect(adapter.getSetting('pixel-agents.soundEnabled', true)).toBe(false);
     expect(adapter.getSetting('pixel-agents.lastSeenVersion', '')).toBe('1.3');
@@ -55,6 +57,7 @@ describe('FileStateAdapter', () => {
     expect(adapter.getSetting('pixel-agents.watchAllSessions', false)).toBe(true);
     expect(adapter.getSetting('pixel-agents.hooksInfoShown', false)).toBe(true);
     expect(adapter.getSetting('pixel-agents.moodBubbles', true)).toBe(false);
+    expect(adapter.getSetting('pixel-agents.achievementPopups', true)).toBe(false);
 
     // hooksEnabled is deliberately NOT an adapter key any more: it is
     // per-provider and machine-global, so the adapter ignores it and the

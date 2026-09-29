@@ -24,6 +24,7 @@ export const GLOBAL_KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 export const GLOBAL_KEY_SHOW_AREAS = 'pixel-agents.showAreas';
 export const GLOBAL_KEY_ZOOM = 'pixel-agents.zoom';
 export const GLOBAL_KEY_MOOD_BUBBLES = 'pixel-agents.moodBubbles';
+export const GLOBAL_KEY_ACHIEVEMENT_POPUPS = 'pixel-agents.achievementPopups';
 
 /**
  * Folder→Area mappings live inside the shared ~/.pixel-agents/config.json

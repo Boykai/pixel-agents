@@ -541,9 +541,12 @@ export function sendCurrentAgentStatuses(
 export function sendLayout(
   webview: vscode.Webview | undefined,
   defaultLayout?: Record<string, unknown> | null,
+  /** Sees the layout just before the webview is sent it. */
+  beforeSend?: (layout: Record<string, unknown>) => void,
 ): void {
   if (!webview) return;
   const result = loadLayout(defaultLayout);
+  if (result) beforeSend?.(result.layout);
   webview.postMessage({
     type: 'layoutLoaded',
     layout: result?.layout ?? null,
