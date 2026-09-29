@@ -28,6 +28,7 @@ export type ServerMessage =
   | SubagentToolPermission
   | AgentTeamInfo
   | AgentContextUsage
+  | AgentUsage
   | LayoutLoaded
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
@@ -236,6 +237,19 @@ export interface AgentContextUsage {
   id: number;
   contextTokens: number;
   maxContextTokens: number;
+}
+
+export interface AgentUsage {
+  type: 'agentUsage';
+  id: number;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  premiumRequests?: number;
+  nanoAiu?: number;
+  sinceTracked?: boolean;
 }
 
 export interface LayoutLoaded {

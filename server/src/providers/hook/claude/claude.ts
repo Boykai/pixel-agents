@@ -21,6 +21,7 @@ import {
   CLAUDE_SMALL_CONTEXT_WINDOW,
   CLAUDE_TERMINAL_NAME_PREFIX,
 } from './constants.js';
+import { extractClaudeTokenUsage } from './tokenUsage.js';
 
 // ── formatToolStatus: moved from src/transcriptParser.ts ──
 
@@ -309,6 +310,7 @@ export const claudeProvider: HookProvider = {
   readingTools: new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch']),
   terminalNamePrefix: CLAUDE_TERMINAL_NAME_PREFIX,
   contextWindowForModel,
+  extractTokenUsage: extractClaudeTokenUsage,
 
   getSessionDirs,
   getAllSessionRoots,

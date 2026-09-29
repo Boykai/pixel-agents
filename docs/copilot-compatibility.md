@@ -36,6 +36,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | Labels                             | CLI-provided repository/workspace and session titles are used, including observed title changes. No guessed App IDs or metadata mapping files are used.   |
 | VS Code launch                     | The selected provider owns the command and expected transcript path. Copilot uses a fresh UUID with `--session-id` and requires its executable on PATH.   |
 | Context                            | An explicit occupancy/limit snapshot is supported when emitted. The observed App did not supply it; billing totals are not a substitute.                  |
+| Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated. |
 | App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                      |
 
 This is source-based capability coverage, not a claim that every installed App
@@ -103,6 +104,18 @@ These distinctions are essential to avoid false status and missing characters:
   child identity. Display names and agent types are not unique identities.
 - `session.usage_checkpoint` contains spend/checkpoint information, not a current
   context-window percentage. Do not sum it into a context gauge.
+- `session.usage_checkpoint` and `session.shutdown` carry whole-session totals
+  (`totalPremiumRequests`, `totalNanoAiu`) that survive resume, so Token usage
+  takes the newest one as the total instead of adding them up. Token counts
+  appear only in `session.shutdown` `tokenDetails`; per-call `assistant.usage`
+  and `session.usage_info` were not written to the observed transcripts. A
+  running session therefore shows premium requests, and its tokens arrive when
+  it shuts down (a later checkpoint hides them again until the next shutdown).
+  Seeding takes the newest total from a bounded tail read; a transcript too
+  large to scan without one shows "since tracked" until the next checkpoint.
+  The model shown is the one the newest main-agent `assistant.message`
+  (`data.model`), `session.start`/`resume`, `session.model_change` or
+  `session.shutdown` states.
 - Context gauges require an explicit current occupancy and a valid token limit.
   Missing telemetry is unavailable, not zero and not a guessed model limit.
 

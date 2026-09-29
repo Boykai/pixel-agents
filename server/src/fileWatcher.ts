@@ -55,6 +55,7 @@ import { pathsMatch, toPathKey } from './pathKey.js';
 import { applyCopilotRecovery, readCopilotRecovery } from './providers/hook/copilot/recovery.js';
 import type { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
+import { readTokenUsageHistory } from './tokenUsage.js';
 import type { TranscriptParserContext } from './transcriptParser.js';
 import * as legacyParser from './transcriptParser.js';
 import type { AgentState } from './types.js';
@@ -192,6 +193,19 @@ export function createFileWatcherContext(
       agent.lineBuffer = recovery.lineBuffer;
     }
   }
+
+  /** Restart the agent's Token usage totals from what its transcript already
+   *  holds before `agent.fileOffset`, where live reading resumes. Records the
+   *  live reader later takes from before `liveFrom` count toward the totals
+   *  but are not reported as new usage. */
+  function seedTokenUsage(agent: AgentState, agents: AgentStateStore, liveFrom = 0): void {
+    const provider = getHookProvider();
+    if (!provider?.extractTokenUsage || !agent.jsonlFile) return;
+    const history = readTokenUsageHistory(agent.jsonlFile, agent.fileOffset, (record) =>
+      provider.extractTokenUsage?.(record),
+    );
+    agents.tokenUsage.seed(agent.id, agent.jsonlFile, history, liveFrom);
+  }
   /** Dismissal tracker instance. Set once at startup via setDismissalTracker().
    *  Replaces the former module-global dismissedJsonlFiles, clearDismissedFiles,
    *  seededMtimes, and pendingClearFiles Maps/Sets. */
@@ -250,14 +264,15 @@ export function createFileWatcherContext(
     permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
   ): void {
     // Every watched agent passes through here, so this is the one place that can
-    // give an agent adopted or restored mid-session a context gauge without
-    // replaying its whole transcript.
+    // give an agent adopted or restored mid-session a context gauge and its
+    // Token usage so far without replaying its whole transcript live.
     const watched = agents.get(agentId);
     if (!watched || !owns(watched)) return;
     if (watched.fileOffset > 0 && watched.observation === undefined) {
       recoverAgent(watched, agents, waitingTimers, permissionTimers);
     }
     if (hookProvider?.id !== 'copilot') seedContextUsage(agentId, agents, getHookProvider());
+    if (!agents.tokenUsage.isTracking(agentId, watched.jsonlFile)) seedTokenUsage(watched, agents);
     const previousTimer = pollingTimers.get(agentId);
     if (previousTimer) clearInterval(previousTimer);
     try {
@@ -394,6 +409,7 @@ export function createFileWatcherContext(
         agent.lineBuffer = '';
         decoders.delete(agent);
         recoverAgent(agent, agents, waitingTimers, permissionTimers);
+        seedTokenUsage(agent, agents);
         agents.broadcast({ type: 'agentToolsClear', id: agentId });
         resendAgentActivity((message) => agents.broadcast(message), agents, agentId);
       }
@@ -411,6 +427,7 @@ export function createFileWatcherContext(
         fs.closeSync(fd);
       }
       agent.fileOffset += bytesRead;
+      agents.tokenUsage.readingFrom(agentId, agent.fileOffset - bytesRead);
 
       let decoder = decoders.get(agent);
       if (!decoder) {
@@ -1916,6 +1933,16 @@ export function createFileWatcherContext(
     agent.fileOffset = 0;
     agent.lineBuffer = '';
     decoders.delete(agent);
+    // A new session: Token usage restarts at zero. The transcript is read from
+    // the start below; whatever it already holds (a resumed session's history)
+    // counts toward the totals but is not new usage.
+    let existingBytes = 0;
+    try {
+      existingBytes = fs.statSync(newFilePath).size;
+    } catch {
+      /* not written yet */
+    }
+    seedTokenUsage(agent, agents, existingBytes);
     persistAgents();
 
     // Start watching new file

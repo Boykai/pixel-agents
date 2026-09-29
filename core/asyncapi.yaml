@@ -103,6 +103,8 @@ components:
         - $ref: '#/components/schemas/AgentTeamInfo'
         # Context window
         - $ref: '#/components/schemas/AgentContextUsage'
+        # Token usage
+        - $ref: '#/components/schemas/AgentUsage'
         # Layout
         - $ref: '#/components/schemas/LayoutLoaded'
         # Assets
@@ -573,6 +575,46 @@ components:
           type: integer
         maxContextTokens:
           type: integer
+
+    AgentUsage:
+      description: |
+        The agent's Token usage: what its CLI reported using, accumulated over
+        the session. A running total, NOT the context window (see
+        agentContextUsage, which is a per-turn snapshot). Each message carries
+        the agent's complete current usage and replaces the previous one.
+        Every numeric field is optional and absent means "not reported", never
+        zero: Claude Code reports tokens; GitHub Copilot reports premium
+        requests and nano AIU, plus tokens only while its newest cumulative
+        total states them (a checkpoint after a shutdown drops them again).
+        Only a message carrying nothing but `type` and `id` clears the agent's
+        usage (e.g. after /clear); one with just `model` and/or `sinceTracked`
+        is kept. `sinceTracked` is true when the totals could not be seeded
+        from the whole session and cover only what was observed since
+        tracking began. Throttled; replayed in the webviewReady handshake.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: agentUsage
+        id:
+          type: integer
+        model:
+          type: string
+        inputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        cacheCreationInputTokens:
+          type: integer
+        cacheReadInputTokens:
+          type: integer
+        premiumRequests:
+          type: number
+        nanoAiu:
+          type: number
+        sinceTracked:
+          type: boolean
 
     LayoutLoaded:
       description: |
