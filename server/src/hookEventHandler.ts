@@ -388,6 +388,7 @@ export class HookEventHandler {
         agent.isWaiting = false;
         agent.awaitingInput = false;
         agent.observation = 'known';
+        this.agents.activity.live(agent, { kind: 'interactionStart' });
         this.agents.broadcast({ type: 'agentObservation', id: agentId, observation: 'known' });
         this.agents.broadcast({ type: 'agentStatus', id: agentId, status: 'active' });
         return;
@@ -501,6 +502,15 @@ export class HookEventHandler {
     // tool display on the lead. Both lead and teammate tools display via JSONL polling.
     if (hasInlineTeammates(agentId, this.agents)) return;
 
+    // Reported here, not by the transcript's copy of the same call: hooks are
+    // instant. Consumers tolerate the duplicate start the transcript reports.
+    this.agents.activity.live(agent, {
+      kind: 'toolStart',
+      toolId: hookToolId,
+      toolName,
+      input: toolInput,
+    });
+
     // Cancel waiting, mark active
     cancelWaitingTimer(agentId, this.waitingTimers);
     agent.isWaiting = false;
@@ -557,6 +567,9 @@ export class HookEventHandler {
           toolId: completedId,
           ...(failed ? { isError: true } : {}),
         });
+        if (failed) {
+          this.agents.activity.live(agent, { kind: 'toolFailure', toolId: completedId });
+        }
       }
       if (agent.currentHookToolId === completedId) {
         agent.currentHookToolId = undefined;
@@ -723,6 +736,8 @@ export class HookEventHandler {
   /** Handle Stop: Claude finished responding, mark agent as waiting. */
   private handleStop(agent: AgentState, agentId: number, awaitingInput = false): void {
     this.markAgentWaiting(agent, agentId, awaitingInput);
+    // Done completes the interaction; "Waiting for input" does not.
+    if (!awaitingInput) this.agents.activity.live(agent, { kind: 'interactionEnd' });
   }
 
   /**
@@ -738,6 +753,7 @@ export class HookEventHandler {
     if (inlineTeammates.length === 0) {
       // No inline teammates — treat as a completed turn for this agent.
       this.markAgentWaiting(agent, agentId);
+      this.agents.activity.live(agent, { kind: 'interactionEnd' });
       return;
     }
 
@@ -751,11 +767,13 @@ export class HookEventHandler {
             `[Pixel Agents] Hook: TeammateIdle "${teammateName}" -> teammate Agent ${id}`,
           );
         this.markAgentWaiting(a, id);
+        this.agents.activity.live(a, { kind: 'interactionEnd' });
         return;
       }
     }
 
-    // Fallback: mark all inline teammates as waiting
+    // Fallback: mark all inline teammates as waiting (not reported as completed
+    // interactions: which teammate finished is unknown)
     if (debug)
       console.log(
         `[Pixel Agents] Hook: TeammateIdle (no teammate_name match) -> marking ${inlineTeammates.length} teammate(s) done`,

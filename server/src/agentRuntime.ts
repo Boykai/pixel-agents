@@ -15,6 +15,8 @@ import * as path from 'path';
 import { normalizeNickname } from '../../core/src/normalizeNickname.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import type { ITerminalAdapter } from '../../core/src/terminalAdapter.js';
+import type { AchievementTrackerOptions } from './achievements.js';
+import { AchievementTracker } from './achievements.js';
 import { resendAgentActivity } from './agentActivityResend.js';
 import { migrateAgentIdentity } from './agentMigration.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -46,6 +48,11 @@ export interface RuntimeLifecycleCallbacks {
   onAgentRemoved?: (agentId: number, agent: AgentState) => void;
   /** Called when a teammate is removed. */
   onTeammateRemoved?: (teammateId: number, agent: AgentState, source: string) => void;
+}
+
+export interface AgentRuntimeOptions {
+  /** Count Achievements for this surface. Each server process asks once. */
+  achievements?: AchievementTrackerOptions;
 }
 
 interface ProviderContext {
@@ -109,9 +116,13 @@ export class AgentRuntime {
       this.reconcileCopilotChildren(message.id);
   };
 
+  /** Counts this process's Achievements, when its surface asked for it. */
+  readonly achievements: AchievementTracker | undefined;
+
   constructor(
     private readonly store: AgentStateStore,
     providers: HookProvider | readonly HookProvider[],
+    options: AgentRuntimeOptions = {},
   ) {
     for (const provider of Array.isArray(providers) ? providers : [providers as HookProvider]) {
       if (this.contexts.has(provider.id)) throw new Error(`Duplicate provider: ${provider.id}`);
@@ -120,6 +131,9 @@ export class AgentRuntime {
     if (!this.contexts.size) throw new Error('At least one provider is required');
     this.store.setActiveProviders([...this.contexts.keys()]);
     this.store.on('broadcast', this.reconcileRecoveredChildren);
+    this.achievements = options.achievements
+      ? new AchievementTracker(store, (id) => this.getProvider(id), options.achievements)
+      : undefined;
   }
 
   private initializeProvider(provider: HookProvider): void {
@@ -968,6 +982,9 @@ export class AgentRuntime {
 
   /** Clean up all scanners, timers, and agents. Called on shutdown. */
   dispose(): void {
+    // First: its final save may announce an unlock, and removing the agents
+    // below is shutdown, not activity.
+    this.achievements?.dispose();
     this.store.off('broadcast', this.reconcileRecoveredChildren);
     this.resetChildren.clear();
     if (this.discoveryTimer) clearInterval(this.discoveryTimer);

@@ -388,4 +388,34 @@ describe('configPersistence: areas', () => {
       expect(readConfig().standalone.moodBubbles).toBe(false);
     });
   });
+
+  describe('achievementPopups', () => {
+    it('defaults to on in both namespaces', () => {
+      const cfg = readConfig();
+      expect(cfg.vscode.achievementPopups).toBe(true);
+      expect(cfg.standalone.achievementPopups).toBe(true);
+    });
+
+    it('round-trips per namespace and falls back to on for a non-boolean', () => {
+      const configDir = path.join(tempHome, '.pixel-agents');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(configDir, 'config.json'),
+        JSON.stringify({
+          vscode: { achievementPopups: 0 },
+          standalone: { achievementPopups: false },
+        }),
+        'utf-8',
+      );
+
+      const cfg = readConfig();
+      expect(cfg.vscode.achievementPopups).toBe(true);
+      expect(cfg.standalone.achievementPopups).toBe(false);
+
+      cfg.vscode.achievementPopups = false;
+      writeConfig(cfg);
+      expect(readConfig().vscode.achievementPopups).toBe(false);
+      expect(readConfig().standalone.achievementPopups).toBe(false);
+    });
+  });
 });

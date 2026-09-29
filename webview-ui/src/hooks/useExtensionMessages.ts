@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { getAchievement } from '../../../core/src/achievements.js';
 import { subtaskLabel } from '../../../core/src/activityLabel.js';
-import type { AgentUsage, HooksConsentRequest } from '../../../core/src/messages.js';
+import type {
+  AchievementProgress,
+  AgentUsage,
+  HooksConsentRequest,
+} from '../../../core/src/messages.js';
 import { parseZoom } from '../../../core/src/zoom.js';
-import { MOOD_TICK_INTERVAL_MS } from '../constants.js';
+import type { AchievementPopupView } from '../achievements.js';
+import { AchievementPopupGate, AchievementPopupQueue, applyUnlock } from '../achievements.js';
+import {
+  ACHIEVEMENT_POPUP_DURATION_MS,
+  ACHIEVEMENT_POPUP_FADE_MS,
+  MOOD_TICK_INTERVAL_MS,
+} from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import { followCharacter } from '../office/activityRows.js';
 import { applyAgentStatus, clearPermissionBubbles } from '../office/engine/agentStatus.js';
@@ -109,6 +120,13 @@ interface ExtensionMessageState {
   /** The "Mood bubbles" setting: transient happy / error / stressed reactions. */
   moodBubbles: boolean;
   setMoodBubbles: (v: boolean) => void;
+  /** Achievement progress: the latest achievementsLoaded snapshot plus unlocks since. */
+  achievements: AchievementProgress[];
+  /** The "Achievement popups" setting. Off still records unlocks in the gallery. */
+  achievementPopups: boolean;
+  setAchievementPopups: (v: boolean) => void;
+  /** The Achievement popup on screen, or null. */
+  achievementPopup: AchievementPopupView | null;
   hooksEnabled: boolean;
   setHooksEnabled: (v: boolean) => void;
   /** Actual install state per provider (hooksStatus messages) — absent/false
@@ -169,6 +187,9 @@ export function useExtensionMessages(
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
   const [ghostHeadlessAgents, setGhostHeadlessAgentsState] = useState(false);
   const [moodBubbles, setMoodBubblesState] = useState(true);
+  const [achievements, setAchievements] = useState<AchievementProgress[]>([]);
+  const [achievementPopups, setAchievementPopupsState] = useState(true);
+  const [achievementPopup, setAchievementPopup] = useState<AchievementPopupView | null>(null);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInstalled, setHooksInstalled] = useState<Record<string, boolean>>({});
   const [hooksFeedback, setHooksFeedback] = useState<Record<string, HooksFeedback>>({});
@@ -201,6 +222,14 @@ export function useExtensionMessages(
     [getOfficeState],
   );
 
+  // Popups are decided by the gate the message handler owns (it is registered
+  // once); turning popups off also drops the one showing and any waiting.
+  const achievementGateRef = useRef<AchievementPopupGate | null>(null);
+  const applyAchievementPopups = useCallback((enabled: boolean) => {
+    setAchievementPopupsState(enabled);
+    achievementGateRef.current?.setEnabled(enabled);
+  }, []);
+
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
 
@@ -221,6 +250,25 @@ export function useExtensionMessages(
       if (!name) return;
       setAgentFolderNames((prev) => (prev.includes(name) ? prev : [...prev, name]));
     };
+
+    // Achievement popups show one at a time, in unlock order.
+    const achievementQueue = new AchievementPopupQueue({
+      durationMs: ACHIEVEMENT_POPUP_DURATION_MS,
+      fadeMs: ACHIEVEMENT_POPUP_FADE_MS,
+      onChange: (popup) => {
+        if (isE2E && popup && !popup.leaving && typeof window !== 'undefined') {
+          if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
+          if (!window.__pixelAgentsTestHooks.achievementPopupLog) {
+            window.__pixelAgentsTestHooks.achievementPopupLog = [];
+          }
+          window.__pixelAgentsTestHooks.achievementPopupLog.push({ id: popup.id, at: Date.now() });
+        }
+        setAchievementPopup(popup);
+      },
+    });
+    // Unlocks announced before the first settingsLoaded wait to learn whether popups are on.
+    const achievementGate = new AchievementPopupGate(achievementQueue);
+    achievementGateRef.current = achievementGate;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
@@ -790,6 +838,14 @@ export function useExtensionMessages(
         if (typeof msg.moodBubbles === 'boolean') {
           applyMoodBubbles(msg.moodBubbles as boolean);
         }
+        const achievementPopupsSetting =
+          typeof msg.achievementPopups === 'boolean'
+            ? (msg.achievementPopups as boolean)
+            : undefined;
+        if (achievementPopupsSetting !== undefined) {
+          setAchievementPopupsState(achievementPopupsSetting);
+        }
+        achievementGate.settingsLoaded(achievementPopupsSetting);
         if (typeof msg.hooksEnabled === 'boolean') {
           setHooksEnabled(msg.hooksEnabled as boolean);
         }
@@ -892,6 +948,18 @@ export function useExtensionMessages(
           else delete next[usage.id];
           return next;
         });
+      } else if (msg.type === 'achievementsLoaded') {
+        if (Array.isArray(msg.achievements)) {
+          setAchievements(msg.achievements as AchievementProgress[]);
+        }
+      } else if (msg.type === 'achievementUnlocked') {
+        // The server announces each unlock once, so a reconnect never re-pops it.
+        if (typeof msg.id === 'string' && typeof msg.unlockedAt === 'number') {
+          const id = msg.id as string;
+          const unlockedAt = msg.unlockedAt as number;
+          setAchievements((prev) => applyUnlock(prev, id, unlockedAt));
+          if (getAchievement(id)) achievementGate.unlocked(id);
+        }
       }
     };
     // Mood reactions read the same stream: the tracker sees each message, the
@@ -935,6 +1003,8 @@ export function useExtensionMessages(
     return () => {
       unsubscribe();
       clearInterval(moodTick);
+      achievementQueue.dispose();
+      if (achievementGateRef.current === achievementGate) achievementGateRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getOfficeState]);
@@ -978,6 +1048,10 @@ export function useExtensionMessages(
     setGhostHeadlessAgents: applyGhostHeadlessAgents,
     moodBubbles,
     setMoodBubbles: applyMoodBubbles,
+    achievements,
+    achievementPopups,
+    setAchievementPopups: applyAchievementPopups,
+    achievementPopup,
     hooksEnabled,
     hooksInstalled,
     hooksFeedback,

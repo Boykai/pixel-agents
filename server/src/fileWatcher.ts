@@ -62,6 +62,15 @@ import type { AgentState } from './types.js';
 
 export type FolderNameResolver = (ctx: { cwd?: string; projectDir?: string }) => string | undefined;
 
+/** A transcript's current size; 0 when it has not been written yet. */
+function transcriptSize(file: string): number {
+  try {
+    return fs.statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
 /** All scanner state and callbacks are owned by one provider context. */
 export function createFileWatcherContext(
   parser: Omit<TranscriptParserContext, 'dispose'> = legacyParser,
@@ -197,8 +206,9 @@ export function createFileWatcherContext(
   /** Restart the agent's Token usage totals from what its transcript already
    *  holds before `agent.fileOffset`, where live reading resumes. Records the
    *  live reader later takes from before `liveFrom` count toward the totals
-   *  but are not reported as new usage. */
+   *  but are not reported as new usage, nor as Agent activity. */
   function seedTokenUsage(agent: AgentState, agents: AgentStateStore, liveFrom = 0): void {
+    agents.activity.markLiveFrom(agent.id, liveFrom, agent.jsonlFile);
     const provider = getHookProvider();
     if (!provider?.extractTokenUsage || !agent.jsonlFile) return;
     const history = readTokenUsageHistory(agent.jsonlFile, agent.fileOffset, (record) =>
@@ -254,6 +264,12 @@ export function createFileWatcherContext(
     persistAgents: () => void;
   } | null = null;
 
+  /**
+   * @param existingIsHistory The transcript is read from its start although what
+   *   it already holds was written before tracking began (a teammate discovered
+   *   late, a fresh external file that may be a resumed session). Those records
+   *   still drive the UI but are not new Token usage or Agent activity.
+   */
   function startFileWatching(
     agentId: number,
     _filePath: string,
@@ -262,6 +278,7 @@ export function createFileWatcherContext(
     pollingTimers: Map<number, ReturnType<typeof setInterval>>,
     waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
     permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+    existingIsHistory = false,
   ): void {
     // Every watched agent passes through here, so this is the one place that can
     // give an agent adopted or restored mid-session a context gauge and its
@@ -272,7 +289,14 @@ export function createFileWatcherContext(
       recoverAgent(watched, agents, waitingTimers, permissionTimers);
     }
     if (hookProvider?.id !== 'copilot') seedContextUsage(agentId, agents, getHookProvider());
-    if (!agents.tokenUsage.isTracking(agentId, watched.jsonlFile)) seedTokenUsage(watched, agents);
+    if (!agents.tokenUsage.isTracking(agentId, watched.jsonlFile)) {
+      // A watermark already set for this file (reassignAgentToFile) stands, also
+      // for a provider that reports no Token usage and so is never tracked here.
+      const liveFrom =
+        agents.activity.liveFromIn(agentId, watched.jsonlFile) ??
+        (existingIsHistory ? transcriptSize(watched.jsonlFile) : 0);
+      seedTokenUsage(watched, agents, liveFrom);
+    }
     const previousTimer = pollingTimers.get(agentId);
     if (previousTimer) clearInterval(previousTimer);
     try {
@@ -437,10 +461,17 @@ export function createFileWatcherContext(
       const text = agent.lineBuffer + decoder.write(buf.subarray(0, bytesRead));
       const lines = text.split('\n');
       agent.lineBuffer = lines.pop() || '';
+      // Where each complete line ends in the file, for Agent activity liveness:
+      // '\n' is one byte and never part of a multi-byte character, so the raw
+      // chunk locates it exactly. A dropped oversized tail consumes the first.
+      const chunk = buf.subarray(0, bytesRead);
+      const chunkStart = agent.fileOffset - bytesRead;
+      let newlineAt = -1;
       if (oversizedLines.has(agent)) {
         if (lines.length) {
           lines.shift();
           oversizedLines.delete(agent);
+          newlineAt = chunk.indexOf(0x0a);
         } else agent.lineBuffer = '';
       }
       if (agent.lineBuffer.length > TRANSCRIPT_MAX_LINE_CHARS) {
@@ -470,7 +501,9 @@ export function createFileWatcherContext(
       }
 
       for (const line of lines) {
+        newlineAt = chunk.indexOf(0x0a, newlineAt + 1);
         if (!line.trim() || line.length > TRANSCRIPT_MAX_LINE_CHARS) continue;
+        agents.activity.reading(agentId, chunkStart + newlineAt + 1);
         processTranscriptLine(agentId, line, agents, waitingTimers, permissionTimers);
       }
     } catch (e) {
@@ -961,6 +994,7 @@ export function createFileWatcherContext(
           pollingTimers,
           waitingTimers,
           permissionTimers,
+          true,
         );
         readNewLines(existingTeammate.id, agents, waitingTimers, permissionTimers);
         continue;
@@ -1030,6 +1064,7 @@ export function createFileWatcherContext(
         pollingTimers,
         waitingTimers,
         permissionTimers,
+        true,
       );
       readNewLines(id, agents, waitingTimers, permissionTimers);
     }
@@ -1194,6 +1229,7 @@ export function createFileWatcherContext(
         pollingTimers,
         waitingTimers,
         permissionTimers,
+        true,
       );
       readNewLines(id, agents, waitingTimers, permissionTimers);
     }
@@ -1497,6 +1533,8 @@ export function createFileWatcherContext(
     // Log is emitted by the caller (adoptExternalSessionFromHook or scanExternalDir)
     // to use the correct prefix (Hook: vs Watcher:).
 
+    // A fresh file is replayed from its start for the UI, but what it already
+    // holds may be a resumed session's history: not new activity.
     startFileWatching(
       id,
       jsonlFile,
@@ -1505,6 +1543,7 @@ export function createFileWatcherContext(
       pollingTimers,
       waitingTimers,
       permissionTimers,
+      !recovered,
     );
     readNewLines(id, agents, waitingTimers, permissionTimers);
     if (recovered) {

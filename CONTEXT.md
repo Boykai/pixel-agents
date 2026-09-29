@@ -155,6 +155,20 @@ _Avoid_: context usage (that is the context gauge), cost, spend, billing
 The panel opened from the toolbar's "Usage" button, listing every agent's token usage and the office-wide totals.
 _Avoid_: dashboard, stats panel
 
+## Achievements
+
+**Achievement**:
+A milestone the office records for the user, not for any one agent: the first agent, five agents at once, a million tokens, a tool at 3 AM, ten tool failures, fifty distinct files edited, a hundred turns ended done, twenty pieces of furniture placed. Only live activity advances one — a transcript's history, a reconnect or a re-read never does. The record is machine-global: every project, window and adapter adds to the same one. Once unlocked, always unlocked.
+_Avoid_: badge, trophy, stat
+
+**Achievement popup**:
+The toast in the office's top-right corner announcing a newly unlocked achievement, once, in the office whose runtime saw it happen. The "Achievement Popups" setting turns them off per adapter; the unlock is recorded either way.
+_Avoid_: notification, toast (alone)
+
+**Achievement gallery**:
+The dialog opened from Settings → "Achievements", listing every achievement with its progress toward its target, unlocked or not.
+_Avoid_: trophy room, achievements page
+
 ## Office & Layout
 
 **Office**:

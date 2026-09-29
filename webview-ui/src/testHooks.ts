@@ -28,6 +28,9 @@ declare global {
       /** Append-only history of every Mood a character was asked to show;
        *  `shown` is false when OfficeState suppressed it (setting off, hidden). */
       moodLog?: Array<{ id: number; mood: Mood; at: number; shown: boolean; isSubagent: boolean }>;
+      /** Append-only history of every Achievement popup put on screen (each
+       *  lives a few seconds). Written by useExtensionMessages's popup queue. */
+      achievementPopupLog?: Array<{ id: string; at: number }>;
       // ── Carpet + Areas observability (added for carpet/areas e2e) ──
       /** Sparse list of painted carpet tiles with their grid coords. */
       getCarpetTiles?: () => Array<{
@@ -101,7 +104,8 @@ declare global {
       messageLog?: Array<{
         at: number;
         type: string;
-        id?: number;
+        /** An agent id, or an Achievement id on achievementUnlocked. */
+        id?: number | string;
         toolName?: string;
         status?: string;
         toolId?: string;

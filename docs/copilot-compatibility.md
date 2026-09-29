@@ -39,6 +39,7 @@ authenticated and enabled before those sessions can be claimed as tracked.
 | Context                            | An explicit occupancy/limit snapshot is supported when emitted. The observed App did not supply it; billing totals are not a substitute.                  |
 | Token usage                        | Premium requests and nano AIU from `session.usage_checkpoint`/`session.shutdown`; tokens only when `session.shutdown` records them. Nothing is estimated. |
 | Activity panel and Quick Pick      | Leads, Sub-agents and Teammates are listed as for Claude. Picking an App session (no terminal) reveals the office with its Character selected.            |
+| Achievements                       | Adopted sessions count. Token credit lands when `session.shutdown` records tokens; failures are transcript-only; a turn counts when it settles Done.      |
 | App navigation and remote sessions | Unavailable without an authoritative supported identity/observation interface. No SDK resume or private database workaround is used.                      |
 
 This is source-based capability coverage, not a claim that every installed App
@@ -53,6 +54,14 @@ Any Copilot agent, including an observed App session, can be given a Nickname.
 It becomes the primary label, and the session title stays visible as secondary
 text. The nickname is remembered by provider and session UUID, so the agent gets
 it back when the same session is observed again.
+
+Achievements count Copilot activity as they count Claude's, with three
+differences that follow from the transcript. Token Millionaire credit lands only
+when `session.shutdown` records tokens, and only for tokens known to be new: a
+session adopted with earlier usage credits none until its next shutdown. Bug
+Squasher counts transcript failures only, since tool hooks are not installed.
+Marathon Runner counts an interaction when it settles Done (`session.idle` or the
+`agentStop` hook), not at each `assistant.turn_end`.
 
 ### Tool hooks are deliberately not installed
 
