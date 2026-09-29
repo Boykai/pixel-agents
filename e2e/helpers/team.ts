@@ -92,6 +92,19 @@ export function buildUserToolResultRecord(
   return buildUserToolResultBatchRecord([{ toolUseId, content }]);
 }
 
+/** A tool_result for a tool that failed: Claude marks it `is_error: true`. */
+export function buildUserToolErrorRecord(
+  toolUseId: string,
+  content = 'Exit code 1',
+): Record<string, unknown> {
+  return {
+    type: 'user',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: true }],
+    },
+  };
+}
+
 export function buildUserToolResultBatchRecord(
   results: Array<{
     toolUseId: string;
