@@ -16,9 +16,14 @@ import { AchievementTracker } from '../src/achievements.js';
 import type { AgentActivity } from '../src/agentActivity.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
-import { ACHIEVEMENTS_SAVE_DEBOUNCE_MS, LAYOUT_FILE_POLL_INTERVAL_MS } from '../src/constants.js';
+import {
+  ACHIEVEMENTS_SAVE_DEBOUNCE_MS,
+  LAYOUT_FILE_POLL_INTERVAL_MS,
+  TEXT_IDLE_DELAY_MS,
+} from '../src/constants.js';
 import { watchLayoutFile, writeLayoutToFile } from '../src/layoutPersistence.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
+import { claudeTeamProvider } from '../src/providers/hook/claude/claudeTeamProvider.js';
 import { copilotProvider } from '../src/providers/hook/copilot/copilot.js';
 import { SubagentWatch } from '../src/subagentWatch.js';
 import type { AgentState } from '../src/types.js';
@@ -972,6 +977,12 @@ describe('Achievements through the runtime', () => {
       },
       timestamp: iso(ms),
     });
+  const toolOk = (id: string, ms: number) =>
+    line({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+      timestamp: iso(ms),
+    });
   const reply = (text: string, ms: number) =>
     line({
       type: 'assistant',
@@ -1092,6 +1103,144 @@ describe('Achievements through the runtime', () => {
 
     expect(o.store.get(1)!.hookDelivered).toBe(false);
     expect(counts(o.tracker)).toMatchObject({ architect: 1, bug_squasher: 1, marathon: 1 });
+  });
+
+  describe('a transcript read from its start counts only what is written after', () => {
+    const editOf = (name: string) => ({
+      file_path: path.join(dir, 'src', name),
+      old_string: 'a',
+      new_string: 'b',
+    });
+    const spawn = { description: 'probe', prompt: 'look around' };
+
+    function claudeLead(provider: HookProvider) {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const sessionId = randomUUID();
+      const jsonlFile = path.join(dir, `${sessionId}.jsonl`);
+      fs.writeFileSync(jsonlFile, prompt('before the restart', at(10)));
+      const session = restore(provider, {
+        id: 1,
+        providerId: 'claude',
+        sessionId,
+        terminalName: '',
+        isExternal: true,
+        projectDir: dir,
+        jsonlFile,
+      });
+      return { ...session, sessionId };
+    }
+
+    // A provider without Token usage is never tracked by the usage tracker, so
+    // only the watermark reassignAgentToFile set keeps the history out.
+    it.each<[string, HookProvider]>([
+      ['with Token usage', claudeProvider],
+      ['without Token usage', { ...claudeProvider, extractTokenUsage: undefined }],
+    ])('a session resumed into a new transcript (%s)', (_label, provider) => {
+      const o = claudeLead(provider);
+      const resumed = randomUUID();
+      const resumedFile = path.join(dir, `${resumed}.jsonl`);
+      // A spawn's done stays with the transcript with hooks on, so its failure
+      // is the transcript's to count.
+      fs.writeFileSync(
+        resumedFile,
+        prompt('earlier', at(11)) +
+          toolUse('toolu_old_edit', 'Edit', editOf('old.ts'), at(11, 0, 1)) +
+          toolOk('toolu_old_edit', at(11, 0, 2)) +
+          toolUse('toolu_old_spawn', 'Agent', spawn, at(11, 0, 3)) +
+          toolError('toolu_old_spawn', at(11, 0, 4)) +
+          turnDuration(at(11, 0, 5)),
+      );
+
+      o.runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionEnd',
+        session_id: o.sessionId,
+        reason: 'resume',
+      });
+      o.runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionStart',
+        session_id: resumed,
+        source: 'resume',
+        transcript_path: resumedFile,
+        cwd: dir,
+      });
+      vi.advanceTimersByTime(TEXT_IDLE_DELAY_MS);
+
+      expect(o.store.get(1)!.jsonlFile).toBe(resumedFile);
+      expect(counts(o.tracker)).toMatchObject({ architect: 0, bug_squasher: 0, marathon: 0 });
+
+      o.append(
+        prompt('next', at(12)) +
+          toolUse('toolu_edit', 'Edit', editOf('new.ts'), at(12, 0, 1)) +
+          toolOk('toolu_edit', at(12, 0, 2)) +
+          toolUse('toolu_spawn', 'Agent', spawn, at(12, 0, 3)) +
+          toolError('toolu_spawn', at(12, 0, 4)) +
+          turnDuration(at(12, 0, 5)),
+      );
+
+      expect(counts(o.tracker)).toMatchObject({ architect: 1, bug_squasher: 1, marathon: 1 });
+    });
+
+    it('a teammate discovered late', () => {
+      const teammateFile = path.join(dir, 'teammate.jsonl');
+      const o = claudeLead({
+        ...claudeProvider,
+        team: {
+          ...claudeTeamProvider,
+          discoverTeammates: () =>
+            fs.existsSync(teammateFile)
+              ? [{ jsonlPath: teammateFile, teammateName: 'researcher' }]
+              : [],
+        },
+      });
+      fs.writeFileSync(
+        teammateFile,
+        prompt('research', at(11)) +
+          toolUse('toolu_old', 'Edit', editOf('old.ts'), at(11, 0, 1)) +
+          toolError('toolu_old', at(11, 0, 2)) +
+          turnDuration(at(11, 0, 5)),
+      );
+
+      const watcher = o.runtime.getFileWatcher('claude');
+      watcher.scanForTeammateFiles(
+        dir,
+        o.sessionId,
+        1,
+        o.store.nextAgentId,
+        o.store,
+        o.runtime.fileWatchers,
+        o.runtime.pollingTimers,
+        o.runtime.waitingTimers,
+        o.runtime.permissionTimers,
+        () => o.store.persist(),
+      );
+      vi.advanceTimersByTime(TEXT_IDLE_DELAY_MS);
+
+      const teammate = [...o.store.values()].find((agent) => agent.agentName === 'researcher');
+      expect(teammate).toMatchObject({ leadAgentId: 1, jsonlFile: teammateFile });
+      // The teammate itself is live: only its transcript's past is not.
+      expect(counts(o.tracker)).toMatchObject({
+        team_player: 2,
+        architect: 0,
+        bug_squasher: 0,
+        marathon: 0,
+      });
+
+      fs.appendFileSync(
+        teammateFile,
+        prompt('more', at(12)) +
+          toolUse('toolu_new', 'Edit', editOf('new.ts'), at(12, 0, 1)) +
+          toolError('toolu_new', at(12, 0, 2)) +
+          turnDuration(at(12, 0, 5)),
+      );
+      watcher.readNewLines(
+        teammate!.id,
+        o.store,
+        o.runtime.waitingTimers,
+        o.runtime.permissionTimers,
+      );
+
+      expect(counts(o.tracker)).toMatchObject({ architect: 1, bug_squasher: 1, marathon: 1 });
+    });
   });
 
   function copilotSession(history: string) {
